@@ -2236,7 +2236,7 @@ static inline int ping_time_diff(ping_time_t *time1, ping_time_t *time2, ping_ti
 
 static inline uint64_t ping_time_in_msecs(ping_time_t *time)
 {
-    return time->secs * 1000 + time->usecs / 1000;
+    return (uint64_t)time->secs * 1000 + (uint64_t)time->usecs / 1000;
 }
 
 #pragma pack()

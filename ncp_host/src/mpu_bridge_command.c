@@ -96,6 +96,7 @@ void dump_hex(const void *data, unsigned len)
  */
 int IP_to_hex(char *IPstr, uint8_t *hex)
 {
+    int ret = 0;
     int len          = strlen(IPstr);
     int ip_number[3] = {0};
     int j = 0, k = 0, dot_number = 0, hex_numer = 0;
@@ -105,12 +106,13 @@ int IP_to_hex(char *IPstr, uint8_t *hex)
         {
             if (j > 0)
             {
-                hex[k] = strip_to_hex(ip_number, j);
-                if (hex[k] == FALSE)
+                ret = strip_to_hex(ip_number, j);
+                if (ret == FALSE)
                 {
                     printf("Please input the correct IP address!\r\n");
                     return FALSE;
                 }
+                hex[k] = (uint8_t)ret;
                 k++;
                 j = 0;
                 hex_numer++;
@@ -147,13 +149,13 @@ int IP_to_hex(char *IPstr, uint8_t *hex)
         return FALSE;
     }
 
-    hex[k] = strip_to_hex(ip_number, j);
-    if (hex[k] == FALSE)
+    ret = strip_to_hex(ip_number, j);
+    if (ret == FALSE)
     {
         printf("Please input the correct IP address!\r\n");
         return FALSE;
     }
-
+    hex[k] = (uint8_t)ret;
     return TRUE;
 }
 
@@ -615,8 +617,6 @@ static int get_security(int argc, char **argv, enum wlan_security_type type, Sec
     {
         case WLAN_SECURITY_WPA:
         case WLAN_SECURITY_WPA2:
-            if (argc < 1)
-                return 1;
             /* copy the PSK phrase */
             sec->password_len = strlen(argv[0]);
             if (sec->password_len < 65)
@@ -1861,6 +1861,8 @@ int wlan_ncp_iperf_command(int argc, char **argv)
         item = NCP_IPERF_UDP_TX;
     else if (type == 1 && direction == 1)
         item = NCP_IPERF_UDP_RX;
+    else
+        item = FALSE_ITEM;
     switch (item)
     {
         case NCP_IPERF_TCP_TX:
@@ -3413,7 +3415,7 @@ int wlan_socket_open_command(int argc, char **argv)
         return FALSE;
     }
 
-    if (!strcmp(argv[1], "tcp") && !strcmp(argv[1], "udp") && !strcmp(argv[1], "raw"))
+    if (strcmp(argv[1], "tcp") && strcmp(argv[1], "udp") && strcmp(argv[1], "raw"))
     {
         printf("Usage: %s tcp/udp/raw [domain] [protocol]\r\n", __func__);
         return FALSE;
@@ -8153,7 +8155,7 @@ int ncp_ping_command(int argc, char **argv)
 {
     ping_msg_t ping_cmd;
     int c;
-    int ret = WM_SUCCESS, err = 0;
+    int ret = WM_SUCCESS;
     uint16_t size    = PING_DEFAULT_SIZE;
     uint32_t count   = PING_DEFAULT_COUNT, temp;
     uint32_t timeout = PING_DEFAULT_TIMEOUT_SEC;
@@ -8168,7 +8170,6 @@ int ncp_ping_command(int argc, char **argv)
     cli_optind = 1;
     while ((c = cli_getopt(argc, argv, "c:s:W:")) != -1)
     {
-        err = 0;
         switch (c)
         {
             case 'c':
@@ -8178,8 +8179,6 @@ int ncp_ping_command(int argc, char **argv)
                 temp = strtoul(cli_optarg, NULL, 10);
                 if (temp > PING_MAX_SIZE)
                 {
-                    if (err != 0)
-                        printf("Error during strtoul errno:%d", err);
                     printf(
                         "ping: packet size too large: %u."
                         " Maximum is %u\r\n",
@@ -8194,8 +8193,6 @@ int ncp_ping_command(int argc, char **argv)
             default:
                 goto end;
         }
-        if (err != 0)
-            printf("Error during strtoul errno:%d", err);
     }
     if (cli_optind == argc)
         goto end;

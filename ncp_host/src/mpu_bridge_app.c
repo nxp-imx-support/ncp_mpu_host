@@ -559,8 +559,6 @@ static void ping_sock_task(void *arg)
         send_tlv_command(S_D);
         ping_sock_handle = -1;
     }
-
-    pthread_exit(NULL);
 }
 
 extern iperf_msg_t iperf_msg;
@@ -885,12 +883,12 @@ static void iperf_tx_task(void *arg)
 
         if (udp_rate <= 120)
             send_interval = 1000;
-        if (udp_rate <= 2*1024)
-           send_interval = 60;
-        if (udp_rate <= 10*1024)
-           send_interval = 12; 
-        if (udp_rate <= 20*1024)
-           send_interval = 6; 
+        else if (udp_rate <= 2*1024)
+            send_interval = 60;
+        else if (udp_rate <= 10*1024)
+            send_interval = 12;
+        else if (udp_rate <= 20*1024)
+            send_interval = 6;
         else if (udp_rate <= 30 * 1024)
             send_interval = 4;
         else if (udp_rate <= 60 * 1024)
@@ -904,7 +902,7 @@ static void iperf_tx_task(void *arg)
         gettimeofday(&prev_time, NULL);
         prev_time_us  = prev_time.tv_sec * 1000 * 1000 + prev_time.tv_usec;
         
-        send_total_size = iperf_msg.iperf_set.iperf_count * iperf_msg.per_size;
+        send_total_size = (long long)iperf_msg.iperf_set.iperf_count * (long long)iperf_msg.per_size;
 
         /*first, tell the server the direction and size*/
         sem_wait(&cmd_sem);
@@ -945,7 +943,7 @@ static void iperf_tx_task(void *arg)
                     // prev_time_us, cur_time_us, delta, pkt_num_per_xms, i);
                     if (delta > 0)
                         usleep(delta);
-                    prev_time_us += (1000 * send_interval);
+                    prev_time_us += (long long)(1000 * send_interval);
                 }
             }
 
@@ -959,9 +957,6 @@ static void iperf_tx_task(void *arg)
         /*End token*/
         iperf_send_finish(S_D);
     }
-
-    pthread_exit(NULL);
-
 }
 
 static void iperf_rx_task(void *arg)
@@ -982,7 +977,7 @@ static void iperf_rx_task(void *arg)
         pkg_num             = 0;
         iperf_msg.status[1] = 0;
         recv_size           = 0;
-        left_size           = iperf_msg.per_size * iperf_msg.iperf_set.iperf_count;
+        left_size           = (long long)iperf_msg.per_size * (long long)iperf_msg.iperf_set.iperf_count;
         /* Get the current ticks as the start time */
         gettimeofday(&iperf_timer_start, NULL);
         while (left_size > 0)
@@ -1009,8 +1004,6 @@ static void iperf_rx_task(void *arg)
         (void)printf("RX IPERF END\r\n");
         ncp_iperf_report(recv_size);
     }
-
-    pthread_exit(NULL);
 }
 
 /* Find the command 'name' in the mpu bridge app commands table.
@@ -1332,10 +1325,14 @@ int keyboard_hit()
     newt.c_cflag &= ~(ICANON | ECHO);
     tcsetattr(STDIN_FILENO, F_GETFL, 0);
     oldf = fcntl(STDIN_FILENO, F_SETFL, 0);
-    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+	if (oldf < 0)
+        return FALSE;
+    if (fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK) < 0)
+        return FALSE;
     ch = getchar();
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-    fcntl(STDIN_FILENO, F_SETFL, oldf);
+    if (fcntl(STDIN_FILENO, F_SETFL, oldf) < 0)
+        return FALSE;
     if (ch != EOF)
     {
         ungetc(ch, stdin);
@@ -1344,6 +1341,7 @@ int keyboard_hit()
 
     return FALSE;
 }
+
 
 /**
  * @brief        Send command to bridge_app
@@ -1421,8 +1419,6 @@ static void wifi_ncp_handle_input_task(void *arg)
         }
         usleep(10);
     }
-
-    pthread_exit(NULL);
 }
 
 static void wifi_ncp_callback(void *tlv, size_t tlv_sz, int status)
@@ -1785,14 +1781,12 @@ int main(int argc, char **argv)
     {
         usleep(100000);
     }
-
-    pthread_join(send_thread, NULL);
 #if 0
+    pthread_join(send_thread, NULL);
     pthread_join(recv_thread, NULL);
     pthread_join(process_thread, NULL);
-#endif
     pthread_join(ping_sock_thread, NULL);
-
+#endif
 err_init:
     ring_buf_free(ring_buf);
 err_ring_buf_init:
