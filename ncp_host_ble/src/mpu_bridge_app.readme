@@ -1,0 +1,34 @@
+Overview
+========
+This is a MPU Bridge APP demo for ble. Pls compile and run this app on Linux platform.
+
+
+Prepare the Demo
+================
+1.  All files needed by mpu bridge app are included in ../mpu_bridge_app_demo_ble.
+2.  Enter 'make' to generate MPU_BRIDGE_BLE
+
+
+Running the demo
+================
+1. sudo ./MPU_BRIDGE_BLE /dev/tty*
+2. When the demo starts, a welcome message would appear on the terminal, press enter for command prompt:
+
+    ==========================================
+    help
+    ble-start-adv
+    ble-stop-adv
+    ble-start-scan <scan_type>
+    ble-stop-scan
+    ble-connect
+    ble-disconnect
+    ble-conn-param-update <max_interval> <min_interval>
+    ble-set-filter-list
+    ble-start-encryption
+    ble-write-characteristic
+    ble-read-characteristic
+    ble-register-service
+
+2.  Enter command
+
+        ble-start-adv
