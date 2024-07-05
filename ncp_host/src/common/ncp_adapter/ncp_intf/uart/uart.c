@@ -48,7 +48,7 @@ ncp_status_t uart_init(uart_device_t *dev)
     /*Serial data reception*/
     tty->c_cflag |= CREAD;
     /*Hardware flow control*/
-    tty->c_cflag &= ~CRTSCTS; /*No hardware flow control*/
+    tty->c_cflag |= CRTSCTS; /*Enable hardware flow control*/
     /*Set data bit*/
     tty->c_cflag &= ~CSIZE; // bit mask for data bits.
     tty->c_cflag |= CS8;    // 8 data bits.

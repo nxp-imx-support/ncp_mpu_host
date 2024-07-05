@@ -26,259 +26,350 @@
  */
 
 /*
- *  Copyright 2023 NXP
+ *  Copyright 2023-2024 NXP
  */
 
-#ifndef __MPU_BRIDGE_COMMAND_H__
-#define __MPU_BRIDGE_COMMAND_H__
+#ifndef __NCP_HOST_COMMAND_WIFI_H__
+#define __NCP_HOST_COMMAND_WIFI_H__
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/times.h>
-#include "mpu_bridge_wifi_config.h"
-
-#define NCP_BRIDGE_CMD_HEADER_LEN sizeof(NCP_BRIDGE_COMMAND)
-#define NCP_BRIDGE_TLV_HEADER_LEN sizeof(NCP_BRIDGE_TLV_HEADER)
+#include "ncp_host_wifi_config.h"
+#include "ncp_host_command.h"
 
 #define MACSTR                    "%02X:%02X:%02X:%02X:%02X:%02X "
 #define MAC2STR(a)                a[0], a[1], a[2], a[3], a[4], a[5]
-#define NCP_BRIDGE_MAX_AP_ENTRIES 30
-#define NCP_BRIDGE_IP_LENGTH      4
-#define NCP_BRIDGE_IP_VALID       255
+#define NCP_MAX_AP_ENTRIES 30
+#define NCP_IP_LENGTH      4
+#define NCP_IP_VALID       255
 
 #define WLAN_NETWORK_NAME_MAX_LENGTH    32
 #define IEEEtypes_SSID_SIZE             32
 #define IEEEtypes_ADDRESS_SIZE          6
-#define NCP_BRIDGE_WLAN_KNOWN_NETWORKS  5
+#define NCP_WLAN_KNOWN_NETWORKS  5
 #define MAX_NUM_CLIENTS                 16
 #define MODULE_NAME_MAX_LEN             16
 #define VAR_NAME_MAX_LEN                32
 #define CONFIG_VALUE_MAX_LEN            256
 
-
-#define NCP_BRIDGE_CMD_WLAN 0x00000000
-#define NCP_BRIDGE_CMD_BLE    0x01000000
-#define NCP_BRIDGE_CMD_15D4   0x02000000
-#define NCP_BRIDGE_CMD_MATTER 0x03000000
-#define NCP_BRIDGE_CMD_SYSTEM 0x04000000
-
-#define NCP_BRIDGE_CMD_WLAN_STA         0x00000000
-#define NCP_BRIDGE_CMD_WLAN_BASIC       0x00010000
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY  0x00020000
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT   0x00030000
-#define NCP_BRIDGE_CMD_WLAN_DEBUG       0x00040000
-#define NCP_BRIDGE_CMD_WLAN_OTHER       0x00050000
-#define NCP_BRIDGE_CMD_WLAN_MEMORY      0x00060000
-#define NCP_BRIDGE_CMD_WLAN_NETWORK     0x00070000
-#define NCP_BRIDGE_CMD_WLAN_OFFLOAD     0x00080000
-#define NCP_BRIDGE_CMD_WLAN_SOCKET      0x00090000
-#define NCP_BRIDGE_CMD_WLAN_UAP         0x000a0000
-#define NCP_BRIDGE_CMD_WLAN_HTTP        0x000b0000
-#define NCP_BRIDGE_CMD_WLAN_COEX        0x000c0000
-#define NCP_BRIDGE_CMD_WLAN_MATTER      0x000d0000
-#define NCP_BRIDGE_CMD_WLAN_EDGE_LOCK   0x000e0000
-#define NCP_BRIDGE_CMD_WLAN_ASYNC_EVENT 0x000f0000
-
-/* System NCP Bridge subclass */
-#define NCP_BRIDGE_CMD_SYSTEM_CONFIG   0x00000000
-#define NCP_BRIDGE_CMD_SYSTEM_TEST   0x00010000
-
-/*NCP MPU Bridge Command definitions*/
-/*WLAN STA command*/
-#define NCP_BRIDGE_CMD_WLAN_STA_SCAN \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000001) /* wlan-scan */
-#define NCP_BRIDGE_CMD_WLAN_STA_CONNECT (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000002) /* wlan-connect */
-#define NCP_BRIDGE_CMD_WLAN_STA_DISCONNECT \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000003) /* wlan-disconnect */
-#define NCP_BRIDGE_CMD_WLAN_STA_VERSION \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000004) /* wlan-version */
-#define NCP_BRIDGE_CMD_WLAN_STA_SET_MAC \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000005) /* wlan-set-mac */
-#define NCP_BRIDGE_CMD_WLAN_STA_GET_MAC \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000006) /* wlan-get-mac */
-#define NCP_BRIDGE_CMD_WLAN_STA_CONNECT_STAT \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000007) /* wlan-stat */
-#define NCP_BRIDGE_CMD_WLAN_STA_ROAMING \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000008) /* wlan-roaming */
-#define NCP_BRIDGE_CMD_WLAN_STA_ANTENNA       (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000009)  /* wlan-set-antenna / wlan-get-antenna*/
-#define NCP_BRIDGE_CMD_WLAN_STA_SIGNAL \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000012) /* wlan-get-signal */
-#define NCP_BRIDGE_CMD_WLAN_STA_CSI          (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000020)
-#define NCP_BRIDGE_CMD_WLAN_STA_11K_CFG      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000021)
-#define NCP_BRIDGE_CMD_WLAN_STA_NEIGHBOR_REQ (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000022)
-
-#define NCP_BRIDGE_CMD_WLAN_STA_WPS_PBC      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000031) /* wlan-start-wps-pbc */
-#define NCP_BRIDGE_CMD_WLAN_STA_GEN_WPS_PIN  (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000032) /* wlan-generate-wps-pin */
-#define NCP_BRIDGE_CMD_WLAN_STA_WPS_PIN      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_STA | 0x00000033) /* wlan-start-wps-pin */
-
-/*WLAN Basic command*/
-#define NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_RESET (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_BASIC | 0x00000001)
-#define NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_UAP_PROV_START  (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_BASIC | 0x00000002)
-#define NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_UAP_PROV_RESET  (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_BASIC | 0x00000003)
-
-/*WLAN Socket command*/
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_OPEN     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000001)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_CON     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000002)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_RECV     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000003)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_SEND     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000004)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_SENDTO   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000005)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_BIND     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000006)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_LISTEN   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000007)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_ACCEPT   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000008)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_CLOSE    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000009)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_RECVFROM (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x0000000a)
-
-/*WLAN Http command*/
-#define NCP_BRIDGE_CMD_WLAN_HTTP_CON         (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000001)
-#define NCP_BRIDGE_CMD_WLAN_HTTP_DISCON      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000002)
-#define NCP_BRIDGE_CMD_WLAN_HTTP_REQ         (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000003)
-#define NCP_BRIDGE_CMD_WLAN_HTTP_RECV        (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000004)
-#define NCP_BRIDGE_CMD_WLAN_HTTP_SETH        (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000005)
-#define NCP_BRIDGE_CMD_WLAN_HTTP_UNSETH      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000006)
-#define NCP_BRIDGE_CMD_WLAN_WEBSOCKET_UPG    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000007)
-#define NCP_BRIDGE_CMD_WLAN_WEBSOCKET_SEND   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000008)
-#define NCP_BRIDGE_CMD_WLAN_WEBSOCKET_RECV   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_HTTP | 0x00000009)
-
-/*WLAN Network command*/
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_INFO    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000001) /* wlan-info */
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_MONITOR (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000002)
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_ADD     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000003) /* wlan-add */
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_START   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000004) /* wlan-start-network */
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_STOP    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000005) /* wlan-stop-network */
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_GET_UAP_STA_LIST    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000006) /* wlan-get-uap-sta-list */
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_MDNS_QUERY  (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000007) /* mdns-query */
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_LIST  (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000008) /* wlan-list */
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_REMOVE  (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x00000009) /* wlan-remove */
-#define NCP_BRIDGE_CMD_WLAN_NETWORK_ADDRESS (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_NETWORK | 0x0000000A) /* wlan-address */
-
-
-/*WLAN Power Mgmt command*/
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_MEF \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000001) /* wlan-multi-mef */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_DEEP_SLEEP_PS \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000002) /* wlan-deep-sleep-ps */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_IEEE_PS \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000003) /* wlan-ieee-ps */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_UAPSD \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000004) /* wlan-uapsd-enable */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_QOSINFO \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000005) /* wlan-uapsd-qosinfo */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_SLEEP_PERIOD \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000006) /* wlan-uapsd-sleep-period */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_WAKE_MODE_CFG \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000007) /* wlan-wake-cfg */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_WOWLAN_CFG \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000008) /* wlan-wowlan-cfg */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_MCU_SLEEP \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x00000009) /* wlan-mcu-sleep-mode */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_SUSPEND \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x0000000a) /* wlan-suspend */
-#define NCP_BRIDGE_CMD_WLAN_POWERMGMT_MPU_SLEEP_CFM \
-    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_POWERMGMT | 0x0000000c) /* MPU sleep confirm */
-
-/*WLAN Debug command*/
-#define  NCP_BRIDGE_CMD_WLAN_DEBUG_REGISTER_ACCESS    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_DEBUG | 0x00000001)
-
-/*WLAN Memory command*/
-#define NCP_BRIDGE_CMD_WLAN_MEMORY_HEAP_SIZE          (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_MEMORY | 0x00000001)
-
-/*WLAN UAP command*/
-#define NCP_BRIDGE_CMD_WLAN_UAP_MAX_CLIENT_CNT   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_UAP | 0x00000001) /* wlan-set-max-clients-count */
-
-/*WLAN Other command */
-#define NCP_BRIDGE_CMD_11AX_CFG       (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000001)
-#define NCP_BRIDGE_CMD_BTWT_CFG       (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000002)
-#define NCP_BRIDGE_CMD_TWT_SETUP      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000003)
-#define NCP_BRIDGE_CMD_TWT_TEARDOWN   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000004)
-#define NCP_BRIDGE_CMD_TWT_GET_REPORT (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000005)
-#define NCP_BRIDGE_CMD_11D_ENABLE     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000006)
-#define NCP_BRIDGE_CMD_REGION_CODE    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000007)
-#define NCP_BRIDGE_CMD_DATE_TIME      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000008)
-#define NCP_BRIDGE_CMD_GET_TEMPERATUE (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x00000009)
-#define NCP_BRIDGE_CMD_INVALID_CMD    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_OTHER | 0x0000000a)
-
-/*WLAN Regulatory command*/
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_ED_MAC_MODE    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000001)
-#ifdef CONFIG_NCP_RF_TEST_MODE
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TEST_MODE      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000002)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_ANTENNA     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000003)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_TX_ANTENNA     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000004)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_RX_ANTENNA     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000005)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_RX_ANTENNA     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000006)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_BAND           (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000007)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_BAND           (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000008)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_BANDWIDTH      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000009)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_BANDWIDTH      (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x0000000a)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_CHANNEL        (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x0000000b)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_CHANNEL        (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x0000000c)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_RADIO_MODE     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x0000000d)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_RADIO_MODE     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x0000000e)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_POWER       (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x0000000f)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_CONT_MODE   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000010)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_FRAME       (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000011)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_AND_RESET_RF_PER  (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000012)
-#endif
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_EU_CRYPTO_CCMP_128    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000013)
-#define NCP_BRIDGE_CMD_WLAN_REGULATORY_EU_CRYPTO_GCMP_128    (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_REGULATORY | 0x00000014)
-
-/* System Configure command */
-#define NCP_BRIDGE_CMD_SYSTEM_CONFIG_SET  (NCP_BRIDGE_CMD_SYSTEM | NCP_BRIDGE_CMD_SYSTEM_CONFIG | 0x00000001) /* set-device-cfg */
-#define NCP_BRIDGE_CMD_SYSTEM_CONFIG_GET  (NCP_BRIDGE_CMD_SYSTEM | NCP_BRIDGE_CMD_SYSTEM_CONFIG | 0x00000002) /* get-device-cfg */
-#define NCP_BRIDGE_CMD_SYSTEM_CONFIG_SDIO_SET  (NCP_BRIDGE_CMD_SYSTEM | NCP_BRIDGE_CMD_SYSTEM_CONFIG | 0x00000003) /* set-sdio-cfg */
-
-#define NCP_BRIDGE_CMD_SYSTEM_TEST_LOOPBACK  (NCP_BRIDGE_CMD_SYSTEM | NCP_BRIDGE_CMD_SYSTEM_TEST | 0x00000001) /* test-loopback */
-
-/*WLAN events*/
-#define NCP_BRIDGE_EVENT_MCU_SLEEP_ENTER (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_ASYNC_EVENT | 0x00000001)
-#define NCP_BRIDGE_EVENT_MCU_SLEEP_EXIT  (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_ASYNC_EVENT | 0x00000002)
-#define NCP_BRIDGE_EVENT_MDNS_QUERY_RESULT (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_ASYNC_EVENT | 0x00000003)
-#define NCP_BRIDGE_EVENT_MDNS_RESOLVE_DOMAIN (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_ASYNC_EVENT | 0x00000004)
-#define NCP_BRIDGE_EVENT_CSI_DATA        (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_ASYNC_EVENT | 0x00000005) /* csi data */
-
-#define NCP_BRIDGE_CMD_RESULT_OK 0x0000
-
-/*General error*/
-#define NCP_BRIDGE_CMD_RESULT_ERROR 0x0001
-/*MCU device enter low power mode*/
-#define NCP_BRIDGE_CMD_RESULT_ENTER_SLEEP 0x0006
-/*MCU device exit low power mode*/
-#define NCP_BRIDGE_CMD_RESULT_EXIT_SLEEP 0x0007
+#define NCP_CMD_WLAN_STA         0x00000000
+#define NCP_CMD_WLAN_BASIC       0x00100000
+#define NCP_CMD_WLAN_REGULATORY  0x00200000
+#define NCP_CMD_WLAN_POWERMGMT   0x00300000
+#define NCP_CMD_WLAN_DEBUG       0x00400000
+#define NCP_CMD_WLAN_OTHER       0x00500000
+#define NCP_CMD_WLAN_MEMORY      0x00600000
+#define NCP_CMD_WLAN_NETWORK     0x00700000
+#define NCP_CMD_WLAN_OFFLOAD     0x00800000
+#define NCP_CMD_WLAN_SOCKET      0x00900000
+#define NCP_CMD_WLAN_UAP         0x00a00000
+#define NCP_CMD_WLAN_HTTP        0x00b00000
+#define NCP_CMD_WLAN_COEX        0x00c00000
+#define NCP_CMD_WLAN_MATTER      0x00d00000
+#define NCP_CMD_WLAN_EDGE_LOCK   0x00e00000
+#define NCP_CMD_WLAN_ASYNC_EVENT 0x00f00000
 
 /* The max size of the network list*/
-#define NCP_BRIDGE_WLAN_KNOWN_NETWORKS 5
+#define NCP_WLAN_KNOWN_NETWORKS 5
 
-#define NCP_BRIDGE_MSG_TYPE_CMD   0x0000
-#define NCP_BRIDGE_MSG_TYPE_RESP  0x0001
-#define NCP_BRIDGE_MSG_TYPE_EVENT 0x0002
+#define FOLD_U32T(u)          ((uint32_t)(((u) >> 16) + ((u)&0x0000ffffUL)))
+#define SWAP_BYTES_IN_WORD(w) (((w)&0xff) << 8) | (((w)&0xff00) >> 8)
 
-/*NCP MPU BRIDGE TLV definitions*/
-#define NCP_BRIDGE_CMD_NETWORK_SSID_TLV     0x0001
-#define NCP_BRIDGE_CMD_NETWORK_BSSID_TLV    0x0002
-#define NCP_BRIDGE_CMD_NETWORK_CHANNEL_TLV  0x0003
-#define NCP_BRIDGE_CMD_NETWORK_IP_TLV       0x0004
-#define NCP_BRIDGE_CMD_NETWORK_SECURITY_TLV 0x0005
-#define NCP_BRIDGE_CMD_NETWORK_ROLE_TLV     0x0006
-#define NCP_BRIDGE_CMD_NETWORK_DTIM_TLV     0x0007
-#define NCP_BRIDGE_CMD_NETWORK_CAPA_TLV     0x0008
-#define NCP_BRIDGE_CMD_NETWORK_ACSBAND_TLV  0x0009
-#define NCP_BRIDGE_CMD_NETWORK_PMF_TLV      0x000A
-#define NCP_BRIDGE_CMD_NETWORK_PWE_TLV      0x000B
-#define NCP_BRIDGE_CMD_NETWORK_TR_TLV       0x000C
-#define NCP_BRIDGE_CMD_NETWORK_EAP_TLV      0x000D
+#define PING_INTERVAL 1000
+#define PING_DEFAULT_TIMEOUT_SEC 2
+#define PING_DEFAULT_COUNT       10
+#define PING_DEFAULT_SIZE        56
+#define PING_MAX_SIZE            65507
+#define PING_ID 0xAFAF
+#define IP_ADDR_LEN 16
 
-#define NCP_BRIDGE_CMD_WLAN_HE_CAP_TLV 0x00FF
+struct icmp_echo_hdr {
+    uint8_t type;
+    uint8_t code;
+    uint16_t chksum;
+    uint16_t id;
+    uint16_t seqno;
+};
 
-/* NCP MPU BRIDGE MDNS Result TLV */
-#define NCP_BRIDGE_CMD_NETWORK_MDNS_RESULT_PTR 0x0011
-#define NCP_BRIDGE_CMD_NETWORK_MDNS_RESULT_SRV 0x0012
-#define NCP_BRIDGE_CMD_NETWORK_MDNS_RESULT_TXT 0x0013
-#define NCP_BRIDGE_CMD_NETWORK_MDNS_RESULT_IP_ADDR 0x0014
+typedef uint32_t in_addr_t;
+
+struct ip_hdr {
+    /* version / header length */
+    uint8_t _v_hl;
+    /* type of service */
+    uint8_t _tos;
+    /* total length */
+    uint16_t _len;
+    /* identification */
+    uint16_t _id;
+    /* fragment offset field */
+    uint16_t _offset;
+#define IP_RF 0x8000U        /* reserved fragment flag */
+#define IP_DF 0x4000U        /* don't fragment flag */
+#define IP_MF 0x2000U        /* more fragments flag */
+#define IP_OFFMASK 0x1fffU   /* mask for fragmenting bits */
+    /* time to live */
+    uint8_t _ttl;
+    /* protocol*/
+    uint8_t _proto;
+    /* checksum */
+    uint16_t _chksum;
+    /* source and destination IP addresses */
+    in_addr_t src;
+    in_addr_t dest;
+};
+
+typedef struct _ping_msg_t
+{
+    uint16_t size;
+    uint32_t count;
+    uint32_t timeout;
+    uint32_t handle;
+    char ip_addr[IP_ADDR_LEN];
+    uint32_t port;
+} ping_msg_t;
+
+typedef struct _ping_time_t
+{
+    uint32_t secs;
+    uint32_t usecs;
+} ping_time_t;
+
+typedef struct _ping_res
+{
+    int seq_no;
+    int echo_resp;
+    ping_time_t time;
+    uint32_t recvd;
+    int ttl;
+    char ip_addr[IP_ADDR_LEN];
+    uint16_t size;
+} ping_res_t;
+
+/**
+ * @brief This function prepares ncp iperf command
+ *
+ * @return Status returned
+ */
+
+#define NCP_IPERF_TCP_SERVER_PORT_DEFAULT 5001
+#define NCP_IPERF_UDP_SERVER_PORT_DEFAULT NCP_IPERF_TCP_SERVER_PORT_DEFAULT + 2
+#define NCP_IPERF_UDP_RATE           30*1024
+#define NCP_IPERF_UDP_TIME           1000
+#define NCP_IPERF_PKG_COUNT          1000
+#define NCP_IPERF_PER_TCP_PKG_SIZE   1448
+#define NCP_IPERF_PER_UDP_PKG_SIZE   1472
+
+#define IPERF_TCP_RECV_TIMEOUT           1000
+#define IPERF_UDP_RECV_TIMEOUT           1000
+#define NCP_IPERF_END_TOKEN_SIZE     11
+enum ncp_iperf_item
+{
+    NCP_IPERF_TCP_TX,
+    NCP_IPERF_TCP_RX,
+    NCP_IPERF_UDP_TX,
+    NCP_IPERF_UDP_RX,
+    FALSE_ITEM,
+};
+
+typedef struct _iperf_set_t
+{
+	uint32_t iperf_type;
+	uint32_t iperf_count;
+    uint32_t iperf_udp_rate;
+    uint32_t iperf_udp_time;
+} iperf_set_t;
+
+typedef struct _iperf_msg_t
+{
+    int16_t status[2];
+    uint32_t count;
+    uint32_t timeout;
+    uint32_t handle;
+    uint32_t port;
+    uint16_t per_size;
+    char ip_addr[IP_ADDR_LEN];
+    iperf_set_t iperf_set;
+} iperf_msg_t;
+
+
+extern int cli_optind;
+extern char *cli_optarg;
+static inline int cli_getopt(int argc, char **argv, const char *fmt)
+{
+    char *opt, *c;
+
+    if (cli_optind == argc)
+        return -1;
+    cli_optarg = NULL;
+    opt        = argv[cli_optind];
+    if (opt[0] != '-')
+        return -1;
+    if (opt[0] == 0 || opt[1] == 0)
+        return '?';
+    cli_optind++;
+    c = strchr(fmt, opt[1]);
+    if (c == NULL)
+        return opt[1];
+    if (c[1] == ':')
+    {
+        if (cli_optind < argc)
+            cli_optarg = argv[cli_optind++];
+    }
+    return c[0];
+}
+
+static inline uint16_t inet_chksum(const void *dataptr, int len)
+{
+    const uint8_t *pb = (const uint8_t *)dataptr;
+    const uint16_t *ps;
+    uint16_t t   = 0;
+    uint32_t sum = 0;
+    int odd      = ((uintptr_t)pb & 1);
+
+    /* Get aligned to u16_t */
+    if (odd && len > 0)
+    {
+        ((uint8_t *)&t)[1] = *pb++;
+        len--;
+    }
+
+    /* Add the bulk of the data */
+    ps = (const uint16_t *)(const void *)pb;
+    while (len > 1)
+    {
+        sum += *ps++;
+        len -= 2;
+    }
+
+    /* Consume left-over byte, if any */
+    if (len > 0)
+    {
+        ((uint8_t *)&t)[0] = *(const uint8_t *)ps;
+    }
+
+    /* Add end bytes */
+    sum += t;
+
+    /* Fold 32-bit sum to 16 bits
+       calling this twice is probably faster than if statements... */
+    sum = FOLD_U32T(sum);
+    sum = FOLD_U32T(sum);
+
+    /* Swap if alignment was odd */
+    if (odd)
+    {
+        sum = SWAP_BYTES_IN_WORD(sum);
+    }
+
+    return (uint16_t)(~(unsigned int)(uint16_t)sum);
+}
+
+int gettimeofday();
+
+static inline int ping_time_now(ping_time_t *time)
+{
+    struct timeval tv;
+    int result;
+    result = gettimeofday(&tv, NULL);
+    time->secs = tv.tv_sec;
+    time->usecs = tv.tv_usec;
+    return result;
+}
+
+/* ping_time_compare
+ *
+ * Compare two timestamps
+ *
+ * Returns -1 if time1 is earlier, 1 if time1 is later,
+ * or 0 if the timestamps are equal.
+ */
+static inline int ping_time_compare(ping_time_t *time1, ping_time_t *time2)
+{
+    if (time1->secs < time2->secs)
+        return -1;
+    if (time1->secs > time2->secs)
+        return 1;
+    if (time1->usecs < time2->usecs)
+        return -1;
+    if (time1->usecs > time2->usecs)
+        return 1;
+    return 0;
+}
+
+/* ping_time_diff
+ *
+ * Calculates the time from time2 to time1, assuming time1 is later than time2.
+ * The diff will always be positive, so the return value should be checked
+ * to determine if time1 was earlier than time2.
+ *
+ * Returns 1 if the time1 is less than or equal to time2, otherwise 0.
+ */
+static inline int ping_time_diff(ping_time_t *time1, ping_time_t *time2, ping_time_t *diff)
+{
+    int past = 0;
+    int cmp = 0;
+
+    cmp = ping_time_compare(time1, time2);
+    if (cmp == 0) {
+        diff->secs = 0;
+        diff->usecs = 0;
+        past = 1;
+    }
+    else if (cmp == 1) {
+        diff->secs = time1->secs - time2->secs;
+        diff->usecs = time1->usecs;
+        if (diff->usecs < time2->usecs) {
+            diff->secs --;
+            diff->usecs += 1000000;
+        }
+        diff->usecs = diff->usecs - time2->usecs;
+    } else {
+        diff->secs = time2->secs - time1->secs;
+        diff->usecs = time2->usecs;
+        if (diff->usecs < time1->usecs) {
+            diff->secs --;
+            diff->usecs += 1000000;
+        }
+        diff->usecs = diff->usecs - time1->usecs;
+        past = 1;
+    }
+
+    return past;
+}
+
+static inline uint64_t ping_time_in_msecs(ping_time_t *time)
+{
+    return time->secs * 1000 + time->usecs / 1000;
+}
+
+/*MPU ncp host TLV definitions*/
+#define NCP_CMD_NETWORK_SSID_TLV     0x0001
+#define NCP_CMD_NETWORK_BSSID_TLV    0x0002
+#define NCP_CMD_NETWORK_CHANNEL_TLV  0x0003
+#define NCP_CMD_NETWORK_IP_TLV       0x0004
+#define NCP_CMD_NETWORK_SECURITY_TLV 0x0005
+#define NCP_CMD_NETWORK_ROLE_TLV     0x0006
+#define NCP_CMD_NETWORK_DTIM_TLV     0x0007
+#define NCP_CMD_NETWORK_CAPA_TLV     0x0008
+#define NCP_CMD_NETWORK_ACSBAND_TLV  0x0009
+#define NCP_CMD_NETWORK_PMF_TLV      0x000A
+#define NCP_CMD_NETWORK_PWE_TLV      0x000B
+#define NCP_CMD_NETWORK_TR_TLV       0x000C
+#define NCP_CMD_NETWORK_EAP_TLV      0x000D
+
+#define NCP_CMD_WLAN_HE_CAP_TLV 0x00FF
+
+/* MPU ncp host MDNS Result TLV */
+#define NCP_CMD_NETWORK_MDNS_RESULT_PTR 0x0011
+#define NCP_CMD_NETWORK_MDNS_RESULT_SRV 0x0012
+#define NCP_CMD_NETWORK_MDNS_RESULT_TXT 0x0013
+#define NCP_CMD_NETWORK_MDNS_RESULT_IP_ADDR 0x0014
 
 #define NCP_WLAN_MAC_ADDR_LENGTH 6
 #define MAX_MONIT_MAC_FILTER_NUM 3
 
-#define FOLD_U32T(u)          ((uint32_t)(((u) >> 16) + ((u)&0x0000ffffUL)))
-#define SWAP_BYTES_IN_WORD(w) (((w)&0xff) << 8) | (((w)&0xff00) >> 8)
 
 enum wlan_monitor_opt
 {
@@ -329,10 +420,6 @@ enum wlan_mef_type
 /** The operation could not be performed in the current system state. */
 #define WLAN_ERROR_STATE 3
 
-#define MOD_ERROR_START(x) (x << 12 | 0)
-/* Globally unique success code */
-#define WM_SUCCESS 0
-
 /*Set UAP max client count status*/
 #define WLAN_SET_MAX_CLIENT_CNT_SUCCESS          0
 #define WLAN_SET_MAX_CLIENT_CNT_FAIL             1
@@ -357,67 +444,13 @@ enum mdns_sd_proto {
 #define MDNS_ADDRTYPE_IPV4      0
 #define MDNS_ADDRTYPE_IPV6      1
 
-enum wm_errno
-{
-    /* First Generic Error codes */
-    WM_GEN_E_BASE = MOD_ERROR_START(0),
-    WM_FAIL,     /* 1 */
-    WM_E_PERM,   /* 2: Operation not permitted */
-    WM_E_NOENT,  /* 3: No such file or directory */
-    WM_E_SRCH,   /* 4: No such process */
-    WM_E_INTR,   /* 5: Interrupted system call */
-    WM_E_IO,     /* 6: I/O error */
-    WM_E_NXIO,   /* 7: No such device or address */
-    WM_E_2BIG,   /* 8: Argument list too long */
-    WM_E_NOEXEC, /* 9: Exec format error */
-    WM_E_BADF,   /* 10: Bad file number */
-    WM_E_CHILD,  /* 11: No child processes */
-    WM_E_AGAIN,  /* 12: Try again */
-    WM_E_NOMEM,  /* 13: Out of memory */
-    WM_E_ACCES,  /* 14: Permission denied */
-    WM_E_FAULT,  /* 15: Bad address */
-    WM_E_NOTBLK, /* 16: Block device required */
-    WM_E_BUSY,   /* 17: Device or resource busy */
-    WM_E_EXIST,  /* 18: File exists */
-    WM_E_XDEV,   /* 19: Cross-device link */
-    WM_E_NODEV,  /* 20: No such device */
-    WM_E_NOTDIR, /* 21: Not a directory */
-    WM_E_ISDIR,  /* 22: Is a directory */
-    WM_E_INVAL,  /* 23: Invalid argument */
-    WM_E_NFILE,  /* 24: File table overflow */
-    WM_E_MFILE,  /* 25: Too many open files */
-    WM_E_NOTTY,  /* 26: Not a typewriter */
-    WM_E_TXTBSY, /* 27: Text file busy */
-    WM_E_FBIG,   /* 28: File too large */
-    WM_E_NOSPC,  /* 29: No space left on device */
-    WM_E_SPIPE,  /* 30: Illegal seek */
-    WM_E_ROFS,   /* 31: Read-only file system */
-    WM_E_MLINK,  /* 32: Too many links */
-    WM_E_PIPE,   /* 33: Broken pipe */
-    WM_E_DOM,    /* 34: Math argument out of domain of func */
-    WM_E_RANGE,  /* 35: Math result not representable */
-
-    /* WMSDK generic error codes */
-    WM_E_CRC,     /* 36: Error in CRC check */
-    WM_E_UNINIT,  /* 37: Module is not yet initialized */
-    WM_E_TIMEOUT, /* 38: Timeout occurred during operation */
-
-    /* Defined for Hostcmd specific API*/
-    WM_E_INBIG,   /* 39: Input buffer too big */
-    WM_E_INSMALL, /* 40: A finer version for WM_E_INVAL, where it clearly specifies that input is much smaller than
-                     minimum requirement */
-    WM_E_OUTBIG,  /* 41: Data output exceeds the size provided */
-};
-
-#pragma pack(1) // unalign
-
 typedef struct _NCP_CMD_WLAN_RESET_CFG
 {
     int option;
 } NCP_CMD_WLAN_RESET_CFG;
 
 /** Scan Result */
-typedef struct _wlan_bridge_scan_result
+typedef struct _ncp_wlan_scan_result
 {
     /** The network SSID, represented as a NULL-terminated C string of 0 to 32
      *  characters.  If the network has a hidden SSID, this will be the empty
@@ -433,8 +466,19 @@ typedef struct _wlan_bridge_scan_result
 
     /* network features */
 
-    /** The network supports WMM.  This is set to 0 if the network does not
-     *  support WMM or if the system does not have WMM support enabled. */
+    /** The network supports 802.11N.  This is set to 0 if the network does not
+     *	support 802.11N or if the system does not have 802.11N support enabled. */
+    unsigned dot11n : 1;
+#if CONFIG_NCP_11AC
+    /** The network supports 802.11AC.	This is set to 0 if the network does not
+     *	support 802.11AC or if the system does not have 802.11AC support enabled. */
+    unsigned dot11ac : 1;
+#endif
+#if CONFIG_NCP_11AX
+    /** The network supports 802.11AX.	This is set to 0 if the network does not
+     *	support 802.11AX or if the system does not have 802.11AX support enabled. */
+    unsigned dot11ax : 1;
+#endif
     unsigned wmm : 1;
 #ifdef CONFIG_NCP_SUPP_WPS
     /** The network supports WPS.  This is set to 0 if the network does not
@@ -471,28 +515,13 @@ typedef struct _wlan_bridge_scan_result
 
     /** DTIM Period */
     uint8_t dtim_period;
-} wlan_bridge_scan_result;
+} NCP_WLAN_SCAN_RESULT;
 
-typedef struct BRIDGE_COMMAND
-{
-    /*bit0 ~ bit15 cmd id  bit16 ~ bit23 cmd subclass bit24 ~ bit31 cmd class*/
-    uint32_t cmd;
-    uint16_t size;
-    uint16_t seqnum;
-    uint16_t result;
-    uint16_t msg_type;
-} NCP_BRIDGE_COMMAND, NCP_BRIDGE_RESPONSE;
-
-typedef struct TLVTypeHeader_t
-{
-    uint16_t type;
-    uint16_t size;
-} TypeHeader_t, NCP_BRIDGE_TLV_HEADER;
 
 typedef struct _NCP_CMD_SCAN_NETWORK_INFO
 {
     uint32_t res_cnt;
-    wlan_bridge_scan_result res[NCP_BRIDGE_MAX_AP_ENTRIES];
+    NCP_WLAN_SCAN_RESULT res[NCP_MAX_AP_ENTRIES];
 } NCP_CMD_SCAN_NETWORK_INFO;
 
 typedef struct _NCP_CMD_FW_VERSION
@@ -688,7 +717,7 @@ enum
 
 #ifdef CONFIG_IPV6
 /** This data structure represents an IPv6 address */
-typedef struct _wlan_bridge_ipv6_config
+typedef struct _ncp_wlan_ipv6_config
 {
     /** The system's IPv6 address in network order. */
     unsigned address[4];
@@ -696,11 +725,11 @@ typedef struct _wlan_bridge_ipv6_config
     unsigned char addr_type_str[16];
     /** The state of IPv6 address (Tentative, Preferred, etc). */
     unsigned char addr_state_str[32];
-} wlan_bridge_ipv6_config;
+} NCP_WLAN_IPV6_CONFIG;
 #endif
 
 /** This data structure represents an IPv4 address */
-typedef struct _wlan_bridge_ipv4_config
+typedef struct _ncp_wlan_ipv4_config
 {
     /** Set to \ref ADDR_TYPE_DHCP to use DHCP to obtain the IP address or
      *  \ref ADDR_TYPE_STATIC to use a static IP. In case of static IP
@@ -719,13 +748,13 @@ typedef struct _wlan_bridge_ipv4_config
     uint32_t dns1;
     /** The system's secondary dns server in network order. */
     uint32_t dns2;
-} wlan_bridge_ipv4_config;
+} NCP_WLAN_IPV4_CONFIG;
 
 /** WLAN Network Profile
  *  This data structure represents a WLAN network profile. It consists of an
  *  arbitrary name, WiFi configuration, and IP address configuration.
  */
-typedef struct _wlan_bridge_network
+typedef struct _ncp_wlan_network
 {
     /** The name of this network profile. */
     char name[WLAN_NETWORK_NAME_MAX_LENGTH + 1];
@@ -778,9 +807,9 @@ typedef struct _wlan_bridge_network
 
     /** The network IP address configuration. */
     /** The network IPv6 address configuration */
-    wlan_bridge_ipv6_config ipv6[CONFIG_MAX_IPV6_ADDRESSES];
+    NCP_WLAN_IPV6_CONFIG ipv6[CONFIG_MAX_IPV6_ADDRESSES];
     /** The network IPv4 address configuration */
-    wlan_bridge_ipv4_config ipv4;
+    NCP_WLAN_IPV4_CONFIG ipv4;
 
     uint8_t is_sta_ipv4_connected;
 
@@ -806,27 +835,27 @@ typedef struct _wlan_bridge_network
     /** DTIM period of associated BSS */
     uint8_t dtim_period;
     uint8_t wlan_capa;
-} wlan_bridge_network;
+} NCP_WLAN_NETWORK;
 
 typedef struct _NCP_CMD_NETWORK_INFO
 {
     uint8_t uap_conn_stat;
     uint8_t sta_conn_stat;
-    wlan_bridge_network uap_network;
-    wlan_bridge_network sta_network;
+    NCP_WLAN_NETWORK uap_network;
+    NCP_WLAN_NETWORK sta_network;
 } NCP_CMD_NETWORK_INFO;
 
-/*Bridge response: wlan network address*/
+/*ncp response: wlan network address*/
 typedef struct _NCP_CMD_NETWORK_ADDRESS
 {
     uint8_t sta_conn_stat;
-    wlan_bridge_network sta_network;
+    NCP_WLAN_NETWORK sta_network;
 } NCP_CMD_NETWORK_ADDRESS;
 
 typedef struct _NCP_CMD_NETWORK_LIST
 {
     uint8_t count;
-    wlan_bridge_network net_list[NCP_BRIDGE_WLAN_KNOWN_NETWORKS];
+    NCP_WLAN_NETWORK net_list[NCP_WLAN_KNOWN_NETWORKS];
 } NCP_CMD_NETWORK_LIST;
 
 typedef struct _NCP_CMD_NETWORK_REMOVE
@@ -835,56 +864,56 @@ typedef struct _NCP_CMD_NETWORK_REMOVE
     int8_t remove_state;
 } NCP_CMD_NETWORK_REMOVE;
 
-/*NCP Bridge SSID tlv*/
+/*NCP SSID tlv*/
 typedef struct _SSID_ParamSet_t
 {
     TypeHeader_t header;
     char ssid[IEEEtypes_SSID_SIZE + 1];
 } SSID_ParamSet_t;
 
-/*NCP Bridge BSSID tlv*/
+/*NCP BSSID tlv*/
 typedef struct _BSSID_ParamSet_t
 {
     TypeHeader_t header;
     char bssid[IEEEtypes_ADDRESS_SIZE];
 } BSSID_ParamSet_t;
 
-/*NCP Bridge bss role tlv*/
+/*NCP bss role tlv*/
 typedef struct _BSSRole_ParamSet_t
 {
     TypeHeader_t header;
     uint8_t role;
 } BSSRole_ParamSet_t;
 
-/*NCP Bridge channel tlv*/
+/*NCP channel tlv*/
 typedef struct _Channel_ParamSet_t
 {
     TypeHeader_t header;
     uint8_t channel;
 } Channel_ParamSet_t;
 
-/*NCP Bridge pwe_derivation tlv*/
+/*NCP pwe_derivation tlv*/
 typedef struct _Pwe_Derivation_ParamSet_t
 {
     TypeHeader_t header;
     uint8_t pwe_derivation;
 } Pwe_Derivation_ParamSet_t;
 
-/*NCP Bridge transition_Disable tlv*/
+/*NCP transition_Disable tlv*/
 typedef struct _Transition_Disable_ParamSet_t
 {
     TypeHeader_t header;
     uint8_t transition_disable;
 } Tr_Disable_ParamSet_t;
 
-/*NCP Bridge acs_band tlv*/
+/*NCP acs_band tlv*/
 typedef struct _ACSBand_ParamSet_t
 {
     TypeHeader_t header;
     uint16_t acs_band;
 } ACSBand_ParamSet_t;
 
-/*NCP Bridge IP address tlv*/
+/*NCP IP address tlv*/
 typedef struct _IP_ParamSet_t
 {
     TypeHeader_t header;
@@ -896,7 +925,7 @@ typedef struct _IP_ParamSet_t
     uint32_t dns2;
 } IP_ParamSet_t;
 
-/*NCP Bridge security tlv*/
+/*NCP security tlv*/
 typedef struct _Security_ParamSet_t
 {
     TypeHeader_t header;
@@ -905,7 +934,7 @@ typedef struct _Security_ParamSet_t
     char password[1];
 } Security_ParamSet_t;
 
-/*NCP Bridge PMF tlv*/
+/*NCP PMF tlv*/
 typedef struct _PMF_ParamSet_t
 {
     TypeHeader_t header;
@@ -913,7 +942,7 @@ typedef struct _PMF_ParamSet_t
     uint8_t mfpr;
 } PMF_ParamSet_t;
 
-/*NCP Bridge eap-tls tlv*/
+/*NCP eap-tls tlv*/
 typedef struct _EAP_ParamSet_t
 {
     TypeHeader_t header;
@@ -924,7 +953,7 @@ typedef struct _EAP_ParamSet_t
 } EAP_ParamSet_t;
 
 #ifdef CONFIG_WIFI_DTIM_PERIOD
-/*NCP Bridge DTIM tlv*/
+/*NCP DTIM tlv*/
 typedef struct _DTIM_ParamSet_t
 {
     TypeHeader_t header;
@@ -933,7 +962,7 @@ typedef struct _DTIM_ParamSet_t
 #endif
 
 #ifdef CONFIG_WIFI_CAPA
-/*NCP Bridge CAPA tlv*/
+/*NCP CAPA tlv*/
 typedef struct _CAPA_ParamSet_t
 {
     TypeHeader_t header;
@@ -967,7 +996,7 @@ typedef struct _NCP_CMD_NETWORK_START
 } NCP_CMD_NETWORK_START;
 
 /** Station information structure */
-typedef struct _wlan_bridge_sta_info
+typedef struct _wlan_sta_info
 {
     /** MAC address buffer */
     uint8_t mac[IEEEtypes_ADDRESS_SIZE];
@@ -979,17 +1008,17 @@ typedef struct _wlan_bridge_sta_info
     uint8_t power_mgmt_status;
     /** RSSI: dBm */
     signed char rssi;
-} wlan_bridge_sta_info;
+} wlan_sta_info;
 
 typedef struct _NCP_CMD_NETWORK_UAP_STA_LIST
 {
     /** station count */
     uint16_t sta_count;
     /** station list */
-    wlan_bridge_sta_info info[MAX_NUM_CLIENTS];
+    wlan_sta_info info[MAX_NUM_CLIENTS];
 } NCP_CMD_NETWORK_UAP_STA_LIST;
 
-/*Bridge Wlan Socket Open*/
+/*NCP Wlan Socket Open*/
 #define HTTP_PARA_LEN 16
 #define SETH_NAME_LENGTH  64
 #define SETH_VALUE_LENGTH 128
@@ -1002,7 +1031,7 @@ typedef struct _NCP_CMD_SOCKET_OPEN_CFG
     uint32_t opened_handle;
 } NCP_CMD_SOCKET_OPEN_CFG;
 
-/*Bridge Wlan Socket Connect*/
+/*NCP Wlan Socket Connect*/
 #define IP_ADDR_LEN 16
 typedef struct _NCP_CMD_SOCKET_CON_CFG
 {
@@ -1011,7 +1040,7 @@ typedef struct _NCP_CMD_SOCKET_CON_CFG
     char ip_addr[IP_ADDR_LEN];
 } NCP_CMD_SOCKET_CON_CFG;
 
-/*Bridge Wlan Socket Bind*/
+/*NCP Wlan Socket Bind*/
 typedef struct _NCP_CMD_SOCKET_BIND_CFG
 {
     uint32_t handle;
@@ -1019,27 +1048,27 @@ typedef struct _NCP_CMD_SOCKET_BIND_CFG
     char ip_addr[IP_ADDR_LEN];
 } NCP_CMD_SOCKET_BIND_CFG;
 
-/*Bridge Wlan Socket Close*/
+/*NCP Wlan Socket Close*/
 typedef struct _NCP_CMD_SOCKET_CLOSE_CFG
 {
     uint32_t handle;
 } NCP_CMD_SOCKET_CLOSE_CFG;
 
-/*Bridge Wlan Socket Listen*/
+/*NCP Wlan Socket Listen*/
 typedef struct _NCP_CMD_SOCKET_LISTEN_CFG
 {
     uint32_t handle;
     uint32_t number;
 } NCP_CMD_SOCKET_LISTEN_CFG;
 
-/*Bridge Wlan Socket Accept*/
+/*NCP Wlan Socket Accept*/
 typedef struct _NCP_CMD_SOCKET_ACCEPT_CFG
 {
     uint32_t handle;
     int accepted_handle;
 } NCP_CMD_SOCKET_ACCEPT_CFG;
 
-/*Bridge Wlan Socket Send*/
+/*NCP Wlan Socket Send*/
 typedef struct _NCP_CMD_SOCKET_SEND_CFG
 {
     uint32_t handle;
@@ -1047,7 +1076,7 @@ typedef struct _NCP_CMD_SOCKET_SEND_CFG
     char send_data[1];
 } NCP_CMD_SOCKET_SEND_CFG;
 
-/*Bridge Wlan Socket Sendto*/
+/*NCP Wlan Socket Sendto*/
 typedef struct _NCP_CMD_SOCKET_SENDTO_CFG
 {
     uint32_t handle;
@@ -1057,7 +1086,7 @@ typedef struct _NCP_CMD_SOCKET_SENDTO_CFG
     char send_data[1];
 } NCP_CMD_SOCKET_SENDTO_CFG;
 
-/*Bridge Wlan Socket Receive*/
+/*NCP Wlan Socket Receive*/
 typedef struct _NCP_CMD_SOCKET_RECEIVE_CFG
 {
     uint32_t handle;
@@ -1066,7 +1095,7 @@ typedef struct _NCP_CMD_SOCKET_RECEIVE_CFG
     char recv_data[1];
 } NCP_CMD_SOCKET_RECEIVE_CFG;
 
-/*Bridge Wlan Socket Recvfrom*/
+/*NCP Wlan Socket Recvfrom*/
 typedef struct _NCP_CMD_SOCKET_RECVFROM_CFG
 {
     uint32_t handle;
@@ -1077,33 +1106,33 @@ typedef struct _NCP_CMD_SOCKET_RECVFROM_CFG
     char recv_data[1];
 } NCP_CMD_SOCKET_RECVFROM_CFG;
 
-/*Bridge Wlan Http Connect*/
+/*NCP Wlan Http Connect*/
 typedef struct _MPU_NCP_CMD_HTTP_CONNECT_CFG
 {
     int opened_handle;
     char host[1];
 } NCP_CMD_HTTP_CON_CFG;
 
-/*Bridge Wlan Http Disconnect*/
+/*NCP Wlan Http Disconnect*/
 typedef struct _MPU_NCP_CMD_HTTP_DISCONNECT_CFG
 {
     uint32_t handle;
 } NCP_CMD_HTTP_DISCON_CFG;
 
-/*Bridge Wlan Http Seth*/
+/*NCP Wlan Http Seth*/
 typedef struct _MPU_NCP_CMD_HTTP_SETH_CFG
 {
     char name[SETH_NAME_LENGTH];
     char value[SETH_VALUE_LENGTH];
 } NCP_CMD_HTTP_SETH_CFG;
 
-/*Bridge Wlan Http Unseth*/
+/*NCP Wlan Http Unseth*/
 typedef struct _MPU_NCP_CMD_HTTP_UNSETH_CFG
 {
     char name[SETH_NAME_LENGTH];
 } NCP_CMD_HTTP_UNSETH_CFG;
 
-/*Bridge Wlan Http Req*/
+/*NCP Wlan Http Req*/
 typedef struct _MPU_NCP_CMD_HTTP_REQ_CFG
 {
     uint32_t handle;
@@ -1113,14 +1142,14 @@ typedef struct _MPU_NCP_CMD_HTTP_REQ_CFG
     char req_data[1];
 } NCP_CMD_HTTP_REQ_CFG;
 
-/*Bridge Wlan Http Recv Resp*/
+/*NCP Wlan Http Recv Resp*/
 typedef struct _MPU_NCP_CMD_HTTP_REQ_RESP_CFG
 {
     uint32_t header_size;
     char recv_header[1];
 } NCP_CMD_HTTP_REQ_RESP_CFG;
 
-/*Bridge Wlan Http Recv*/
+/*NCP Wlan Http Recv*/
 typedef struct _MPU_NCP_CMD_HTTP_RECV_CFG
 {
     uint32_t handle;
@@ -1129,7 +1158,7 @@ typedef struct _MPU_NCP_CMD_HTTP_RECV_CFG
     char recv_data[1];
 } NCP_CMD_HTTP_RECV_CFG;
 
-/*Bridge Wlan Http Upgrade*/
+/*NCP Wlan Http Upgrade*/
 typedef struct _MPU_NCP_CMD_HTTP_UPG_CFG
 {
     uint32_t handle;
@@ -1137,7 +1166,7 @@ typedef struct _MPU_NCP_CMD_HTTP_UPG_CFG
     char     protocol[HTTP_PARA_LEN];
 } NCP_CMD_HTTP_UPG_CFG;
 
-/*Bridge Wlan Socket Send*/
+/*NCP Wlan Socket Send*/
 typedef struct _MPU_NCP_CMD_WEBSOCKET_SEND_CFG
 {
     uint32_t handle;
@@ -1147,7 +1176,7 @@ typedef struct _MPU_NCP_CMD_WEBSOCKET_SEND_CFG
 } NCP_CMD_WEBSOCKET_SEND_CFG;
 
 
-/*Bridge Wlan Websocket Receive*/
+/*NCP Wlan Websocket Receive*/
 typedef struct _MPU_NCP_CMD_WEBSOCKET_RECV_CFG
 {
     uint32_t handle;
@@ -1174,11 +1203,11 @@ typedef struct
     uint8_t filter_num;
     /** Source address of the packet to receive */
     uint8_t mac_addr[MAX_MONIT_MAC_FILTER_NUM][NCP_WLAN_MAC_ADDR_LENGTH];
-} wlan_bridge_net_monitor_para;
+} NCP_WLAN_NET_MONITOR_PARA;
 
 typedef struct _NCP_CMD_NET_MONITOR
 {
-    wlan_bridge_net_monitor_para monitor_para;
+    NCP_WLAN_NET_MONITOR_PARA monitor_para;
 } NCP_CMD_NET_MONITOR;
 
 typedef struct _NCP_CMD_REGISTER_ACCESS
@@ -1277,19 +1306,235 @@ typedef struct
     int16_t bcn_rssi_avg;
     /** BCN nf average */
     int16_t bcn_nf_avg;
-} wlan_bridge_rssi_info_t;
+} NCP_WLAN_RSSI_INFO_T;
 
 typedef struct _NCP_CMD_RSSI
 {
-    wlan_bridge_rssi_info_t rssi_info;
+    NCP_WLAN_RSSI_INFO_T rssi_info;
 } NCP_CMD_RSSI;
 
-#define MPU_DEVICE_STATUS_ACTIVE 1
-#define MPU_DEVICE_STATUS_SLEEP  2
+/*NCP MPU Host command/response definitions*/
+/*WLAN STA command/response*/
+#define NCP_CMD_WLAN_STA_SCAN          (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-scan */
+#define NCP_RSP_WLAN_STA_SCAN          (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000001)
+#define NCP_CMD_WLAN_STA_CONNECT       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000002) /* wlan-connect */
+#define NCP_RSP_WLAN_STA_CONNECT       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP |0x00000002)
+#define NCP_CMD_WLAN_STA_DISCONNECT    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-disconnect */
+#define NCP_RSP_WLAN_STA_DISCONNECT    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_WLAN_STA_VERSION       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000004) /* wlan-version */
+#define NCP_RSP_WLAN_STA_VERSION       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000004)
+#define NCP_CMD_WLAN_STA_SET_MAC       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000005) /* wlan-set-mac */
+#define NCP_RSP_WLAN_STA_SET_MAC       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000005)
+#define NCP_CMD_WLAN_STA_GET_MAC       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000006) /* wlan-get-mac */
+#define NCP_RSP_WLAN_STA_GET_MAC       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000006)
+#define NCP_CMD_WLAN_STA_CONNECT_STAT  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000007) /* wlan-stat */
+#define NCP_RSP_WLAN_STA_CONNECT_STAT  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000007)
+#define NCP_CMD_WLAN_STA_ROAMING       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000008) /* wlan-roaming */
+#define NCP_RSP_WLAN_STA_ROAMING       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000008)
+#define NCP_CMD_WLAN_STA_ANTENNA       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000009) /* wlan-set-antenna / wlan-get-antenna*/
+#define NCP_RSP_WLAN_STA_ANTENNA       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000009)
+#define NCP_CMD_WLAN_STA_SIGNAL        (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000012) /* wlan-get-signal */
+#define NCP_RSP_WLAN_STA_SIGNAL        (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000012)
+#define NCP_CMD_WLAN_STA_CSI           (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000020) /* wlan-csi */
+#define NCP_RSP_WLAN_STA_CSI           (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000020)
+#define NCP_CMD_WLAN_STA_11K_CFG       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000021) /* wlan-11k-enable */
+#define NCP_RSP_WLAN_STA_11K_CFG       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000021)
+#define NCP_CMD_WLAN_STA_NEIGHBOR_REQ  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000022) /* wlan-11k-neighbor-req */
+#define NCP_RSP_WLAN_STA_NEIGHBOR_REQ  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000022)
+#define NCP_CMD_WLAN_MBO_ENABLE        (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000023) /*wlan-mbo-enable*/
+#define NCP_RSP_WLAN_MBO_ENABLE        (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000023)
+#define NCP_CMD_WLAN_MBO_NONPREFER_CH  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000024) /*wlan-mbo-nonprefer-ch*/
+#define NCP_RSP_WLAN_MBO_NONPREFER_CH  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000024)
+#define NCP_CMD_WLAN_MBO_SET_CELL_CAPA (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000025) /*wlan-mbo-set-cell-capa*/
+#define NCP_RSP_WLAN_MBO_SET_CELL_CAPA (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000025)
+#define NCP_CMD_WLAN_MBO_SET_OCE       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000026) /*wlan-mbo-set-oce*/
+#define NCP_RSP_WLAN_MBO_SET_OCE       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000026)
+#define NCP_CMD_WLAN_STA_WPS_PBC       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000031) /* wlan-start-wps-pbc */
+#define NCP_RSP_WLAN_STA_WPS_PBC       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000031)
+#define NCP_CMD_WLAN_STA_GEN_WPS_PIN   (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000032) /* wlan-generate-wps-pin */
+#define NCP_RSP_WLAN_STA_GEN_WPS_PIN   (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000032)
+#define NCP_CMD_WLAN_STA_WPS_PIN       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD |0x00000033) /* wlan-start-wps-pin */
+#define NCP_RSP_WLAN_STA_WPS_PIN       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000033)
 
-/* Host wakes up MPU device through interface */
-#define WAKE_MODE_INTF 0x1
-#define WAKE_MODE_GPIO 0x2
+/*WLAN Basic command/response*/
+#define NCP_CMD_WLAN_BASIC_WLAN_RESET           (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-reset */
+#define NCP_RSP_WLAN_BASIC_WLAN_RESET           (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_RESP | 0x00000001)
+#define NCP_CMD_WLAN_BASIC_WLAN_UAP_PROV_START  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_CMD | 0x00000002) /* wlan-uap-prov-start */
+#define NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_START  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_RESP | 0x00000002)
+#define NCP_CMD_WLAN_BASIC_WLAN_UAP_PROV_RESET  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-uap-prov-reset */
+#define NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_RESET  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_RESP | 0x00000003)
+
+/*WLAN Socket command*/
+#define NCP_CMD_WLAN_SOCKET_OPEN     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-socket-open */
+#define NCP_RSP_WLAN_SOCKET_OPEN     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000001)
+#define NCP_CMD_WLAN_SOCKET_CON      (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000002) /* wlan-socket-connect */
+#define NCP_RSP_WLAN_SOCKET_CON      (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000002)
+#define NCP_CMD_WLAN_SOCKET_RECV     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-socket-receive */
+#define NCP_RSP_WLAN_SOCKET_RECV     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_WLAN_SOCKET_SEND     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000004) /* wlan-socket-send */
+#define NCP_RSP_WLAN_SOCKET_SEND     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000004)
+#define NCP_CMD_WLAN_SOCKET_SENDTO   (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000005) /* wlan-socket-sendto */
+#define NCP_RSP_WLAN_SOCKET_SENDTO   (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000005)
+#define NCP_CMD_WLAN_SOCKET_BIND     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000006) /* wlan-socket-bind */
+#define NCP_RSP_WLAN_SOCKET_BIND     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000006)
+#define NCP_CMD_WLAN_SOCKET_LISTEN   (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000007) /* wlan-socket-listen */
+#define NCP_RSP_WLAN_SOCKET_LISTEN   (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000007)
+#define NCP_CMD_WLAN_SOCKET_ACCEPT   (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000008) /* wlan-socket-accept */
+#define NCP_RSP_WLAN_SOCKET_ACCEPT   (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000008)
+#define NCP_CMD_WLAN_SOCKET_CLOSE    (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000009) /* wlan-socket-close */
+#define NCP_RSP_WLAN_SOCKET_CLOSE    (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x00000009)
+#define NCP_CMD_WLAN_SOCKET_RECVFROM (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x0000000a) /* wlan-socket-recvfrom */
+#define NCP_RSP_WLAN_SOCKET_RECVFROM (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_RESP | 0x0000000a)
+
+/*WLAN Http command*/
+#define NCP_CMD_WLAN_HTTP_CON         (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-http-connect */
+#define NCP_RSP_WLAN_HTTP_CON         (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000001)
+#define NCP_CMD_WLAN_HTTP_DISCON      (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000002) /* wlan-http-disconnect */
+#define NCP_RSP_WLAN_HTTP_DISCON      (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000002)
+#define NCP_CMD_WLAN_HTTP_REQ         (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-http-req */
+#define NCP_RSP_WLAN_HTTP_REQ         (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_WLAN_HTTP_RECV        (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000004) /* wlan-http-recv */
+#define NCP_RSP_WLAN_HTTP_RECV        (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000004)
+#define NCP_CMD_WLAN_HTTP_SETH        (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000005) /* wlan-http-seth */
+#define NCP_RSP_WLAN_HTTP_SETH        (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000005)
+#define NCP_CMD_WLAN_HTTP_UNSETH      (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000006) /* wlan-http-unseth */
+#define NCP_RSP_WLAN_HTTP_UNSETH      (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000006)
+#define NCP_CMD_WLAN_WEBSOCKET_UPG    (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000007) /* wlan-websocket-upg */
+#define NCP_RSP_WLAN_WEBSOCKET_UPG    (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000007)
+#define NCP_CMD_WLAN_WEBSOCKET_SEND   (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000008) /* wlan-websocket-send */
+#define NCP_RSP_WLAN_WEBSOCKET_SEND   (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000008)
+#define NCP_CMD_WLAN_WEBSOCKET_RECV   (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_CMD | 0x00000009) /* wlan-websocket-recv */
+#define NCP_RSP_WLAN_WEBSOCKET_RECV   (NCP_CMD_WLAN | NCP_CMD_WLAN_HTTP | NCP_MSG_TYPE_RESP | 0x00000009)
+
+/*WLAN Network command/response*/
+#define NCP_CMD_WLAN_NETWORK_INFO             (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-info */
+#define NCP_RSP_WLAN_NETWORK_INFO             (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000001)
+#define NCP_CMD_WLAN_NETWORK_MONITOR          (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000002) /* wlan-monitor */
+#define NCP_RSP_WLAN_NETWORK_MONITOR          (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000002)
+#define NCP_CMD_WLAN_NETWORK_ADD              (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-add */
+#define NCP_RSP_WLAN_NETWORK_ADD              (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_WLAN_NETWORK_START            (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000004) /* wlan-start-network */
+#define NCP_RSP_WLAN_NETWORK_START            (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000004)
+#define NCP_CMD_WLAN_NETWORK_STOP             (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000005) /* wlan-stop-network */
+#define NCP_RSP_WLAN_NETWORK_STOP             (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000005)
+#define NCP_CMD_WLAN_NETWORK_GET_UAP_STA_LIST (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000006) /* wlan-get-uap-sta-list */
+#define NCP_RSP_WLAN_NETWORK_GET_UAP_STA_LIST (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000006)
+#define NCP_CMD_WLAN_NETWORK_MDNS_QUERY       (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000007) /* wlan-mdns-query */
+#define NCP_RSP_WLAN_NETWORK_MDNS_QUERY       (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000007)
+#define NCP_CMD_WLAN_NETWORK_LIST             (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000008) /* wlan-list */
+#define NCP_RSP_WLAN_NETWORK_LIST             (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000008)
+#define NCP_CMD_WLAN_NETWORK_REMOVE           (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x00000009) /* wlan-remove */
+#define NCP_RSP_WLAN_NETWORK_REMOVE           (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x00000009)
+#define NCP_CMD_WLAN_NETWORK_ADDRESS          (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_CMD | 0x0000000A) /* wlan-address */
+#define NCP_RSP_WLAN_NETWORK_ADDRESS          (NCP_CMD_WLAN | NCP_CMD_WLAN_NETWORK | NCP_MSG_TYPE_RESP | 0x0000000A)
+
+
+/*WLAN Power Mgmt command/response*/
+#define NCP_CMD_WLAN_POWERMGMT_MEF           (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-multi-mef */
+#define NCP_RSP_WLAN_POWERMGMT_MEF           (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000001)
+#define NCP_CMD_WLAN_POWERMGMT_DEEP_SLEEP_PS (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000002) /* wlan-deep-sleep-ps */
+#define NCP_RSP_WLAN_POWERMGMT_DEEP_SLEEP_PS (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000002)
+#define NCP_CMD_WLAN_POWERMGMT_IEEE_PS       (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-ieee-ps */
+#define NCP_RSP_WLAN_POWERMGMT_IEEE_PS       (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_WLAN_POWERMGMT_UAPSD         (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000004)  /* wlan-uapsd-enable */
+#define NCP_RSP_WLAN_POWERMGMT_UAPSD         (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000004)
+#define NCP_CMD_WLAN_POWERMGMT_QOSINFO       (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000005) /* wlan-uapsd-qosinfo */
+#define NCP_RSP_WLAN_POWERMGMT_QOSINFO       (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000005)
+#define NCP_CMD_WLAN_POWERMGMT_SLEEP_PERIOD  (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000006) /* wlan-uapsd-sleep-period */
+#define NCP_RSP_WLAN_POWERMGMT_SLEEP_PERIOD  (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000006)
+#define NCP_CMD_WLAN_POWERMGMT_WOWLAN_CFG    (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000008) /* wlan-wowlan-cfg */
+#define NCP_RSP_WLAN_POWERMGMT_WOWLAN_CFG    (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000008)
+#define NCP_CMD_WLAN_POWERMGMT_SUSPEND       (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_CMD | 0x0000000a) /* wlan-suspend */
+#define NCP_RSP_WLAN_POWERMGMT_SUSPEND       (NCP_CMD_WLAN | NCP_CMD_WLAN_POWERMGMT | NCP_MSG_TYPE_RESP | 0x0000000a)
+
+/*WLAN Debug command/response*/
+#define  NCP_CMD_WLAN_DEBUG_REGISTER_ACCESS  (NCP_CMD_WLAN | NCP_CMD_WLAN_DEBUG | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-reg-access */
+#define  NCP_RSP_WLAN_DEBUG_REGISTER_ACCESS  (NCP_CMD_WLAN | NCP_CMD_WLAN_DEBUG | NCP_MSG_TYPE_RESP | 0x00000001)
+
+/*WLAN Memory command/response*/
+#define NCP_CMD_WLAN_MEMORY_HEAP_SIZE        (NCP_CMD_WLAN | NCP_CMD_WLAN_MEMORY | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-mem-stat */
+#define NCP_RSP_WLAN_MEMORY_HEAP_SIZE        (NCP_CMD_WLAN | NCP_CMD_WLAN_MEMORY | NCP_MSG_TYPE_RESP | 0x00000001)
+
+/*WLAN UAP command*/
+#define NCP_CMD_WLAN_UAP_MAX_CLIENT_CNT   (NCP_CMD_WLAN | NCP_CMD_WLAN_UAP | 0x00000001) /* wlan-set-max-clients-count */
+
+/*WLAN Other command */
+#define NCP_CMD_11AX_CFG       (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-set-11axcfg */
+#define NCP_RSP_11AX_CFG       (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000001)
+#define NCP_CMD_BTWT_CFG       (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD  | 0x00000002) /* wlan-set-11axcfg */
+#define NCP_RSP_BTWT_CFG       (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000002)
+#define NCP_CMD_TWT_SETUP      (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-set-btwt-cfg */ 
+#define NCP_RSP_TWT_SETUP      (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_TWT_TEARDOWN   (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000004) /* wlan-twt-teardown */
+#define NCP_RSP_TWT_TEARDOWN   (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000004)
+#define NCP_CMD_TWT_GET_REPORT (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000005) /* wlan-get-twt-report */
+#define NCP_RSP_TWT_GET_REPORT (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000005)
+#define NCP_CMD_11D_ENABLE     (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000006) /* wlan-set-11d-enable */
+#define NCP_RSP_11D_ENABLE     (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000006)
+#define NCP_CMD_REGION_CODE    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000007) /* wlan-region-code */
+#define NCP_RSP_REGION_CODE    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000007)
+#define NCP_CMD_DATE_TIME      (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000008) /* wlan-set/get-time */
+#define NCP_RSP_DATE_TIME      (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000008)
+#define NCP_CMD_GET_TEMPERATUE (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000009) /* wlan-get-temp */
+#define NCP_RSP_GET_TEMPERATUE (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000009)
+#define NCP_CMD_INVALID_CMD    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x0000000a)
+#define NCP_RSP_INVALID_CMD    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x0000000a)
+
+
+/*WLAN Regulatory command*/
+#define NCP_CMD_WLAN_REGULATORY_ED_MAC_MODE    (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-set-ed-mac-mode */
+#define NCP_RSP_WLAN_REGULATORY_ED_MAC_MODE    (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000001)
+
+#ifdef CONFIG_NCP_RF_TEST_MODE
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_TEST_MODE      (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000002) /* wlan-set-rf-test-mode */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_TEST_MODE      (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000002)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_TX_ANTENNA     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-set-rf-tx-antenna */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_TX_ANTENNA     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_WLAN_REGULATORY_GET_RF_TX_ANTENNA     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000004) /* wlan-get-rf-tx-antenna */
+#define NCP_RSP_WLAN_REGULATORY_GET_RF_TX_ANTENNA     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000004)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_RX_ANTENNA     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000005) /* wlan-set-rf-rx-antenna */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_RX_ANTENNA     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000005)
+#define NCP_CMD_WLAN_REGULATORY_GET_RF_RX_ANTENNA     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000006) /* wlan-get-rf-rx-antenna */
+#define NCP_RSP_WLAN_REGULATORY_GET_RF_RX_ANTENNA     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000006)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_BAND           (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000007) /* wlan-set-rf-band */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_BAND           (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000007)
+#define NCP_CMD_WLAN_REGULATORY_GET_RF_BAND           (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000008) /* wlan-get-rf-band */
+#define NCP_RSP_WLAN_REGULATORY_GET_RF_BAND           (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000008)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_BANDWIDTH      (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000009) /* wlan-set-rf-bandwidth */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_BANDWIDTH      (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000009)
+#define NCP_CMD_WLAN_REGULATORY_GET_RF_BANDWIDTH      (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x0000000a) /* wlan-get-rf-bandwidth */
+#define NCP_RSP_WLAN_REGULATORY_GET_RF_BANDWIDTH      (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x0000000a)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_CHANNEL        (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x0000000b) /* wlan-set-rf-channel */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_CHANNEL        (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x0000000b)
+#define NCP_CMD_WLAN_REGULATORY_GET_RF_CHANNEL        (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x0000000c) /* wlan-get-rf-channel */
+#define NCP_RSP_WLAN_REGULATORY_GET_RF_CHANNEL        (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x0000000c)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_RADIO_MODE     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x0000000d) /* wlan-set-rf-radio-mode */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_RADIO_MODE     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x0000000d)
+#define NCP_CMD_WLAN_REGULATORY_GET_RF_RADIO_MODE     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x0000000e) /* wlan-get-rf-radio-mode */
+#define NCP_RSP_WLAN_REGULATORY_GET_RF_RADIO_MODE     (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x0000000e)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_TX_POWER       (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x0000000f) /* wlan-set-rf-tx-power */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_TX_POWER       (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x0000000f)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_TX_CONT_MODE   (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000010) /* wlan-set-rf-tx-cont-mode */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_TX_CONT_MODE   (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000010)
+#define NCP_CMD_WLAN_REGULATORY_SET_RF_TX_FRAME       (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000011) /* wlan-set-rf-tx-frame */
+#define NCP_RSP_WLAN_REGULATORY_SET_RF_TX_FRAME       (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000011)
+#define NCP_CMD_WLAN_REGULATORY_GET_AND_RESET_RF_PER  (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000012) /* wlan-get-and-reset-rf-per */
+#define NCP_RSP_WLAN_REGULATORY_GET_AND_RESET_RF_PER  (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000012)
+
+#endif
+#define NCP_CMD_WLAN_REGULATORY_EU_CRYPTO_CCMP_128    (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000013) /* wlan-eu-crypto-ccmp-128 */
+#define NCP_RSP_WLAN_REGULATORY_EU_CRYPTO_CCMP_128    (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000013)
+#define NCP_CMD_WLAN_REGULATORY_EU_CRYPTO_GCMP_128    (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_CMD | 0x00000014) /* wlan-eu-crypto-gcmp-128 */
+#define NCP_RSP_WLAN_REGULATORY_EU_CRYPTO_GCMP_128    (NCP_CMD_WLAN | NCP_CMD_WLAN_REGULATORY | NCP_MSG_TYPE_RESP | 0x00000014)
+
+/*WLAN events*/
+#define NCP_EVENT_WLAN_STA_CONNECT    (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000006) /* wlan sta connect */
+#define NCP_EVENT_WLAN_STA_DISCONNECT (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000007) /* wlan sta disconnect */
+#define NCP_EVENT_WLAN_STOP_NETWORK   (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000008) /* wlan stop network */
+
+#define NCP_EVENT_MDNS_QUERY_RESULT   (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000003)
+#define NCP_EVENT_MDNS_RESOLVE_DOMAIN (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000004)
+#define NCP_EVENT_CSI_DATA            (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000005) /* csi data */
 
 typedef struct _NCP_CMD_POWERMGMT_MEF
 {
@@ -1316,24 +1561,50 @@ typedef struct _NCP_CMD_POWERMGMT_SLEEP_PERIOD
     uint8_t action;
 } NCP_CMD_POWERMGMT_SLEEP_PERIOD;
 
-typedef struct _power_cfg_t
-{
-    uint8_t enable;
-    uint8_t wake_mode;
-    uint8_t subscribe_evt;
-    uint32_t wake_duration;
-    uint8_t is_mef;
-    uint32_t wake_up_conds;
-    uint8_t is_manual;
-    uint32_t rtc_timeout;
-} power_cfg_t;
 
-typedef struct _NCP_CMD_POWERMGMT_WAKE_CFG
+/** Station Power save mode */
+enum wlan_ps_mode
 {
-    uint8_t wake_mode;
-    uint8_t subscribe_evt;
-    uint32_t wake_duration;
-} NCP_CMD_POWERMGMT_WAKE_CFG;
+    /** Active mode */
+    WLAN_ACTIVE = 0,
+    /** IEEE power save mode */
+    WLAN_IEEE,
+    /** Deep sleep power save mode */
+    WLAN_DEEP_SLEEP,
+    WLAN_IEEE_DEEP_SLEEP,
+    WLAN_WNM,
+    WLAN_WNM_DEEP_SLEEP,
+};
+
+/** WLAN station/micro-AP/Wi-Fi Direct Connection/Status state */
+enum wlan_connection_state
+{
+    /** The WLAN Connection Manager is not connected and no connection attempt
+     *  is in progress.  It is possible to connect to a network or scan. */
+    WLAN_DISCONNECTED,
+    /** The WLAN Connection Manager is not connected but it is currently
+     *  attempting to connect to a network.  It is not possible to scan at this
+     *  time.  It is possible to connect to a different network. */
+    WLAN_CONNECTING,
+    /** The WLAN Connection Manager is not connected but associated. */
+    WLAN_ASSOCIATED,
+    /** The WLAN Connection Manager is not connected but authenticated. */
+    WLAN_AUTHENTICATED,
+    /** The WLAN Connection Manager is connected.  It is possible to scan and
+     *  connect to another network at this time.  Information about the current
+     *  network configuration is available. */
+    WLAN_CONNECTED,
+    /** The WLAN Connection Manager has started uAP */
+    WLAN_UAP_STARTED,
+    /** The WLAN Connection Manager has stopped uAP */
+    WLAN_UAP_STOPPED,
+    /** The WLAN Connection Manager is not connected and network scan
+     * is in progress. */
+    WLAN_SCANNING,
+    /** The WLAN Connection Manager is not connected and network association
+     * is in progress. */
+    WLAN_ASSOCIATING,
+};
 
 typedef struct _NCP_CMD_POWERMGMT_WOWLAN_CFG
 {
@@ -1341,19 +1612,12 @@ typedef struct _NCP_CMD_POWERMGMT_WOWLAN_CFG
     uint8_t wake_up_conds;
 } NCP_CMD_POWERMGMT_WOWLAN_CFG;
 
-typedef struct _NCP_CMD_POWERMGMT_MCU_SLEEP
-{
-    uint8_t enable;
-    uint8_t is_manual;
-    int rtc_timeout;
-} NCP_CMD_POWERMGMT_MCU_SLEEP;
-
 typedef struct _NCP_CMD_POWERMGMT_SUSPEND
 {
     int mode;
 } NCP_CMD_POWERMGMT_SUSPEND;
 
-/*NCP Bridge HE CAPA tlv*/
+/*NCP HE CAPA tlv*/
 typedef struct _HE_CAP_ParamSet_t
 {
     /** 0xff: Extension Capability IE */
@@ -1370,14 +1634,14 @@ typedef struct _HE_CAP_ParamSet_t
     uint8_t val[28];
 } HE_CAP_ParamSet_t;
 
-typedef struct _NCP_CMD_11AX_CFG
+typedef struct _NCP_CMD_11AX_CFG_INFO
 {
     /** band, BIT0:2.4G, BIT1:5G, both set for 2.4G and 5G*/
     uint8_t band;
     HE_CAP_ParamSet_t he_cap_tlv;
-} NCP_CMD_11AX_CFG;
+} NCP_CMD_11AX_CFG_INFO;
 
-typedef struct _NCP_CMD_BTWT_CFG
+typedef struct _NCP_CMD_BTWT_CFG_INFO
 {
     /** only support 1: Set */
     uint16_t action;
@@ -1391,9 +1655,9 @@ typedef struct _NCP_CMD_BTWT_CFG
     uint16_t twt_offset;
     uint8_t twt_exponent;
     uint8_t sp_gap;
-} NCP_CMD_BTWT_CFG;
+} NCP_CMD_BTWT_CFG_INFO;
 
-typedef struct _NCP_CMD_TWT_SETUP
+typedef struct _NCP_CMD_TWT_SETUP_CFG
 {
     /** Implicit, 0: TWT session is explicit, 1: Session is implicit */
     uint8_t implicit;
@@ -1420,9 +1684,9 @@ typedef struct _NCP_CMD_TWT_SETUP
     uint16_t twt_mantissa;
     /** TWT Request Type, 0: REQUEST_TWT, 1: SUGGEST_TWT*/
     uint8_t twt_request;
-} NCP_CMD_TWT_SETUP;
+} NCP_CMD_TWT_SETUP_CFG;
 
-typedef struct _NCP_CMD_TWT_TEARDOWN
+typedef struct _NCP_CMD_TWT_TEARDOWN_CFG
 {
     /** TWT Flow Identifier. Range: [0-7] */
     uint8_t flow_identifier;
@@ -1431,7 +1695,7 @@ typedef struct _NCP_CMD_TWT_TEARDOWN
     uint8_t negotiation_type;
     /** Tear down all TWT. 1: To teardown all TWT, 0 otherwise */
     uint8_t teardown_all_twt;
-} NCP_CMD_TWT_TEARDOWN;
+} NCP_CMD_TWT_TEARDOWN_CFG;
 
 typedef struct _IEEE_BTWT_ParamSet_t
 {
@@ -1474,7 +1738,7 @@ typedef struct _NCP_CMD_11D_ENABLE
     uint32_t role;
     /** 0 - disable, 1 - enable */
     uint32_t state;
-} NCP_CMD_11D_ENABLE;
+} NCP_CMD_11D_ENABLE_CFG;
 
 typedef struct _NCP_CMD_REGION_CODE
 {
@@ -1482,23 +1746,7 @@ typedef struct _NCP_CMD_REGION_CODE
     uint32_t action;
     /** region code, 0xaa for world wide safe, 0x10 for US FCC, etc */
     uint32_t region_code;
-} NCP_CMD_REGION_CODE;
-
-typedef struct _NCP_CMD_SYSTEM_CFG
-{
-    /* the name of system config file: sys, prov, wlan */
-    char module_name[MODULE_NAME_MAX_LEN];
-    /* the name of entry */
-    char variable_name[VAR_NAME_MAX_LEN];
-    /* set value/returned result */
-    char value[CONFIG_VALUE_MAX_LEN];
-} NCP_CMD_SYSTEM_CFG;
-
-typedef struct _NCP_CMD_SYSTEM_SDIO_SET
-{
-    /* value */
-    int val;
-} NCP_CMD_SYSTEM_SDIO_SET;
+} NCP_CMD_REGION_CODE_CFG;
 
 typedef struct _NCP_CMD_CLIENT_CNT
 {
@@ -1639,7 +1887,7 @@ typedef struct _NCP_CMD_DATE_TIME
 {
     uint32_t action;
     wlan_date_time_t date_time;
-} NCP_CMD_DATE_TIME;
+} NCP_CMD_DATE_TIME_CFG;
 
 typedef struct _NCP_CMD_TEMPERATURE
 {
@@ -1678,7 +1926,7 @@ typedef struct _NCP_CMD_MDNS_QUERY
     } Q;
 } NCP_CMD_MDNS_QUERY;
 
-/*NCP Bridge PTR RR tlv*/
+/*NCP PTR RR tlv*/
 typedef struct _PTR_ParamSet_t
 {
     TypeHeader_t header;
@@ -1690,7 +1938,7 @@ typedef struct _PTR_ParamSet_t
     char proto[8];
 } PTR_ParamSet_t;
 
-/*NCP Bridge SRV RR tlv*/
+/*NCP SRV RR tlv*/
 typedef struct _SRV_ParamSet_t
 {
     TypeHeader_t header;
@@ -1702,7 +1950,7 @@ typedef struct _SRV_ParamSet_t
     char target[63 + 1];
 } SRV_ParamSet_t;
 
-/*NCP Bridge TXT RR tlv*/
+/*NCP TXT RR tlv*/
 typedef struct _TXT_ParamSet_t
 {
     TypeHeader_t header;
@@ -1712,7 +1960,7 @@ typedef struct _TXT_ParamSet_t
     char txt[63 + 1];
 } TXT_ParamSet_t;
 
-/*NCP Bridge A&AAAA RR tlv*/
+/*NCP A&AAAA RR tlv*/
 typedef struct _IP_ADDR_ParamSet_t
 {
     TypeHeader_t header;
@@ -1789,127 +2037,10 @@ typedef struct _NCP_EVT_MDNS_RESOLVE
     } u_addr;
 } NCP_EVT_MDNS_RESOLVE;
 
-#define PING_INTERVAL 1000
-#define PING_DEFAULT_TIMEOUT_SEC 2
-#define PING_DEFAULT_COUNT       10
-#define PING_DEFAULT_SIZE        56
-#define PING_MAX_SIZE            65507
-#define PING_ID 0xAFAF
-#define IP_ADDR_LEN 16
-
-struct icmp_echo_hdr {
-    uint8_t type;
-    uint8_t code;
-    uint16_t chksum;
-    uint16_t id;
-    uint16_t seqno;
-};
-
-typedef uint32_t in_addr_t;
-
-struct ip_hdr {
-    /* version / header length */
-    uint8_t _v_hl;
-    /* type of service */
-    uint8_t _tos;
-    /* total length */
-    uint16_t _len;
-    /* identification */
-    uint16_t _id;
-    /* fragment offset field */
-    uint16_t _offset;
-#define IP_RF 0x8000U        /* reserved fragment flag */
-#define IP_DF 0x4000U        /* don't fragment flag */
-#define IP_MF 0x2000U        /* more fragments flag */
-#define IP_OFFMASK 0x1fffU   /* mask for fragmenting bits */
-    /* time to live */
-    uint8_t _ttl;
-    /* protocol*/
-    uint8_t _proto;
-    /* checksum */
-    uint16_t _chksum;
-    /* source and destination IP addresses */
-    in_addr_t src;
-    in_addr_t dest;
-};
-
-typedef struct _ping_msg_t
-{
-    uint16_t size;
-    uint32_t count;
-    uint32_t timeout;
-    uint32_t handle;
-    char ip_addr[IP_ADDR_LEN];
-    uint32_t port;
-} ping_msg_t;
-
-typedef struct _ping_time_t
-{
-    uint32_t secs;
-    uint32_t usecs;
-} ping_time_t;
-
-typedef struct _ping_res
-{
-    int seq_no;
-    int echo_resp;
-    ping_time_t time;
-    uint32_t recvd;
-    int ttl;
-    char ip_addr[IP_ADDR_LEN];
-    uint16_t size;
-} ping_res_t;
-
-/**
- * @brief This function prepares ncp iperf command
- *
- * @return Status returned
- */
-
-#define NCP_IPERF_TCP_SERVER_PORT_DEFAULT 5001
-#define NCP_IPERF_UDP_SERVER_PORT_DEFAULT NCP_IPERF_TCP_SERVER_PORT_DEFAULT + 2
-#define NCP_IPERF_UDP_RATE           30*1024
-#define NCP_IPERF_UDP_TIME           1000
-#define NCP_IPERF_PKG_COUNT          1000
-#define NCP_IPERF_PER_TCP_PKG_SIZE   1448
-#define NCP_IPERF_PER_UDP_PKG_SIZE   1472
-
-#define IPERF_TCP_RECV_TIMEOUT           1000
-#define IPERF_UDP_RECV_TIMEOUT           1000
-#define NCP_IPERF_END_TOKEN_SIZE     11
-enum ncp_iperf_item
-{
-    NCP_IPERF_TCP_TX,
-    NCP_IPERF_TCP_RX,
-    NCP_IPERF_UDP_TX,
-    NCP_IPERF_UDP_RX,
-    FALSE_ITEM,
-};
-
-typedef struct _iperf_set_t
-{
-	uint32_t iperf_type;
-	uint32_t iperf_count;
-    uint32_t iperf_udp_rate;
-    uint32_t iperf_udp_time;
-} iperf_set_t;
-
-typedef struct _iperf_msg_t
-{
-    int16_t status[2];
-    uint32_t count;
-    uint32_t timeout;
-    uint32_t handle;
-    uint32_t port;
-    uint16_t per_size;
-    char ip_addr[IP_ADDR_LEN];
-    iperf_set_t iperf_set;
-} iperf_msg_t;
-
 typedef struct _NCPCmd_DS_COMMAND
 {
     /** Command Header : Command */
-    NCP_BRIDGE_COMMAND header;
+    NCP_COMMAND header;
     /** Command Body */
     union
     {
@@ -1982,22 +2113,19 @@ typedef struct _NCPCmd_DS_COMMAND
         NCP_CMD_POWERMGMT_UAPSD uapsd_cfg;
         NCP_CMD_POWERMGMT_QOSINFO qosinfo_cfg;
         NCP_CMD_POWERMGMT_SLEEP_PERIOD sleep_period_cfg;
-        /** wlan wake config */
-        NCP_CMD_POWERMGMT_WAKE_CFG wake_config;
+
         /** wlan wowlan config */
         NCP_CMD_POWERMGMT_WOWLAN_CFG wowlan_config;
-        /** wlan mcu sleep config */
-        NCP_CMD_POWERMGMT_MCU_SLEEP mcu_sleep_config;
         /** wlan suspend config */
         NCP_CMD_POWERMGMT_SUSPEND suspend_config;
 
-        NCP_CMD_11AX_CFG he_cfg;
-        NCP_CMD_BTWT_CFG btwt_cfg;
-        NCP_CMD_TWT_SETUP twt_setup;
-        NCP_CMD_TWT_TEARDOWN twt_teardown;
+        NCP_CMD_11AX_CFG_INFO he_cfg;
+        NCP_CMD_BTWT_CFG_INFO btwt_cfg;
+        NCP_CMD_TWT_SETUP_CFG twt_setup;
+        NCP_CMD_TWT_TEARDOWN_CFG twt_teardown;
         NCP_CMD_TWT_REPORT twt_report;
-        NCP_CMD_11D_ENABLE wlan_11d_cfg;
-        NCP_CMD_REGION_CODE region_cfg;
+        NCP_CMD_11D_ENABLE_CFG wlan_11d_cfg;
+        NCP_CMD_REGION_CODE_CFG region_cfg;
 
         /*regulatory commands*/
         NCP_CMD_ED_MAC ed_mac_mode;
@@ -2020,11 +2148,7 @@ typedef struct _NCPCmd_DS_COMMAND
         /*Memory commands*/
         NCP_CMD_MEM_STAT mem_stat;
 
-        /** System configuration */
-        NCP_CMD_SYSTEM_CFG system_cfg;
-        NCP_CMD_SYSTEM_SDIO_SET sdio_set;
-
-        NCP_CMD_DATE_TIME date_time;
+        NCP_CMD_DATE_TIME_CFG date_time;
         NCP_CMD_TEMPERATURE temperature;
 
         /** wlan connect*/
@@ -2045,201 +2169,9 @@ typedef struct _NCPCmd_DS_COMMAND
     } params;
 } NCPCmd_DS_COMMAND;
 
-/** Station Power save mode */
-enum wlan_ps_mode
-{
-    /** Active mode */
-    WLAN_ACTIVE = 0,
-    /** IEEE power save mode */
-    WLAN_IEEE,
-    /** Deep sleep power save mode */
-    WLAN_DEEP_SLEEP,
-    WLAN_IEEE_DEEP_SLEEP,
-    WLAN_WNM,
-    WLAN_WNM_DEEP_SLEEP,
-};
-
-/** WLAN station/micro-AP/Wi-Fi Direct Connection/Status state */
-enum wlan_connection_state
-{
-    /** The WLAN Connection Manager is not connected and no connection attempt
-     *  is in progress.  It is possible to connect to a network or scan. */
-    WLAN_DISCONNECTED,
-    /** The WLAN Connection Manager is not connected but it is currently
-     *  attempting to connect to a network.  It is not possible to scan at this
-     *  time.  It is possible to connect to a different network. */
-    WLAN_CONNECTING,
-    /** The WLAN Connection Manager is not connected but associated. */
-    WLAN_ASSOCIATED,
-    /** The WLAN Connection Manager is not connected but authenticated. */
-    WLAN_AUTHENTICATED,
-    /** The WLAN Connection Manager is connected.  It is possible to scan and
-     *  connect to another network at this time.  Information about the current
-     *  network configuration is available. */
-    WLAN_CONNECTED,
-    /** The WLAN Connection Manager has started uAP */
-    WLAN_UAP_STARTED,
-    /** The WLAN Connection Manager has stopped uAP */
-    WLAN_UAP_STOPPED,
-    /** The WLAN Connection Manager is not connected and network scan
-     * is in progress. */
-    WLAN_SCANNING,
-    /** The WLAN Connection Manager is not connected and network association
-     * is in progress. */
-    WLAN_ASSOCIATING,
-};
-
-extern int cli_optind;
-extern char *cli_optarg;
-static inline int cli_getopt(int argc, char **argv, const char *fmt)
-{
-    char *opt, *c;
-
-    if (cli_optind == argc)
-        return -1;
-    cli_optarg = NULL;
-    opt        = argv[cli_optind];
-    if (opt[0] != '-')
-        return -1;
-    if (opt[0] == 0 || opt[1] == 0)
-        return '?';
-    cli_optind++;
-    c = strchr(fmt, opt[1]);
-    if (c == NULL)
-        return opt[1];
-    if (c[1] == ':')
-    {
-        if (cli_optind < argc)
-            cli_optarg = argv[cli_optind++];
-    }
-    return c[0];
-}
-
-static inline uint16_t inet_chksum(const void *dataptr, int len)
-{
-    const uint8_t *pb = (const uint8_t *)dataptr;
-    const uint16_t *ps;
-    uint16_t t   = 0;
-    uint32_t sum = 0;
-    int odd      = ((uintptr_t)pb & 1);
-
-    /* Get aligned to u16_t */
-    if (odd && len > 0)
-    {
-        ((uint8_t *)&t)[1] = *pb++;
-        len--;
-    }
-
-    /* Add the bulk of the data */
-    ps = (const uint16_t *)(const void *)pb;
-    while (len > 1)
-    {
-        sum += *ps++;
-        len -= 2;
-    }
-
-    /* Consume left-over byte, if any */
-    if (len > 0)
-    {
-        ((uint8_t *)&t)[0] = *(const uint8_t *)ps;
-    }
-
-    /* Add end bytes */
-    sum += t;
-
-    /* Fold 32-bit sum to 16 bits
-       calling this twice is probably faster than if statements... */
-    sum = FOLD_U32T(sum);
-    sum = FOLD_U32T(sum);
-
-    /* Swap if alignment was odd */
-    if (odd)
-    {
-        sum = SWAP_BYTES_IN_WORD(sum);
-    }
-
-    return (uint16_t)(~(unsigned int)(uint16_t)sum);
-}
-
-int gettimeofday();
-
-static inline int ping_time_now(ping_time_t *time)
-{
-    struct timeval tv;
-    int result;
-    result = gettimeofday(&tv, NULL);
-    time->secs = tv.tv_sec;
-    time->usecs = tv.tv_usec;
-    return result;
-}
-
-/* ping_time_compare
- *
- * Compare two timestamps
- *
- * Returns -1 if time1 is earlier, 1 if time1 is later,
- * or 0 if the timestamps are equal.
- */
-static inline int ping_time_compare(ping_time_t *time1, ping_time_t *time2)
-{
-    if (time1->secs < time2->secs)
-        return -1;
-    if (time1->secs > time2->secs)
-        return 1;
-    if (time1->usecs < time2->usecs)
-        return -1;
-    if (time1->usecs > time2->usecs)
-        return 1;
-    return 0;
-}
-
-/* ping_time_diff
- *
- * Calculates the time from time2 to time1, assuming time1 is later than time2.
- * The diff will always be positive, so the return value should be checked
- * to determine if time1 was earlier than time2.
- *
- * Returns 1 if the time1 is less than or equal to time2, otherwise 0.
- */
-static inline int ping_time_diff(ping_time_t *time1, ping_time_t *time2, ping_time_t *diff)
-{
-    int past = 0;
-    int cmp = 0;
-
-    cmp = ping_time_compare(time1, time2);
-    if (cmp == 0) {
-        diff->secs = 0;
-        diff->usecs = 0;
-        past = 1;
-    }
-    else if (cmp == 1) {
-        diff->secs = time1->secs - time2->secs;
-        diff->usecs = time1->usecs;
-        if (diff->usecs < time2->usecs) {
-            diff->secs --;
-            diff->usecs += 1000000;
-        }
-        diff->usecs = diff->usecs - time2->usecs;
-    } else {
-        diff->secs = time2->secs - time1->secs;
-        diff->usecs = time2->usecs;
-        if (diff->usecs < time1->usecs) {
-            diff->secs --;
-            diff->usecs += 1000000;
-        }
-        diff->usecs = diff->usecs - time1->usecs;
-        past = 1;
-    }
-
-    return past;
-}
-
-static inline uint64_t ping_time_in_msecs(ping_time_t *time)
-{
-    return (uint64_t)time->secs * 1000 + (uint64_t)time->usecs / 1000;
-}
-
 #pragma pack()
+
+NCPCmd_DS_COMMAND *mpu_host_get_wifi_command_buffer();
 
 /*Convert IP Adderss to hexadecimal*/
 int strip_to_hex(int *number, int len);
@@ -2292,13 +2224,6 @@ int wlan_info_command(int argc, char **argv);
 int wlan_get_signal_command(int argc, char **argv);
 
 int wlan_multi_mef_command(int argc, char **argv);
-
-int ncp_set_command(int argc, char **argv);
-
-int ncp_get_command(int argc, char **argv);
-
-int ncp_set_sdio(uint8_t *buf, uint32_t buf_len, uint32_t val);
-int ncp_set_sdio_command(int argc, char **argv);
 
 int wlan_set_max_clients_count_command(int argc, char **argv);
 
@@ -2413,12 +2338,6 @@ int wlan_process_stop_network_response(uint8_t *res);
 
 int wlan_process_get_uap_sta_list(uint8_t *res);
 
-int ncp_process_set_cfg_response(uint8_t *res);
-
-int ncp_process_get_cfg_response(uint8_t *res);
-
-int ncp_process_test_loopback_response(uint8_t *res);
-
 int wlan_process_multi_mef_response(uint8_t *res);
 
 int wlan_set_wmm_uapsd_command(int argc, char **argv);
@@ -2433,15 +2352,11 @@ int wlan_uapsd_sleep_period_command(int argc, char **argv);
 
 int wlan_process_uapsd_sleep_period_response(uint8_t *res);
 
-int wlan_wake_cfg_command(int argc, char **argv);
-
 int wlan_process_wake_mode_response(uint8_t *res);
 
 int wlan_wowlan_cfg_command(int argc, char **argv);
 
 int wlan_process_wakeup_condition_response(uint8_t *res);
-
-int wlan_mcu_sleep_command(int argc, char **argv);
 
 int wlan_process_mcu_sleep_response(uint8_t *res);
 
@@ -2542,19 +2457,19 @@ int wlan_get_rf_radio_mode_command(int argc, char **argv);
 
 int wlan_process_get_rf_radio_mode_response(uint8_t *res);
 
-int wlan_bridge_set_rf_tx_power_command(int argc, char **argv);
+int wlan_ncp_set_rf_tx_power_command(int argc, char **argv);
 
 int wlan_process_set_rf_tx_power_response(uint8_t *res);
 
-int wlan_bridge_set_rf_tx_cont_mode_command(int argc, char **argv);
+int wlan_ncp_set_rf_tx_cont_mode_command(int argc, char **argv);
 
 int wlan_process_set_rf_tx_cont_mode_response(uint8_t *res);
 
-int wlan_bridge_set_rf_tx_frame_command(int argc, char **argv);
+int wlan_ncp_set_rf_tx_frame_command(int argc, char **argv);
 
 int wlan_process_set_rf_tx_frame_response(uint8_t *res);
 
-int wlan_bridge_set_rf_get_and_reset_rf_per_command(int argc, char **argv);
+int wlan_ncp_set_rf_get_and_reset_rf_per_command(int argc, char **argv);
 
 int wlan_process_set_rf_get_and_reset_rf_per_response(uint8_t *res);
 #endif
@@ -2564,6 +2479,14 @@ int wlan_process_register_access_response(uint8_t *res);
 #ifdef CONFIG_MEM_MONITOR_DEBUG
 int wlan_process_memory_state_response(uint8_t *res);
 #endif
+
+int wlan_eu_crypto_ccmp128_command(int argc, char **argv);
+
+int wlan_process_eu_crypto_ccmp128_response(uint8_t *res);
+
+int wlan_eu_crypto_gcmp128_command(int argc, char **argv);
+
+int wlan_process_eu_crypto_gcmp128_response(uint8_t *res);
 
 int wlan_set_time_command(int argc, char **argv);
 
@@ -2589,12 +2512,15 @@ int wlan_process_network_list_response(uint8_t *res);
 
 int wlan_process_network_remove_response(uint8_t *res);
 
-NCPCmd_DS_COMMAND *ncp_mpu_bridge_get_command_buffer();
+int wlan_process_con_event(uint8_t *res);
 
-void clear_mpu_bridge_command_buffer();
+int wlan_process_discon_event(uint8_t *res);
 
-int mpu_bridge_init_cli_commands();
+int wlan_process_stop_network_event(uint8_t *res);
 
 int ncp_ping_command(int argc, char **argv);
 
-#endif /*__MPU_BRIDGE_COMMAND_H__*/
+int mpu_host_init_cli_commands_wifi();
+int mpu_host_deinit_cli_commands_wifi();
+
+#endif /*__NCP_HOST_COMMAND_WIFI_H__*/

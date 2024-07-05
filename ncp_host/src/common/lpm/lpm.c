@@ -11,7 +11,7 @@
 #include <linux/ioctl.h>
 #include <pthread.h>
 
-#include "mpu_bridge_command.h"
+#include "ncp_host_command.h"
 #include "lpm.h"
 #include "ncp_tlv_adapter.h"
 

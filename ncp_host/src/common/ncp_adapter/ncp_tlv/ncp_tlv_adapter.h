@@ -53,7 +53,7 @@
 #define NCP_MAX_CLASS           5
 
 #define NCP_GET_PEER_CHKSUM(tlv, tlv_sz) (*(uint32_t *)(tlv + tlv_sz))
-#define NCP_GET_CLASS(tlv) ((*((uint32_t *)(tlv)) & 0xff000000) >> 24)
+#define NCP_GET_CLASS(tlv) ((*((uint32_t *)(tlv)) & 0xf0000000) >> 28)
 
 #define ARG_UNUSED(x) (void)(x)
 
