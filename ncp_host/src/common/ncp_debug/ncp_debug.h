@@ -29,4 +29,8 @@
 #define CONFIG_NCP_DEBUG_ADAP
 #endif
 
+#define NCP_SUCCESS 0
+#define NCP_FAIL    1
+
+
 #endif /* __NCP_DEBUG_H__ */

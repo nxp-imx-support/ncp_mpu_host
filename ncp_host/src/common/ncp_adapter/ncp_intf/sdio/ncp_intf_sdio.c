@@ -7,8 +7,11 @@
 
 #include "ncp_intf_sdio.h"
 #include "ncp_tlv_adapter.h"
+#include "ncp_host_command.h"
+#include "ncp_system_command.h"
+
+#include "ncp_host_command_wifi.h"
 #include "sdio.h"
-#include "mpu_bridge_command.h"
 #include "lpm.h"
 
 #include <pthread.h>
@@ -168,7 +171,7 @@ ncp_status_t ncp_sdio_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t 
 
 ncp_status_t ncp_sdio_lpm_exit(int32_t pm_state)
 {
-    uint8_t sdio_cmd_buf[sizeof(NCP_BRIDGE_COMMAND) + sizeof(NCP_CMD_SYSTEM_SDIO_SET)] = {0};
+    uint8_t sdio_cmd_buf[sizeof(NCP_COMMAND) + sizeof(NCP_CMD_SYSTEM_SDIO_SET)] = {0};
 
     if(NCP_PM_STATE_PM3 == pm_state)
     {
@@ -176,5 +179,6 @@ ncp_status_t ncp_sdio_lpm_exit(int32_t pm_state)
         ncp_set_sdio(sdio_cmd_buf, sizeof(sdio_cmd_buf), 1);
         ncp_sdio_send(sdio_cmd_buf, sizeof(sdio_cmd_buf), NULL);
     }
+    return NCP_STATUS_SUCCESS;
 }
 

@@ -4,8 +4,8 @@
  *  SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef __MPU_BRIDGE_WIFI_CONFIG_H__
-#define __MPU_BRIDGE_WIFI_CONFIG_H__
+#ifndef __NCP_HOST_WIFI_CONFIG_H__
+#define __NCP_HOST_WIFI_CONFIG_H__
 
 /* WLAN SCAN OPT */
 #define CONFIG_SCAN_WITH_RSSIFILTER
@@ -55,8 +55,10 @@
 #endif
 
 #define CONFIG_NCP_SUPP_WPS
+#define CONFIG_NCP_11AC 1
+#define CONFIG_NCP_11AX 1
 #else
 #undef CONFIG_WPA_SUPP
 #endif /*CONFIG_NCP_SUPP*/
 
-#endif /*__MPU_BRIDGE_WIFI_CONFIG_H__*/
+#endif /*__NCP_HOST_WIFI_CONFIG_H__*/

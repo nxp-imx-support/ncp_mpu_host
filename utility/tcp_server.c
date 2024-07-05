@@ -198,41 +198,41 @@ int start_tcp(void)
     printf("tcp server start....\n");
 
     struct sockaddr_in clientaddr = {0};
-    int ncp_bridge_fd             = -1;
+    int ncp_host_fd             = -1;
 
     addr_len = sizeof(clientaddr);
     while (1)
     {
         printf("wait a client....\n");
         /*wait client connect*/
-        ncp_bridge_fd = accept(sockfd, (struct sockaddr *)&clientaddr, &addr_len);
-        if (ncp_bridge_fd < 0)
+        ncp_host_fd = accept(sockfd, (struct sockaddr *)&clientaddr, &addr_len);
+        if (ncp_host_fd < 0)
         {
-            perror("ncp bridge server accept");
+            perror("ncp host server accept");
             return -1;
         }
 
         //printf("client ip:%s client port:%d\n", inet_ntoa(clientaddr.sin_addr), ntohs(clientaddr.sin_port));
         /* the least pkt is 10 every iperf test*/
 	    int sendbuf_size = 10 * 1460;
-	    ret = setsockopt(ncp_bridge_fd, SOL_SOCKET, SO_SNDBUF, &sendbuf_size, sizeof(int));
+	    ret = setsockopt(ncp_host_fd, SOL_SOCKET, SO_SNDBUF, &sendbuf_size, sizeof(int));
         if (ret < 0)
         {
             perror("setsockopt");
             return -1;
         }
         printf("wait setting\n");
-        if (0 > recv(ncp_bridge_fd, (char *)(&td.iperf_set), sizeof(iperf_set_t), 0))
+        if (0 > recv(ncp_host_fd, (char *)(&td.iperf_set), sizeof(iperf_set_t), 0))
         {
             printf("get setting fail\n");
-            close(ncp_bridge_fd);
+            close(ncp_host_fd);
             continue;
         }
 
-        td.sockfd       = ncp_bridge_fd;
+        td.sockfd       = ncp_host_fd;
         td.per_pkt_size = NCP_IPERF_TCP_PER_PKG_SIZE;
         start_thread(&td);
-        close(ncp_bridge_fd);
+        close(ncp_host_fd);
     }
     close(sockfd);
 }
@@ -276,7 +276,7 @@ int start_udp(void)
                        &addr_len);
         if (ret <= 0)
         {
-            perror("ncp bridge udp server recvfrom fail");
+            perror("ncp host udp server recvfrom fail");
             continue;
         }
         printf("client ip:%s client port:%d\n", inet_ntoa(clientaddr.sin_addr), ntohs(clientaddr.sin_port));
@@ -321,7 +321,7 @@ void *send_data(void *arg)
     iperf_set_t iperf_set = td->iperf_set;
     long long pkt_size    = td->pkt_size;
     int per_pkt_size      = td->per_pkt_size;
-    printf("ncp bridge iperf start tx\n");
+    printf("ncp host iperf start tx\n");
     struct sockaddr_in *clientaddr = td->clientaddr;
     socklen_t *addrlen             = &td->addrlen;
     long long udp_rate             = iperf_set.iperf_udp_rate;
@@ -369,20 +369,20 @@ void *send_data(void *arg)
             printf("socket type is error\n");
         if (ret == -EAGAIN)
         {
-            printf("ncp bridge iperf send buffer is full\n");
+            printf("ncp host iperf send buffer is full\n");
             usleep(1);
         }
         else if (ret < 0)
         {
-            printf("ncp bridge iperf send data fail\n");
-            printf("ncp bridge iperf end tx\n");
+            printf("ncp host iperf send data fail\n");
+            printf("ncp host iperf end tx\n");
             break;
         }
         else
             send_sum += ret;
         i++;
         if (!(i % 1000))
-            printf("ncp bridge iperf send data pkg = %d, send_sum = %lld\n", i, send_sum);
+            printf("ncp host iperf send data pkg = %d, send_sum = %lld\n", i, send_sum);
     }
 
     gettimeofday(&cur_time, NULL);
@@ -396,7 +396,7 @@ void *send_data(void *arg)
     else if (iperf_set.iperf_type == NCP_IPERF_UDP_RX)
         sendto(fd, lwiperf_end_token, NCP_IPERF_END_TOKEN_SIZE, 0, (struct sockaddr *)clientaddr, *addrlen);
     
-    printf("ncp bridge iperf end tx\n");
+    printf("ncp host iperf end tx\n");
     printf("tcp rx rate = %dkbit/s\n", rate);
 }
 
@@ -420,7 +420,7 @@ void *recv_data(void *arg)
     struct sockaddr_in *clientaddr = td->clientaddr;
     socklen_t *addrlen             = &td->addrlen;
 
-    printf("ncp bridge iperf start rx\n");
+    printf("ncp host iperf start rx\n");
 
     while (recv_len_sum < pkt_size)
     {
@@ -438,8 +438,8 @@ void *recv_data(void *arg)
 
         if (ret <= 0)
         {
-            perror("ncp bridge server recv");
-            printf("ncp bridge iperf end rx\n");
+            perror("ncp host server recv");
+            printf("ncp host iperf end rx\n");
 
             gettimeofday(&iperf_timer_end, NULL);
             total_time_ms = (iperf_timer_end.tv_sec - iperf_timer_start.tv_sec) * 1000 +
@@ -468,7 +468,7 @@ void *recv_data(void *arg)
             gettimeofday(&iperf_timer_end, NULL);
         }
     }
-    printf("ncp bridge iperf end rx\n");
+    printf("ncp host iperf end rx\n");
 
     total_time_ms = (iperf_timer_end.tv_sec - iperf_timer_start.tv_sec) * 1000 +
                     (iperf_timer_end.tv_usec - iperf_timer_start.tv_usec) / 1000;

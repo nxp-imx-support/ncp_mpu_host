@@ -1,6 +1,6 @@
 /** @file spi_master.c
  *
- *  @brief This file provides  mpu bridge interfaces
+ *  @brief This file provides  mpu ncp host spi interfaces
  *
  *  Copyright 2023-2024 NXP
  *
@@ -31,13 +31,13 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include "spi_master.h"
-#include <mpu_bridge_app.h>
-#include <mpu_bridge_command.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/eventfd.h>
 #include <mqueue.h>
+#include "spi_master.h"
+#include "ncp_host_app.h"
+#include "ncp_host_command.h"
 
 #ifdef CONFIG_SPI_DEBUG
 #define SPI_DEBUG_PRINT(fmt, ...) \
@@ -446,15 +446,15 @@ resend:
 	SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
     len = data_size;
     p   = buff;
-    trans_len = NCP_BRIDGE_CMD_HEADER_LEN;
-	ret = spi_master_tx(spi_dev_fd, p, trans_len);
+    trans_len = NCP_CMD_HEADER_LEN;
+    ret = spi_master_tx(spi_dev_fd, p, trans_len);
     if (ret < 0)
     {
         printf("spi slave tx fail");
         goto done;
     }
-    len -= NCP_BRIDGE_CMD_HEADER_LEN;
-    p += NCP_BRIDGE_CMD_HEADER_LEN;
+    len -= NCP_CMD_HEADER_LEN;
+    p += NCP_CMD_HEADER_LEN;
     while (len)
     {
 		pthread_mutex_lock(spi_slave_rx_ready_mutex);
@@ -499,7 +499,7 @@ int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz)
     /* spi transfer valid data */	
 	pthread_mutex_lock(spi_slave_rx_ready_mutex);
 	SPI_DEBUG_PRINT("spi transfer complete-rx-%d\n", __LINE__);
-    trans_len = NCP_BRIDGE_CMD_HEADER_LEN;
+    trans_len = NCP_CMD_HEADER_LEN;
 	ret = spi_master_rx(spi_dev_fd, p, trans_len);
     if (ret)
     {
@@ -509,16 +509,16 @@ int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz)
 
     /* Length of the packet is indicated by byte[4] & byte[5] of
      * the packet excluding checksum [4 bytes]*/
-    resp_len = (p[NCP_BRIDGE_CMD_SIZE_HIGH_BYTES] << 8) | p[NCP_BRIDGE_CMD_SIZE_LOW_BYTES];
+    resp_len = (p[NCP_CMD_SIZE_HIGH_BYTES] << 8) | p[NCP_CMD_SIZE_LOW_BYTES];
     total_len = resp_len + CHECKSUM_LEN;
 
-    if (resp_len < NCP_BRIDGE_CMD_HEADER_LEN || total_len >= NCP_BRIDGE_COMMAND_LEN)
+    if (resp_len < NCP_CMD_HEADER_LEN || total_len >= NCP_COMMAND_LEN)
     {
-        printf("Invalid tlv reponse length from ncp bridge\n");
+        printf("Invalid tlv reponse length from ncp device.\n");
         goto done;
     }
-    len = total_len - NCP_BRIDGE_CMD_HEADER_LEN;
-    p += NCP_BRIDGE_CMD_HEADER_LEN;
+    len = total_len - NCP_CMD_HEADER_LEN;
+    p += NCP_CMD_HEADER_LEN;
     while (len)
     {
 		pthread_mutex_lock(spi_slave_rx_ready_mutex);

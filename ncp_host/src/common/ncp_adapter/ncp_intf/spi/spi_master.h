@@ -1,6 +1,6 @@
 /** @file spi_master.h
  *
- *  @brief This file provides  mpu bridge interfaces
+ *  @brief This file provides  mpu ncp host spi interfaces
  *
  *  Copyright 2023-2024 NXP
  *

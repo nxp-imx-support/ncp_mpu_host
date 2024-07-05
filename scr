@@ -1,10 +1,10 @@
 Name: ncp mpu host
 Outgoing License: BSD 3-Clause "New" or "Revised" License
 License File: LICENSE.txt
-Version: v1.r1.p1
+Version: v1.r1.p2
 Format: source code, header files
 Description: This is a ncp mpu host demo. Need to use with ncp_device application.
-Location: https://github.com
+Location: https://github.com/nxp-imx-support/ncp_mpu_host
 Origin: NXP (BSD-3-Clause)
         iPerf3 (BSD 3-Clause) - https://iperf.fr/
         zephyr (Apache License 2.0) - https://github.com/zephyrproject-rtos/zephyr/

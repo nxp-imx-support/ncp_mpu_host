@@ -1,4 +1,4 @@
-/** @file mpu_bridge_command.c
+/** @file ncp_host_command_wifi.c
  *
  *  Copyright 2020-2024 NXP
  *
@@ -15,11 +15,11 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <semaphore.h>
-#include <mpu_bridge_app.h>
-#include <mpu_bridge_command.h>
-#include <ncp_tlv_adapter.h>
+#include "ncp_host_app.h"
+#include "ncp_host_command.h"
+#include "ncp_host_command_wifi.h"
+#include "ncp_tlv_adapter.h"
 
-extern uint8_t cmd_buf[NCP_BRIDGE_COMMAND_LEN];
 static uint8_t broadcast_mac[NCP_WLAN_MAC_ADDR_LENGTH] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 static int mdns_result_num;
 
@@ -39,7 +39,20 @@ extern pthread_mutex_t gpio_wakeup_mutex;
 extern sem_t iperf_tx_sem;
 extern sem_t iperf_rx_sem;
 
+extern uint8_t cmd_buf[NCP_COMMAND_LEN];
+
+power_cfg_t global_power_config;
+
+wlan_csi_config_params_t g_csi_params;
+
+NCP_WLAN_NET_MONITOR_PARA g_net_monitor_param;
+
 int inet_aton(const char *cp, struct in_addr *inp);
+
+NCPCmd_DS_COMMAND *mpu_host_get_wifi_command_buffer()
+{
+    return (NCPCmd_DS_COMMAND *)(cmd_buf);
+}
 
 /**
  * @brief         Convert IP string to hex IP
@@ -57,7 +70,7 @@ int strip_to_hex(int *number, int len)
             temp *= 10;
         ip_value += number[jk] * temp;
     }
-    if (ip_value > NCP_BRIDGE_IP_VALID)
+    if (ip_value > NCP_IP_VALID)
         return FALSE;
 
     return ip_value;
@@ -96,7 +109,6 @@ void dump_hex(const void *data, unsigned len)
  */
 int IP_to_hex(char *IPstr, uint8_t *hex)
 {
-    int ret = 0;
     int len          = strlen(IPstr);
     int ip_number[3] = {0};
     int j = 0, k = 0, dot_number = 0, hex_numer = 0;
@@ -106,13 +118,12 @@ int IP_to_hex(char *IPstr, uint8_t *hex)
         {
             if (j > 0)
             {
-                ret = strip_to_hex(ip_number, j);
-                if (ret == FALSE)
+                hex[k] = strip_to_hex(ip_number, j);
+                if (hex[k] == FALSE)
                 {
                     printf("Please input the correct IP address!\r\n");
                     return FALSE;
                 }
-                hex[k] = (uint8_t)ret;
                 k++;
                 j = 0;
                 hex_numer++;
@@ -149,24 +160,14 @@ int IP_to_hex(char *IPstr, uint8_t *hex)
         return FALSE;
     }
 
-    ret = strip_to_hex(ip_number, j);
-    if (ret == FALSE)
+    hex[k] = strip_to_hex(ip_number, j);
+    if (hex[k] == FALSE)
     {
         printf("Please input the correct IP address!\r\n");
         return FALSE;
     }
-    hex[k] = (uint8_t)ret;
+
     return TRUE;
-}
-
-NCPCmd_DS_COMMAND *ncp_mpu_bridge_get_command_buffer()
-{
-    return (NCPCmd_DS_COMMAND *)(cmd_buf);
-}
-
-void clear_mpu_bridge_command_buffer()
-{
-    memset(cmd_buf, 0, NCP_BRIDGE_COMMAND_LEN);
 }
 
 /**
@@ -176,12 +177,11 @@ void clear_mpu_bridge_command_buffer()
  */
 int wlan_scan_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *scan_command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)scan_command, 0, NCP_BRIDGE_COMMAND_LEN);
-    scan_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_STA_SCAN;
-    scan_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    scan_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    scan_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *scan_command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)scan_command, 0, NCP_COMMAND_LEN);
+    scan_command->header.cmd      = NCP_CMD_WLAN_STA_SCAN;
+    scan_command->header.size     = NCP_CMD_HEADER_LEN;
+    scan_command->header.result   = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -193,7 +193,7 @@ int wlan_scan_command(int argc, char **argv)
  */
 int wlan_connect_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *connect_command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *connect_command = mpu_host_get_wifi_command_buffer();
 
     if (argc > 2)
     {
@@ -201,10 +201,9 @@ int wlan_connect_command(int argc, char **argv)
         return FALSE;
     }
 
-    connect_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_STA_CONNECT;
-    connect_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    connect_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    connect_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    connect_command->header.cmd      = NCP_CMD_WLAN_STA_CONNECT;
+    connect_command->header.size     = NCP_CMD_HEADER_LEN;
+    connect_command->header.result   = NCP_CMD_RESULT_OK;
 
     if (argc == 2)
     {
@@ -223,11 +222,10 @@ int wlan_connect_command(int argc, char **argv)
  */
 int wlan_disconnect_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *disconnect_command = ncp_mpu_bridge_get_command_buffer();
-    disconnect_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_DISCONNECT;
-    disconnect_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    disconnect_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    disconnect_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *disconnect_command = mpu_host_get_wifi_command_buffer();
+    disconnect_command->header.cmd        = NCP_CMD_WLAN_STA_DISCONNECT;
+    disconnect_command->header.size       = NCP_CMD_HEADER_LEN;
+    disconnect_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -239,49 +237,12 @@ int wlan_disconnect_command(int argc, char **argv)
  */
 int wlan_version_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *fw_ver_command = ncp_mpu_bridge_get_command_buffer();
-    fw_ver_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_VERSION;
-    fw_ver_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    fw_ver_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    fw_ver_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *fw_ver_command = mpu_host_get_wifi_command_buffer();
+    fw_ver_command->header.cmd        = NCP_CMD_WLAN_STA_VERSION;
+    fw_ver_command->header.size       = NCP_CMD_HEADER_LEN;
+    fw_ver_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
-}
-
-/* Parse string 'arg' formatted "AA:BB:CC:DD:EE:FF" (assuming 'sep' is ':')
- * into a 6-byte array 'dest' such that dest = {0xAA,0xBB,0xCC,0xDD,0xEE,0xFF}
- * set 'sep' accordingly. */
-int get_mac(const char *arg, char *dest, char sep)
-{
-    unsigned char n;
-    int i, j, k;
-
-    if (strlen(arg) < 17)
-        return 1;
-
-    (void)memset(dest, 0, 6);
-
-    for (i = 0, k = 0; i < 17; i += 3, k++)
-    {
-        for (j = 0; j < 2; j++)
-        {
-            if (arg[i + j] >= '0' && arg[i + j] <= '9')
-                n = arg[i + j] - '0';
-            else if (arg[i + j] >= 'A' && arg[i + j] <= 'F')
-                n = arg[i + j] - 'A' + 10;
-            else if (arg[i + j] >= 'a' && arg[i + j] <= 'f')
-                n = arg[i + j] - 'a' + 10;
-            else
-                return 1;
-
-            n <<= 4 * (1 - j);
-            dest[k] += n;
-        }
-        if (i < 15 && arg[i + 2] != sep)
-            return 1;
-    }
-
-    return 0;
 }
 
 /**
@@ -293,7 +254,7 @@ int wlan_set_mac_address_command(int argc, char **argv)
 {
     int ret;
     uint8_t raw_mac[NCP_WLAN_MAC_ADDR_LENGTH];
-    NCPCmd_DS_COMMAND *mac_addr_command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *mac_addr_command = mpu_host_get_wifi_command_buffer();
 
     if (argc != 2)
     {
@@ -314,10 +275,9 @@ int wlan_set_mac_address_command(int argc, char **argv)
         return FALSE;
     }
 
-    mac_addr_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_STA_SET_MAC;
-    mac_addr_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    mac_addr_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    mac_addr_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    mac_addr_command->header.cmd      = NCP_CMD_WLAN_STA_SET_MAC;
+    mac_addr_command->header.size     = NCP_CMD_HEADER_LEN;
+    mac_addr_command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_MAC_ADDRESS *mac_address = (NCP_CMD_MAC_ADDRESS *)&mac_addr_command->params.mac_addr;
     memcpy(mac_address->mac_addr, raw_mac, NCP_WLAN_MAC_ADDR_LENGTH);
@@ -333,11 +293,10 @@ int wlan_set_mac_address_command(int argc, char **argv)
  */
 int wlan_get_mac_address_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *get_mac_command = ncp_mpu_bridge_get_command_buffer();
-    get_mac_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_GET_MAC;
-    get_mac_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_mac_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    get_mac_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *get_mac_command = mpu_host_get_wifi_command_buffer();
+    get_mac_command->header.cmd        = NCP_CMD_WLAN_STA_GET_MAC;
+    get_mac_command->header.size       = NCP_CMD_HEADER_LEN;
+    get_mac_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -349,11 +308,10 @@ int wlan_get_mac_address_command(int argc, char **argv)
  */
 int wlan_stat_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *conn_stat_command = ncp_mpu_bridge_get_command_buffer();
-    conn_stat_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_CONNECT_STAT;
-    conn_stat_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    conn_stat_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    conn_stat_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *conn_stat_command = mpu_host_get_wifi_command_buffer();
+    conn_stat_command->header.cmd        = NCP_CMD_WLAN_STA_CONNECT_STAT;
+    conn_stat_command->header.size       = NCP_CMD_HEADER_LEN;
+    conn_stat_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -375,7 +333,7 @@ static void dump_wlan_roaming_command(const char *str)
  */
 int wlan_roaming_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *roaming_command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *roaming_command = mpu_host_get_wifi_command_buffer();
     int enable                         = 0;
 
     if (argc < 2 || argc > 3)
@@ -391,10 +349,9 @@ int wlan_roaming_command(int argc, char **argv)
         return FALSE;
     }
 
-    roaming_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_STA_ROAMING;
-    roaming_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    roaming_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    roaming_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    roaming_command->header.cmd      = NCP_CMD_WLAN_STA_ROAMING;
+    roaming_command->header.size     = NCP_CMD_HEADER_LEN;
+    roaming_command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_ROAMING *roaming = (NCP_CMD_ROAMING *)&roaming_command->params.roaming;
     roaming->enable          = enable;
@@ -422,30 +379,30 @@ static void dump_wlan_reset_command(const char *str)
  */
 int wlan_reset_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_reset_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_reset_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_RESET;
-    wlan_reset_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_reset_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_reset_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
-    int option                            = -1;
-
-    if (argc != 2)
-    {
-        dump_wlan_reset_command(argv[0]);
-        return FALSE;
-    }
-
+    int option;
     option = atoi(argv[1]);
-    if (option != 0 && option != 1 && option != 2)
+    if (argc != 2 || (option != 0 && option != 1 && option != 2))
     {
         dump_wlan_reset_command(argv[0]);
         return FALSE;
     }
+
+    if (option == 2)
+    {
+        (void)memset((void*)&g_csi_params, 0, sizeof(g_csi_params));
+        (void)memset((void*)&g_net_monitor_param, 0, sizeof(g_net_monitor_param));
+        (void)memset((void*)&global_power_config, 0, sizeof(global_power_config));
+    }
+
+    NCPCmd_DS_COMMAND *wlan_reset_command = mpu_host_get_wifi_command_buffer();
+    wlan_reset_command->header.cmd        = NCP_CMD_WLAN_BASIC_WLAN_RESET;
+    wlan_reset_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_reset_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_WLAN_RESET_CFG *wlan_reset_tlv = (NCP_CMD_WLAN_RESET_CFG *)&wlan_reset_command->params.wlan_reset_cfg;
     wlan_reset_tlv->option                 = option;
     /*cmd size*/
-    wlan_reset_command->header.size += sizeof(wlan_reset_tlv->option);
+    wlan_reset_command->header.size += sizeof(NCP_CMD_WLAN_RESET_CFG);
 
     return TRUE;
 }
@@ -457,11 +414,10 @@ int wlan_reset_command(int argc, char **argv)
  */
 int wlan_info_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *network_info_command = ncp_mpu_bridge_get_command_buffer();
-    network_info_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_NETWORK_INFO;
-    network_info_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    network_info_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    network_info_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *network_info_command = mpu_host_get_wifi_command_buffer();
+    network_info_command->header.cmd        = NCP_CMD_WLAN_NETWORK_INFO;
+    network_info_command->header.size       = NCP_CMD_HEADER_LEN;
+    network_info_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -473,11 +429,10 @@ int wlan_info_command(int argc, char **argv)
  */
 int wlan_address_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *network_address_command = ncp_mpu_bridge_get_command_buffer();
-    network_address_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_NETWORK_ADDRESS;
-    network_address_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    network_address_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    network_address_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *network_address_command = mpu_host_get_wifi_command_buffer();
+    network_address_command->header.cmd        = NCP_CMD_WLAN_NETWORK_ADDRESS;
+    network_address_command->header.size       = NCP_CMD_HEADER_LEN;
+    network_address_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -485,22 +440,20 @@ int wlan_address_command(int argc, char **argv)
 
 int wlan_uap_prov_start_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *uap_prov_start_command = ncp_mpu_bridge_get_command_buffer();
-    uap_prov_start_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_UAP_PROV_START;
-    uap_prov_start_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    uap_prov_start_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    uap_prov_start_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *uap_prov_start_command = mpu_host_get_wifi_command_buffer();
+    uap_prov_start_command->header.cmd        = NCP_CMD_WLAN_BASIC_WLAN_UAP_PROV_START;
+    uap_prov_start_command->header.size       = NCP_CMD_HEADER_LEN;
+    uap_prov_start_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 int wlan_uap_prov_reset_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *uap_prov_reset_command = ncp_mpu_bridge_get_command_buffer();
-    uap_prov_reset_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_UAP_PROV_RESET;
-    uap_prov_reset_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    uap_prov_reset_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    uap_prov_reset_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *uap_prov_reset_command = mpu_host_get_wifi_command_buffer();
+    uap_prov_reset_command->header.cmd        = NCP_CMD_WLAN_BASIC_WLAN_UAP_PROV_RESET;
+    uap_prov_reset_command->header.size       = NCP_CMD_HEADER_LEN;
+    uap_prov_reset_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -617,6 +570,8 @@ static int get_security(int argc, char **argv, enum wlan_security_type type, Sec
     {
         case WLAN_SECURITY_WPA:
         case WLAN_SECURITY_WPA2:
+            if (argc < 1)
+                return 1;
             /* copy the PSK phrase */
             sec->password_len = strlen(argv[0]);
             if (sec->password_len < 65)
@@ -668,7 +623,7 @@ int wlan_add_command(int argc, char **argv)
 #endif
     } info;
 
-    NCPCmd_DS_COMMAND *network_add_command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *network_add_command = mpu_host_get_wifi_command_buffer();
     NCP_CMD_NETWORK_ADD *network_add_tlv   = (NCP_CMD_NETWORK_ADD *)&network_add_command->params.network_add;
     uint8_t *ptlv_pos                      = network_add_tlv->tlv_buf;
     uint32_t tlv_buf_len                   = 0;
@@ -719,7 +674,7 @@ int wlan_add_command(int argc, char **argv)
             }
             ssid_tlv = (SSID_ParamSet_t *)ptlv_pos;
             (void)memcpy(ssid_tlv->ssid, argv[arg + 1], strlen(argv[arg + 1]) + 1);
-            ssid_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_SSID_TLV;
+            ssid_tlv->header.type = NCP_CMD_NETWORK_SSID_TLV;
             ssid_tlv->header.size = sizeof(ssid_tlv->ssid);
             ptlv_pos += sizeof(SSID_ParamSet_t);
             tlv_buf_len += sizeof(SSID_ParamSet_t);
@@ -737,7 +692,7 @@ int wlan_add_command(int argc, char **argv)
                     "\r\n");
                 return FALSE;
             }
-            bssid_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_BSSID_TLV;
+            bssid_tlv->header.type = NCP_CMD_NETWORK_BSSID_TLV;
             bssid_tlv->header.size = sizeof(bssid_tlv->bssid);
             ptlv_pos += sizeof(BSSID_ParamSet_t);
             tlv_buf_len += sizeof(BSSID_ParamSet_t);
@@ -755,7 +710,7 @@ int wlan_add_command(int argc, char **argv)
                 return FALSE;
             }
             channel_tlv->channel     = atoi(argv[arg + 1]);
-            channel_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_CHANNEL_TLV;
+            channel_tlv->header.type = NCP_CMD_NETWORK_CHANNEL_TLV;
             channel_tlv->header.size = sizeof(channel_tlv->channel);
             ptlv_pos += sizeof(Channel_ParamSet_t);
             tlv_buf_len += sizeof(Channel_ParamSet_t);
@@ -768,8 +723,8 @@ int wlan_add_command(int argc, char **argv)
             {
                 ip_tlv              = (IP_ParamSet_t *)ptlv_pos;
                 ret                 = get_address(argv[arg], ip_tlv);
-                ip_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_IP_TLV;
-                ip_tlv->header.size = sizeof(IP_ParamSet_t) - NCP_BRIDGE_TLV_HEADER_LEN;
+                ip_tlv->header.type = NCP_CMD_NETWORK_IP_TLV;
+                ip_tlv->header.size = sizeof(IP_ParamSet_t) - NCP_TLV_HEADER_LEN;
                 ptlv_pos += sizeof(IP_ParamSet_t);
                 tlv_buf_len += sizeof(IP_ParamSet_t);
             }
@@ -798,8 +753,8 @@ int wlan_add_command(int argc, char **argv)
             {
                 ip_tlv              = (IP_ParamSet_t *)ptlv_pos;
                 ip_tlv->is_autoip   = 1;
-                ip_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_IP_TLV;
-                ip_tlv->header.size = sizeof(IP_ParamSet_t) - NCP_BRIDGE_TLV_HEADER_LEN;
+                ip_tlv->header.type = NCP_CMD_NETWORK_IP_TLV;
+                ip_tlv->header.size = sizeof(IP_ParamSet_t) - NCP_TLV_HEADER_LEN;
                 ptlv_pos += sizeof(IP_ParamSet_t);
                 tlv_buf_len += sizeof(IP_ParamSet_t);
             }
@@ -817,11 +772,11 @@ int wlan_add_command(int argc, char **argv)
                     " argument\r\n");
                 return FALSE;
             }
-            security_wpa_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_SECURITY_TLV;
+            security_wpa_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
             security_wpa_tlv->header.size = sizeof(security_wpa_tlv->type) + sizeof(security_wpa_tlv->password_len) +
                                             security_wpa_tlv->password_len;
-            ptlv_pos += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa_tlv->header.size;
-            tlv_buf_len += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa_tlv->header.size;
+            ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa_tlv->header.size;
+            tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa_tlv->header.size;
             arg += 2;
             info.security++;
         }
@@ -846,11 +801,11 @@ int wlan_add_command(int argc, char **argv)
                 strncpy(security_wpa2_tlv->password, argv[arg + 2], strlen(argv[arg + 2]));
             }
 			
-            security_wpa2_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_SECURITY_TLV;
+            security_wpa2_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
             security_wpa2_tlv->header.size = sizeof(security_wpa2_tlv->type) + sizeof(security_wpa2_tlv->password_len) +
                                              security_wpa2_tlv->password_len;
-            ptlv_pos += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
-            tlv_buf_len += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
+            ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
+            tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
             arg += 3;
             info.security2++;
         }
@@ -880,12 +835,12 @@ int wlan_add_command(int argc, char **argv)
                     return FALSE;
                 }
 
-                security_wpa3_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_SECURITY_TLV;
+                security_wpa3_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
                 security_wpa3_tlv->header.size = sizeof(security_wpa3_tlv->type) +
                                                  sizeof(security_wpa3_tlv->password_len) +
                                                  security_wpa3_tlv->password_len;
-                ptlv_pos += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa3_tlv->header.size;
-                tlv_buf_len += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa3_tlv->header.size;
+                ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa3_tlv->header.size;
+                tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa3_tlv->header.size;
                 arg += 3;
             }
             else
@@ -902,10 +857,10 @@ int wlan_add_command(int argc, char **argv)
         {
             security_wpa2_tlv = (Security_ParamSet_t *)ptlv_pos;
             security_wpa2_tlv->type = WLAN_SECURITY_EAP_TLS;
-            security_wpa2_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_SECURITY_TLV;
+            security_wpa2_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
             security_wpa2_tlv->header.size = sizeof(security_wpa2_tlv->type);
-            ptlv_pos += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
-            tlv_buf_len += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
+            ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
+            tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
             arg += 1;
             info.security2++;
         }
@@ -914,10 +869,10 @@ int wlan_add_command(int argc, char **argv)
             if (eap_tlv == NULL)
             {
                 eap_tlv = (EAP_ParamSet_t *)ptlv_pos;
-                eap_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_EAP_TLV;
+                eap_tlv->header.type = NCP_CMD_NETWORK_EAP_TLV;
                 eap_tlv->header.size = sizeof(eap_tlv->anonymous_identity) + sizeof(eap_tlv->client_key_passwd);
-                ptlv_pos += NCP_BRIDGE_TLV_HEADER_LEN + eap_tlv->header.size;
-                tlv_buf_len += NCP_BRIDGE_TLV_HEADER_LEN + eap_tlv->header.size;
+                ptlv_pos += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+                tlv_buf_len += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
             }
             if (arg + 1 >= argc)
             {
@@ -936,10 +891,10 @@ int wlan_add_command(int argc, char **argv)
             if (eap_tlv == NULL)
             {
                 eap_tlv = (EAP_ParamSet_t *)ptlv_pos;
-                eap_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_EAP_TLV;
+                eap_tlv->header.type = NCP_CMD_NETWORK_EAP_TLV;
                 eap_tlv->header.size = sizeof(eap_tlv->anonymous_identity) + sizeof(eap_tlv->client_key_passwd);
-                ptlv_pos += NCP_BRIDGE_TLV_HEADER_LEN + eap_tlv->header.size;
-                tlv_buf_len += NCP_BRIDGE_TLV_HEADER_LEN + eap_tlv->header.size;
+                ptlv_pos += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+                tlv_buf_len += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
             }
             if (arg + 1 >= argc)
             {
@@ -959,11 +914,11 @@ int wlan_add_command(int argc, char **argv)
         {
             security_wpa2_tlv              = (Security_ParamSet_t *)ptlv_pos;
             security_wpa2_tlv->type        = WLAN_SECURITY_EAP_TLS;
-            security_wpa2_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_SECURITY_TLV;
+            security_wpa2_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
             security_wpa2_tlv->header.size = sizeof(security_wpa2_tlv->type) + sizeof(security_wpa2_tlv->password_len) +
                                              security_wpa2_tlv->password_len;
-            ptlv_pos += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
-            tlv_buf_len += NCP_BRIDGE_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
+            ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
+            tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
             arg += 1;
             info.security2++;
         }
@@ -992,7 +947,7 @@ int wlan_add_command(int argc, char **argv)
                 return FALSE;
             }
 
-            role_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_ROLE_TLV;
+            role_tlv->header.type = NCP_CMD_NETWORK_ROLE_TLV;
             role_tlv->header.size = sizeof(role_tlv->role);
             ptlv_pos += sizeof(BSSRole_ParamSet_t);
             tlv_buf_len += sizeof(BSSRole_ParamSet_t);
@@ -1004,7 +959,7 @@ int wlan_add_command(int argc, char **argv)
             if (pmf_tlv == NULL)
             {
                 pmf_tlv              = (PMF_ParamSet_t *)ptlv_pos;
-                pmf_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_PMF_TLV;
+                pmf_tlv->header.type = NCP_CMD_NETWORK_PMF_TLV;
                 pmf_tlv->header.size = sizeof(pmf_tlv->mfpc) + sizeof(pmf_tlv->mfpr);
                 ptlv_pos += sizeof(PMF_ParamSet_t);
                 tlv_buf_len += sizeof(PMF_ParamSet_t);
@@ -1026,7 +981,7 @@ int wlan_add_command(int argc, char **argv)
             if (pmf_tlv == NULL)
             {
                 pmf_tlv              = (PMF_ParamSet_t *)ptlv_pos;
-                pmf_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_PMF_TLV;
+                pmf_tlv->header.type = NCP_CMD_NETWORK_PMF_TLV;
                 pmf_tlv->header.size = sizeof(pmf_tlv->mfpc) + sizeof(pmf_tlv->mfpr);
                 ptlv_pos += sizeof(PMF_ParamSet_t);
                 tlv_buf_len += sizeof(PMF_ParamSet_t);
@@ -1058,7 +1013,7 @@ int wlan_add_command(int argc, char **argv)
                 (void)printf("Error: invalid pwe value %u\n", pwe_tlv->pwe_derivation);
                  return -WM_FAIL;
             }
-            pwe_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_PWE_TLV;
+            pwe_tlv->header.type = NCP_CMD_NETWORK_PWE_TLV;
             pwe_tlv->header.size = sizeof(pwe_tlv->pwe_derivation);
             ptlv_pos += sizeof(Pwe_Derivation_ParamSet_t);
             tlv_buf_len += sizeof(Pwe_Derivation_ParamSet_t);
@@ -1080,7 +1035,7 @@ int wlan_add_command(int argc, char **argv)
                 (void)printf("Error: invalid tr value %u\n", tr_tlv->transition_disable);
                 return -WM_FAIL;
             }
-            tr_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_TR_TLV;
+            tr_tlv->header.type = NCP_CMD_NETWORK_TR_TLV;
             tr_tlv->header.size = sizeof(tr_tlv->transition_disable);
             ptlv_pos += sizeof(Tr_Disable_ParamSet_t);
             tlv_buf_len += sizeof(Tr_Disable_ParamSet_t);
@@ -1101,7 +1056,7 @@ int wlan_add_command(int argc, char **argv)
             }
 
             dtim_tlv->dtim_period = atoi(argv[arg + 1]);
-            dtim_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_DTIM_TLV;
+            dtim_tlv->header.type = NCP_CMD_NETWORK_DTIM_TLV;
             dtim_tlv->header.size = sizeof(dtim_tlv->dtim_period);
             ptlv_pos += sizeof(DTIM_ParamSet_t);
             tlv_buf_len += sizeof(DTIM_ParamSet_t);
@@ -1128,7 +1083,7 @@ int wlan_add_command(int argc, char **argv)
                 return FALSE;
             }
 
-            acs_band_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_ACSBAND_TLV;
+            acs_band_tlv->header.type = NCP_CMD_NETWORK_ACSBAND_TLV;
             acs_band_tlv->header.size = sizeof(acs_band_tlv->acs_band);
             ptlv_pos += sizeof(ACSBand_ParamSet_t);
             tlv_buf_len += sizeof(ACSBand_ParamSet_t);
@@ -1163,7 +1118,7 @@ int wlan_add_command(int argc, char **argv)
                 return FALSE;
             }
 
-            capa_tlv->header.type = NCP_BRIDGE_CMD_NETWORK_CAPA_TLV;
+            capa_tlv->header.type = NCP_CMD_NETWORK_CAPA_TLV;
             capa_tlv->header.size = sizeof(capa_tlv->capa);
             ptlv_pos += sizeof(CAPA_ParamSet_t);
             tlv_buf_len += sizeof(CAPA_ParamSet_t);
@@ -1211,11 +1166,10 @@ int wlan_add_command(int argc, char **argv)
         return -WM_FAIL;
     }
 	
-    network_add_command->header.cmd = NCP_BRIDGE_CMD_WLAN_NETWORK_ADD;
+    network_add_command->header.cmd = NCP_CMD_WLAN_NETWORK_ADD;
     network_add_command->header.size =
-        NCP_BRIDGE_CMD_HEADER_LEN + sizeof(network_add_tlv->name) + sizeof(network_add_tlv->tlv_buf_len) + tlv_buf_len;
-    network_add_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    network_add_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+        NCP_CMD_HEADER_LEN + sizeof(network_add_tlv->name) + sizeof(network_add_tlv->tlv_buf_len) + tlv_buf_len;
+    network_add_command->header.result   = NCP_CMD_RESULT_OK;
     return TRUE;
 }
 
@@ -1226,7 +1180,7 @@ int wlan_add_command(int argc, char **argv)
  */
 int wlan_start_network_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *network_start_command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *network_start_command = mpu_host_get_wifi_command_buffer();
 
     if (argc > 2)
     {
@@ -1234,10 +1188,9 @@ int wlan_start_network_command(int argc, char **argv)
         return FALSE;
     }
 
-    network_start_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_NETWORK_START;
-    network_start_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    network_start_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    network_start_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    network_start_command->header.cmd      = NCP_CMD_WLAN_NETWORK_START;
+    network_start_command->header.size     = NCP_CMD_HEADER_LEN;
+    network_start_command->header.result   = NCP_CMD_RESULT_OK;
 
     if (argc == 2)
     {
@@ -1264,11 +1217,10 @@ int wlan_start_network_command(int argc, char **argv)
  */
 int wlan_stop_network_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *network_stop_command = ncp_mpu_bridge_get_command_buffer();
-    network_stop_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_NETWORK_STOP;
-    network_stop_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    network_stop_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    network_stop_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *network_stop_command = mpu_host_get_wifi_command_buffer();
+    network_stop_command->header.cmd        = NCP_CMD_WLAN_NETWORK_STOP;
+    network_stop_command->header.size       = NCP_CMD_HEADER_LEN;
+    network_stop_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -1280,22 +1232,13 @@ int wlan_stop_network_command(int argc, char **argv)
  */
 int wlan_get_uap_sta_list_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *conn_stat_command = ncp_mpu_bridge_get_command_buffer();
-    conn_stat_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_NETWORK_GET_UAP_STA_LIST;
-    conn_stat_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    conn_stat_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    conn_stat_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *conn_stat_command = mpu_host_get_wifi_command_buffer();
+    conn_stat_command->header.cmd        = NCP_CMD_WLAN_NETWORK_GET_UAP_STA_LIST;
+    conn_stat_command->header.size       = NCP_CMD_HEADER_LEN;
+    conn_stat_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
-
-wlan_bridge_net_monitor_para g_net_monitor_param = {
-    .action           = 0x01,
-    .monitor_activity = 0x01,
-    .filter_flags     = 0x07,
-    .radio_type       = 0x0,
-    .chan_number      = 0x01,
-};
 
 static void dump_wlan_set_monitor_filter_usage()
 {
@@ -1508,166 +1451,14 @@ int wlan_set_monitor_param_command(int argc, char **argv)
  */
 int wlan_net_monitor_cfg_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *monitor_command = ncp_mpu_bridge_get_command_buffer();
-    monitor_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_NETWORK_MONITOR;
-    monitor_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    monitor_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    monitor_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *monitor_command = mpu_host_get_wifi_command_buffer();
+    monitor_command->header.cmd        = NCP_CMD_WLAN_NETWORK_MONITOR;
+    monitor_command->header.size       = NCP_CMD_HEADER_LEN;
+    monitor_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_NET_MONITOR *monitor_cfg = (NCP_CMD_NET_MONITOR *)&monitor_command->params.monitor_cfg;
     memcpy(&monitor_cfg->monitor_para, &g_net_monitor_param, sizeof(g_net_monitor_param));
     monitor_command->header.size += sizeof(NCP_CMD_NET_MONITOR);
-
-    return TRUE;
-}
-
-/**
- * @brief  This function prepares set system configuration command
- *
- * @return Status returned
- */
-int ncp_set_command(int argc, char **argv)
-{
-    const char *mod, *var, *val;
-    NCPCmd_DS_COMMAND *sys_cfg_command = ncp_mpu_bridge_get_command_buffer();
-
-    if (argc < 4)
-    {
-        printf("Error: Invalid parameter number!\r\n");
-        return FALSE;
-    }
-
-    /* module name */
-    mod = argv[1];
-    if (*mod == '\0')
-    {
-        printf("Error: Module name is invalid params!\r\n");
-        return FALSE;
-    }
-    /* variable name */
-    var = argv[2];
-    if (*var == '\0')
-    {
-        printf("Error: Variable name is invalid params!\r\n");
-        return FALSE;
-    }
-    /* variable value */
-    val = argv[3];
-    if (*val == '\0')
-    {
-        printf("Error: Variable value is invalid params!\r\n");
-        return FALSE;
-    }
-
-    sys_cfg_command->header.cmd      = NCP_BRIDGE_CMD_SYSTEM_CONFIG_SET;
-    sys_cfg_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    sys_cfg_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    sys_cfg_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
-
-    NCP_CMD_SYSTEM_CFG *sys_cfg = (NCP_CMD_SYSTEM_CFG *)&sys_cfg_command->params.system_cfg;
-    strcpy(sys_cfg->module_name, mod);
-    strcpy(sys_cfg->variable_name, var);
-    strcpy(sys_cfg->value, val);
-
-    sys_cfg_command->header.size += sizeof(NCP_CMD_SYSTEM_CFG);
-
-    return TRUE;
-}
-
-/**
- * @brief  This function prepares get device configuration command
- *
- * @return Status returned
- */
-int ncp_get_command(int argc, char **argv)
-{
-    const char *module, *var;
-    NCPCmd_DS_COMMAND *sys_cfg_command = ncp_mpu_bridge_get_command_buffer();
-
-    if (argc < 3)
-    {
-        printf("Error: Invalid parameter number!\r\n");
-        return FALSE;
-    }
-
-    /* module name */
-    module = argv[1];
-    if (*module == '\0')
-    {
-        printf("Error: Module name is invalid params!\r\n");
-        return FALSE;
-    }
-    /* variable name */
-    var = argv[2];
-    if (*var == '\0')
-    {
-        printf("Error: Variable name is invalid params!\r\n");
-        return FALSE;
-    }
-
-    sys_cfg_command->header.cmd      = NCP_BRIDGE_CMD_SYSTEM_CONFIG_GET;
-    sys_cfg_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    sys_cfg_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    sys_cfg_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
-
-    NCP_CMD_SYSTEM_CFG *sys_cfg = (NCP_CMD_SYSTEM_CFG *)&sys_cfg_command->params.system_cfg;
-    strcpy(sys_cfg->module_name, module);
-    strcpy(sys_cfg->variable_name, var);
-    strcpy(sys_cfg->value, "");
-
-    sys_cfg_command->header.size += sizeof(NCP_CMD_SYSTEM_CFG);
-
-    return TRUE;
-}
-
-int ncp_set_sdio(uint8_t *buf, uint32_t buf_len, uint32_t val)
-{
-    NCPCmd_DS_COMMAND *sys_cfg_command = (NCPCmd_DS_COMMAND *)buf;
-
-    if (!buf || buf_len < (sizeof(NCP_BRIDGE_COMMAND) + sizeof(NCP_CMD_SYSTEM_SDIO_SET)))
-    {
-        printf("Error: Invalid buf %p or buf_len %u!\r\n", buf, buf_len);
-        return FALSE;
-    }
-
-    sys_cfg_command->header.cmd      = NCP_BRIDGE_CMD_SYSTEM_CONFIG_SDIO_SET;
-    sys_cfg_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    sys_cfg_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    sys_cfg_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
-
-    NCP_CMD_SYSTEM_SDIO_SET *sdio_set = (NCP_CMD_SYSTEM_SDIO_SET *)&sys_cfg_command->params.sdio_set;
-    sdio_set->val = val;
-
-    sys_cfg_command->header.size += sizeof(NCP_CMD_SYSTEM_SDIO_SET);
-
-    return TRUE;
-}
-
-/**
- * @brief  This function prepares set system configuration command
- *
- * @return Status returned
- */
-int ncp_set_sdio_command(int argc, char **argv)
-{
-    int val = 0;
-    NCPCmd_DS_COMMAND *sys_cfg_command = ncp_mpu_bridge_get_command_buffer();
-
-    if (argc < 2)
-    {
-        printf("Error: Invalid parameter number!\r\n");
-        return FALSE;
-    }
-
-    /* module name */
-    val = atoi(argv[1]);
-    if (val <= 0)
-    {
-        printf("Error: val=%d is invalid params!\r\n", val);
-        return FALSE;
-    }
-
-    ncp_set_sdio((uint8_t *)sys_cfg_command, NCP_BRIDGE_COMMAND_LEN, val);
 
     return TRUE;
 }
@@ -1684,11 +1475,10 @@ int wlan_deep_sleep_ps_command(int argc, char **argv)
 
     deep_sleep_enable = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *wlan_deep_sleep_ps_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_deep_sleep_ps_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_POWERMGMT_DEEP_SLEEP_PS;
-    wlan_deep_sleep_ps_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_deep_sleep_ps_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_deep_sleep_ps_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_deep_sleep_ps_command = mpu_host_get_wifi_command_buffer();
+    wlan_deep_sleep_ps_command->header.cmd        = NCP_CMD_WLAN_POWERMGMT_DEEP_SLEEP_PS;
+    wlan_deep_sleep_ps_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_deep_sleep_ps_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_DEEP_SLEEP_PS *wlan_deep_sleep_ps =
         (NCP_CMD_DEEP_SLEEP_PS *)&wlan_deep_sleep_ps_command->params.wlan_deep_sleep_ps;
@@ -1710,11 +1500,10 @@ int wlan_ieee_ps_command(int argc, char **argv)
 
     ieee_enable = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *wlan_ieee_ps_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_ieee_ps_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_POWERMGMT_IEEE_PS;
-    wlan_ieee_ps_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_ieee_ps_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_ieee_ps_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_ieee_ps_command = mpu_host_get_wifi_command_buffer();
+    wlan_ieee_ps_command->header.cmd        = NCP_CMD_WLAN_POWERMGMT_IEEE_PS;
+    wlan_ieee_ps_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_ieee_ps_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_IEEE_PS *wlan_ieee_ps = (NCP_CMD_IEEE_PS *)&wlan_ieee_ps_command->params.wlan_ieee_ps;
     wlan_ieee_ps->enable          = ieee_enable;
@@ -1730,21 +1519,26 @@ int wlan_process_ncp_event(uint8_t *res)
 
     switch (event->header.cmd)
     {
-        case NCP_BRIDGE_EVENT_MCU_SLEEP_ENTER:
-        case NCP_BRIDGE_EVENT_MCU_SLEEP_EXIT:
-            ret = wlan_process_sleep_status(res);
-            break;
-        case NCP_BRIDGE_EVENT_MDNS_QUERY_RESULT:
+        case NCP_EVENT_MDNS_QUERY_RESULT:
             ret = wlan_process_mdns_query_result_event(res);
             break;
-        case NCP_BRIDGE_EVENT_MDNS_RESOLVE_DOMAIN:
+        case NCP_EVENT_MDNS_RESOLVE_DOMAIN:
             ret = wlan_process_mdns_resolve_domain_event(res);
             break;
-        case NCP_BRIDGE_EVENT_CSI_DATA:
+        case NCP_EVENT_CSI_DATA:
             ret = wlan_process_csi_data_event(res);
             break;
+        case NCP_EVENT_WLAN_STA_CONNECT:
+            ret = wlan_process_con_event(res);
+            break;
+        case NCP_EVENT_WLAN_STA_DISCONNECT:
+            ret = wlan_process_discon_event(res);
+            break;
+        case NCP_EVENT_WLAN_STOP_NETWORK:
+            ret = wlan_process_stop_network_event(res);
+            break;
         default:
-            printf("Invaild response cmd!\r\n");
+            printf("Invaild event cmd!\r\n");
             break;
     }
     return ret;
@@ -1861,8 +1655,6 @@ int wlan_ncp_iperf_command(int argc, char **argv)
         item = NCP_IPERF_UDP_TX;
     else if (type == 1 && direction == 1)
         item = NCP_IPERF_UDP_RX;
-    else
-        item = FALSE_ITEM;
     switch (item)
     {
         case NCP_IPERF_TCP_TX:
@@ -1900,7 +1692,7 @@ int wlan_ncp_iperf_command(int argc, char **argv)
 }
 
 /**
- * @brief       This function processes response from bridge_app
+ * @brief       This function processes response from ncp device
  *
  * @param res   A pointer to uint8_t
  * @return      Status returned
@@ -1911,294 +1703,279 @@ int wlan_process_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     switch (cmd_res->header.cmd)
     {
-        case NCP_BRIDGE_CMD_WLAN_STA_SCAN:
+        case NCP_RSP_WLAN_STA_SCAN:
             ret = wlan_process_scan_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_CONNECT:
+        case NCP_RSP_WLAN_STA_CONNECT:
             ret = wlan_process_con_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_DISCONNECT:
+        case NCP_RSP_WLAN_STA_DISCONNECT:
             ret = wlan_process_discon_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_VERSION:
+        case NCP_RSP_WLAN_STA_VERSION:
             ret = wlan_process_version_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_SET_MAC:
+        case NCP_RSP_WLAN_STA_SET_MAC:
             ret = wlan_process_set_mac_address(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_GET_MAC:
+        case NCP_RSP_WLAN_STA_GET_MAC:
             ret = wlan_process_get_mac_address(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_CONNECT_STAT:
+        case NCP_RSP_WLAN_STA_CONNECT_STAT:
             ret = wlan_process_stat(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_ROAMING:
+        case NCP_RSP_WLAN_STA_ROAMING:
             ret = wlan_process_roaming(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_RESET:
+        case NCP_RSP_WLAN_BASIC_WLAN_RESET:
             ret = wlan_process_wlan_reset_result_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_UAP_PROV_START:
+        case NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_START:
             ret = wlan_process_wlan_uap_prov_start_result_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_BASIC_WLAN_UAP_PROV_RESET:
+        case NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_RESET:
             ret = wlan_process_wlan_uap_prov_reset_result_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_INFO:
+        case NCP_RSP_WLAN_NETWORK_INFO:
             ret = wlan_process_info(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_ADDRESS:
+        case NCP_RSP_WLAN_NETWORK_ADDRESS:
             ret = wlan_process_address(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_HTTP_CON:
+        case NCP_RSP_WLAN_HTTP_CON:
             ret = wlan_process_wlan_http_con_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_HTTP_DISCON:
+        case NCP_RSP_WLAN_HTTP_DISCON:
             ret = wlan_process_wlan_http_discon_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_HTTP_REQ:
+        case NCP_RSP_WLAN_HTTP_REQ:
             ret = wlan_process_wlan_http_req_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_HTTP_RECV:
+        case NCP_RSP_WLAN_HTTP_RECV:
             ret = wlan_process_wlan_http_recv_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_HTTP_SETH:
+        case NCP_RSP_WLAN_HTTP_SETH:
             ret = wlan_process_wlan_http_seth_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_HTTP_UNSETH:
+        case NCP_RSP_WLAN_HTTP_UNSETH:
             ret = wlan_process_wlan_http_unseth_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_WEBSOCKET_UPG:
+        case NCP_RSP_WLAN_WEBSOCKET_UPG:
             ret = wlan_process_wlan_websocket_upg_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_WEBSOCKET_SEND:
+        case NCP_RSP_WLAN_WEBSOCKET_SEND:
             ret = wlan_process_wlan_websocket_send_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_WEBSOCKET_RECV:
+        case NCP_RSP_WLAN_WEBSOCKET_RECV:
             ret = wlan_process_wlan_websocket_recv_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_OPEN:
+        case NCP_RSP_WLAN_SOCKET_OPEN:
             ret = wlan_process_wlan_socket_open_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_CON:
+        case NCP_RSP_WLAN_SOCKET_CON:
             ret = wlan_process_wlan_socket_con_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_BIND:
+        case NCP_RSP_WLAN_SOCKET_BIND:
             ret = wlan_process_wlan_socket_bind_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_CLOSE:
+        case NCP_RSP_WLAN_SOCKET_CLOSE:
             ret = wlan_process_wlan_socket_close_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_LISTEN:
+        case NCP_RSP_WLAN_SOCKET_LISTEN:
             ret = wlan_process_wlan_socket_listen_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_ACCEPT:
+        case NCP_RSP_WLAN_SOCKET_ACCEPT:
             ret = wlan_process_wlan_socket_accept_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_SEND:
+        case NCP_RSP_WLAN_SOCKET_SEND:
             ret                 = wlan_process_wlan_socket_send_response(res);
             iperf_msg.status[0] = ret;
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_SENDTO:
+        case NCP_RSP_WLAN_SOCKET_SENDTO:
             ret                 = wlan_process_wlan_socket_sendto_response(res);
             iperf_msg.status[0] = ret;
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_RECV:
+        case NCP_RSP_WLAN_SOCKET_RECV:
             ret                 = wlan_process_wlan_socket_receive_response(res);
             iperf_msg.status[1] = ret;
             break;
-        case NCP_BRIDGE_CMD_WLAN_SOCKET_RECVFROM:
+        case NCP_RSP_WLAN_SOCKET_RECVFROM:
             ret                 = wlan_process_wlan_socket_recvfrom_response(res);
             iperf_msg.status[1] = ret;
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_MONITOR:
+        case NCP_RSP_WLAN_NETWORK_MONITOR:
             ret = wlan_process_monitor_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_ADD:
+        case NCP_RSP_WLAN_NETWORK_ADD:
             ret = wlan_process_add_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_START:
+        case NCP_RSP_WLAN_NETWORK_START:
             ret = wlan_process_start_network_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_STOP:
+        case NCP_RSP_WLAN_NETWORK_STOP:
             ret = wlan_process_stop_network_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_GET_UAP_STA_LIST:
+        case NCP_RSP_WLAN_NETWORK_GET_UAP_STA_LIST:
             ret = wlan_process_get_uap_sta_list(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_CSI:
+        case NCP_RSP_WLAN_STA_CSI:
             ret = wlan_process_csi_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_11K_CFG:
+        case NCP_RSP_WLAN_STA_11K_CFG:
             ret = wlan_process_11k_cfg_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_NEIGHBOR_REQ:
+        case NCP_RSP_WLAN_STA_NEIGHBOR_REQ:
             ret = wlan_process_neighbor_req_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_SIGNAL:
+        case NCP_RSP_WLAN_STA_SIGNAL:
             ret = wlan_process_rssi_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_MEF:
+        case NCP_RSP_WLAN_POWERMGMT_MEF:
             ret = wlan_process_multi_mef_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_UAPSD:
+        case NCP_RSP_WLAN_POWERMGMT_UAPSD:
             ret = wlan_process_wmm_uapsd_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_QOSINFO:
+        case NCP_RSP_WLAN_POWERMGMT_QOSINFO:
             ret = wlan_process_uapsd_qosinfo_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_SLEEP_PERIOD:
+        case NCP_RSP_WLAN_POWERMGMT_SLEEP_PERIOD:
             ret = wlan_process_uapsd_sleep_period_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_WAKE_MODE_CFG:
-            ret = wlan_process_wake_mode_response(res);
-            break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_WOWLAN_CFG:
+        case NCP_RSP_WLAN_POWERMGMT_WOWLAN_CFG:
             ret = wlan_process_wakeup_condition_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_MCU_SLEEP:
-            ret = wlan_process_mcu_sleep_response(res);
-            break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_SUSPEND:
+        case NCP_RSP_WLAN_POWERMGMT_SUSPEND:
             ret = wlan_process_suspend_response(res);
             break;
-        case NCP_BRIDGE_CMD_11AX_CFG:
+        case NCP_RSP_11AX_CFG:
             ret = wlan_process_11axcfg_response(res);
             break;
-        case NCP_BRIDGE_CMD_BTWT_CFG:
+        case NCP_RSP_BTWT_CFG:
             ret = wlan_process_btwt_response(res);
             break;
-        case NCP_BRIDGE_CMD_TWT_SETUP:
+        case NCP_RSP_TWT_SETUP:
             ret = wlan_process_twt_setup_response(res);
             break;
-        case NCP_BRIDGE_CMD_TWT_TEARDOWN:
+        case NCP_RSP_TWT_TEARDOWN:
             ret = wlan_process_twt_teardown_response(res);
             break;
-        case NCP_BRIDGE_CMD_TWT_GET_REPORT:
+        case NCP_RSP_TWT_GET_REPORT:
             ret = wlan_process_twt_report_response(res);
             break;
-        case NCP_BRIDGE_CMD_11D_ENABLE:
+        case NCP_RSP_11D_ENABLE:
             ret = wlan_process_11d_enable_response(res);
             break;
-        case NCP_BRIDGE_CMD_REGION_CODE:
+        case NCP_RSP_REGION_CODE:
             ret = wlan_process_region_code_response(res);
             break;
-        case NCP_BRIDGE_CMD_SYSTEM_CONFIG_SET:
-            ret = ncp_process_set_cfg_response(res);
-            break;
-        case NCP_BRIDGE_CMD_SYSTEM_CONFIG_GET:
-            ret = ncp_process_get_cfg_response(res);
-            break;
-        case NCP_BRIDGE_CMD_SYSTEM_TEST_LOOPBACK:
-            ret = ncp_process_test_loopback_response(res);
-            break;
-        case NCP_BRIDGE_CMD_WLAN_UAP_MAX_CLIENT_CNT:
+        case NCP_CMD_WLAN_UAP_MAX_CLIENT_CNT:
             ret = wlan_process_client_count_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_ANTENNA:
+        case NCP_RSP_WLAN_STA_ANTENNA:
             ret = wlan_process_antenna_cfg_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_DEEP_SLEEP_PS:
+        case NCP_RSP_WLAN_POWERMGMT_DEEP_SLEEP_PS:
             ret = wlan_process_deep_sleep_ps_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_POWERMGMT_IEEE_PS:
+        case NCP_RSP_WLAN_POWERMGMT_IEEE_PS:
             ret = wlan_process_ieee_ps_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_DEBUG_REGISTER_ACCESS:
+        case NCP_RSP_WLAN_DEBUG_REGISTER_ACCESS:
             ret = wlan_process_register_access_response(res);
             break;
 #ifdef CONFIG_MEM_MONITOR_DEBUG
-        case NCP_BRIDGE_CMD_WLAN_MEMORY_HEAP_SIZE:
+        case NCP_RSP_WLAN_MEMORY_HEAP_SIZE:
             ret = wlan_process_memory_state_response(res);
             break;
 #endif
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_ED_MAC_MODE:
+        case NCP_RSP_WLAN_REGULATORY_ED_MAC_MODE:
             ret = wlan_process_ed_mac_response(res);
             break;
 #ifdef CONFIG_NCP_RF_TEST_MODE
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TEST_MODE:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_TEST_MODE:
             ret = wlan_process_set_rf_test_mode_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_ANTENNA:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_TX_ANTENNA:
             ret = wlan_process_set_rf_tx_antenna_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_TX_ANTENNA:
+        case NCP_RSP_WLAN_REGULATORY_GET_RF_TX_ANTENNA:
             ret = wlan_process_get_rf_tx_antenna_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_RX_ANTENNA:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_RX_ANTENNA:
             ret = wlan_process_set_rf_rx_antenna_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_RX_ANTENNA:
+        case NCP_RSP_WLAN_REGULATORY_GET_RF_RX_ANTENNA:
             ret = wlan_process_get_rf_rx_antenna_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_BAND:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_BAND:
             ret = wlan_process_set_rf_band_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_BAND:
+        case NCP_RSP_WLAN_REGULATORY_GET_RF_BAND:
             ret = wlan_process_get_rf_band_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_BANDWIDTH:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_BANDWIDTH:
             ret = wlan_process_set_rf_bandwidth_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_BANDWIDTH:
+        case NCP_RSP_WLAN_REGULATORY_GET_RF_BANDWIDTH:
             ret = wlan_process_get_rf_bandwidth_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_CHANNEL:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_CHANNEL:
             ret = wlan_process_set_rf_channel_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_CHANNEL:
+        case NCP_RSP_WLAN_REGULATORY_GET_RF_CHANNEL:
             ret = wlan_process_get_rf_channel_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_RADIO_MODE:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_RADIO_MODE:
             ret = wlan_process_set_rf_radio_mode_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_RADIO_MODE:
+        case NCP_RSP_WLAN_REGULATORY_GET_RF_RADIO_MODE:
             ret = wlan_process_get_rf_radio_mode_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_POWER:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_TX_POWER:
             ret = wlan_process_set_rf_tx_power_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_CONT_MODE:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_TX_CONT_MODE:
             ret = wlan_process_set_rf_tx_cont_mode_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_FRAME:
+        case NCP_RSP_WLAN_REGULATORY_SET_RF_TX_FRAME:
             ret = wlan_process_set_rf_tx_frame_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_AND_RESET_RF_PER:
+        case NCP_RSP_WLAN_REGULATORY_GET_AND_RESET_RF_PER:
             ret = wlan_process_set_rf_get_and_reset_rf_per_response(res);
             break;
 #endif
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_EU_CRYPTO_CCMP_128:
+        case NCP_RSP_WLAN_REGULATORY_EU_CRYPTO_CCMP_128:
             ret = wlan_process_eu_crypto_ccmp128_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_REGULATORY_EU_CRYPTO_GCMP_128:
+        case NCP_RSP_WLAN_REGULATORY_EU_CRYPTO_GCMP_128:
             ret = wlan_process_eu_crypto_gcmp128_response(res);
             break;
-        case NCP_BRIDGE_CMD_DATE_TIME:
+        case NCP_RSP_DATE_TIME:
             ret = wlan_process_time_response(res);
             break;
-        case NCP_BRIDGE_CMD_GET_TEMPERATUE:
+        case NCP_RSP_GET_TEMPERATUE:
             ret = wlan_process_get_temperature_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_WPS_PBC:
+        case NCP_RSP_WLAN_STA_WPS_PBC:
             ret = wlan_process_wps_pbc_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_GEN_WPS_PIN:
+        case NCP_RSP_WLAN_STA_GEN_WPS_PIN:
             ret = wlan_process_wps_generate_pin_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_STA_WPS_PIN:
+        case NCP_RSP_WLAN_STA_WPS_PIN:
             ret = wlan_process_wps_pin_response(res);
             break;
-        case NCP_BRIDGE_CMD_INVALID_CMD:
+        case NCP_RSP_INVALID_CMD:
             ret = WM_SUCCESS;
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_MDNS_QUERY:
+        case NCP_RSP_WLAN_NETWORK_MDNS_QUERY:
             ret = wlan_process_mdns_query_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_LIST:
+        case NCP_RSP_WLAN_NETWORK_LIST:
             ret = wlan_process_network_list_response(res);
             break;
-        case NCP_BRIDGE_CMD_WLAN_NETWORK_REMOVE:
+        case NCP_RSP_WLAN_NETWORK_REMOVE:
             ret = wlan_process_network_remove_response(res);
             break;
         default:
@@ -2209,7 +1986,7 @@ int wlan_process_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes monitor response from bridge_app
+ * @brief      This function processes monitor response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2217,7 +1994,7 @@ int wlan_process_response(uint8_t *res)
 int wlan_process_monitor_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("Monitor cfg is success!\r\n");
         return TRUE;
@@ -2228,7 +2005,7 @@ int wlan_process_monitor_response(uint8_t *res)
 }
 
 /**
- * @brief       This function processes connect response from bridge_app
+ * @brief       This function processes connect response from ncp device
  *
  * @param res   A pointer to uint8_t
  * @return      Status returned
@@ -2238,7 +2015,7 @@ int wlan_process_con_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     struct in_addr ip;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("Failed to get correct AP info!\r\n");
         printf(
@@ -2257,7 +2034,7 @@ int wlan_process_con_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes disconnect response from bridge_app
+ * @brief      This function processes disconnect response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2265,7 +2042,7 @@ int wlan_process_con_response(uint8_t *res)
 int wlan_process_discon_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         printf("STA disconnect.\r\n");
     else
         printf("Failed to disconnect to network.\r\n");
@@ -2274,7 +2051,7 @@ int wlan_process_discon_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes fw version response from bridge_app
+ * @brief      This function processes fw version response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2282,7 +2059,7 @@ int wlan_process_discon_response(uint8_t *res)
 int wlan_process_version_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         NCP_CMD_FW_VERSION *fw_ver = (NCP_CMD_FW_VERSION *)&cmd_res->params.firmware_version;
         printf("WLAN Driver Version   :%s \r\n", fw_ver->driver_ver_str);
@@ -2297,7 +2074,7 @@ int wlan_process_version_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes mac address(set) response from bridge_app
+ * @brief      This function processes mac address(set) response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2305,7 +2082,7 @@ int wlan_process_version_response(uint8_t *res)
 int wlan_process_set_mac_address(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to set mac address\r\n");
     }
@@ -2314,7 +2091,7 @@ int wlan_process_set_mac_address(uint8_t *res)
 }
 
 /**
- * @brief      This function processes mac address(get) response from bridge_app
+ * @brief      This function processes mac address(get) response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2322,7 +2099,7 @@ int wlan_process_set_mac_address(uint8_t *res)
 int wlan_process_get_mac_address(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         NCP_CMD_GET_MAC_ADDRESS *get_mac = (NCP_CMD_GET_MAC_ADDRESS *)&cmd_res->params.get_mac_addr;
         printf("MAC Address\r\n");
@@ -2338,7 +2115,7 @@ int wlan_process_get_mac_address(uint8_t *res)
 }
 
 /**
- * @brief      This function processes wlan connection state response from bridge_app
+ * @brief      This function processes wlan connection state response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2347,7 +2124,7 @@ int wlan_process_stat(uint8_t *res)
 {
     char ps_mode_str[25];
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to get wlan connection state\r\n");
         return FALSE;
@@ -2427,7 +2204,7 @@ int wlan_process_stat(uint8_t *res)
 }
 
 /**
- * @brief      This function processes roaming response from bridge_app
+ * @brief      This function processes roaming response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2436,7 +2213,7 @@ int wlan_process_stat(uint8_t *res)
 int wlan_process_roaming(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("Set roaming successfully!\r\n");
         return TRUE;
@@ -2447,7 +2224,7 @@ int wlan_process_roaming(uint8_t *res)
 }
 
 /**
- * @brief      This function processes scan response from bridge_app
+ * @brief      This function processes scan response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2455,7 +2232,7 @@ int wlan_process_roaming(uint8_t *res)
 int wlan_process_scan_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         NCP_CMD_SCAN_NETWORK_INFO *scan_result = (NCP_CMD_SCAN_NETWORK_INFO *)&cmd_res->params.scan_network_info;
         uint8_t count                          = scan_result->res_cnt;
@@ -2470,6 +2247,31 @@ int wlan_process_scan_response(uint8_t *res)
             {
                 printf(MACSTR, MAC2STR((unsigned char)scan_result->res[i].bssid));
                 printf(" [%s]\r\n", scan_result->res[i].ssid);
+                printf("mode: ");
+#if CONFIG_NCP_11AX
+                if (scan_result->res[i].dot11ax != 0U)
+                {
+                    printf("802.11AX ");
+                }
+                else
+#endif
+#if CONFIG_NCP_11AC
+                if (scan_result->res[i].dot11ac != 0U)
+                {
+                    printf("802.11AC ");
+                }
+                else
+#endif
+                if (scan_result->res[i].dot11n != 0U)
+                {
+                    printf("802.11N ");
+                }
+                else
+                {
+                    printf("802.11BG ");
+                }
+                printf("\r\n");
+
                 printf("channel: %d\r\n", scan_result->res[i].channel);
                 printf("rssi: -%d dBm\r\n", scan_result->res[i].rssi);
 
@@ -2509,7 +2311,7 @@ int wlan_process_scan_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes wlan reset response from bridge_app
+ * @brief      This function processes wlan reset response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2517,7 +2319,7 @@ int wlan_process_scan_response(uint8_t *res)
 int wlan_process_wlan_reset_result_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("wlan_reset is ok!\r\n");
         return TRUE;
@@ -2528,7 +2330,7 @@ int wlan_process_wlan_reset_result_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes wlan-uap-prov-start response from bridge_app
+ * @brief      This function processes wlan-uap-prov-start response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2536,7 +2338,7 @@ int wlan_process_wlan_reset_result_response(uint8_t *res)
 int wlan_process_wlan_uap_prov_start_result_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("wlan-uap-prov-start is ok!\r\n");
         return TRUE;
@@ -2547,7 +2349,7 @@ int wlan_process_wlan_uap_prov_start_result_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes wlan-uap-prov-reset response from bridge_app
+ * @brief      This function processes wlan-uap-prov-reset response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2555,7 +2357,7 @@ int wlan_process_wlan_uap_prov_start_result_response(uint8_t *res)
 int wlan_process_wlan_uap_prov_reset_result_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("wlan-uap-prov-reset is ok!\r\n");
         return TRUE;
@@ -2579,7 +2381,7 @@ static const char *print_role(uint8_t role)
     return "unknown";
 }
 
-static void print_address(wlan_bridge_network *network, uint8_t role)
+static void print_address(NCP_WLAN_NETWORK *network, uint8_t role)
 {
     struct in_addr ip, gw, nm, dns1, dns2;
     char addr_type[40] = {0};
@@ -2631,7 +2433,7 @@ static void print_mac(const unsigned char *mac)
 {
     printf("%02X:%02X:%02X:%02X:%02X:%02X ", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
-static void print_network(wlan_bridge_network *network)
+static void print_network(NCP_WLAN_NETWORK *network)
 {
     char *pssid = "(hidden)";
     if (network->ssid[0])
@@ -2729,7 +2531,7 @@ static void print_network(wlan_bridge_network *network)
 }
 
 /**
- * @brief      This function processes wlan network info response from bridge_app
+ * @brief      This function processes wlan network info response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2737,7 +2539,7 @@ static void print_network(wlan_bridge_network *network)
 int wlan_process_info(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to get wlan info\r\n");
         return FALSE;
@@ -2770,7 +2572,7 @@ int wlan_process_info(uint8_t *res)
 int wlan_process_address(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("failed to get wlan address\r\n");
         return -WM_FAIL;
@@ -2792,7 +2594,7 @@ int wlan_process_address(uint8_t *res)
 
 /*WLAN HTTP commamd*/
 /**
- * @brief      This function processes wlan http connect from bridge_app
+ * @brief      This function processes wlan http connect from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2801,7 +2603,7 @@ int wlan_process_wlan_http_con_response(uint8_t *res)
 {
     int handle                 = -1;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to connect!\r\n");
         return FALSE;
@@ -2822,11 +2624,10 @@ int wlan_process_wlan_http_con_response(uint8_t *res)
  */
 int wlan_http_connect_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_HTTP_CON;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_HTTP_CON;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 2)
     {
@@ -2845,7 +2646,7 @@ int wlan_http_connect_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan http disconnect from bridge_app
+ * @brief      This function processes wlan http disconnect from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2853,7 +2654,7 @@ int wlan_http_connect_command(int argc, char **argv)
 int wlan_process_wlan_http_discon_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to disconnect!\r\n");
         return FALSE;
@@ -2872,11 +2673,10 @@ int wlan_process_wlan_http_discon_response(uint8_t *res)
  */
 int wlan_http_disconnect_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_HTTP_DISCON;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_HTTP_DISCON;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 2)
     {
@@ -2896,7 +2696,7 @@ int wlan_http_disconnect_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan http req from bridge_app
+ * @brief      This function processes wlan http req from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -2912,7 +2712,7 @@ int wlan_process_wlan_http_req_response(uint8_t *res)
     char *recv_header          = 0;
     int header_count           = 0;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to req!\r\n");
         return FALSE;
@@ -2941,11 +2741,10 @@ int wlan_process_wlan_http_req_response(uint8_t *res)
  */
 int wlan_http_req_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_HTTP_REQ;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_HTTP_REQ;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc < 3 || argc > 6)
     {
@@ -2995,7 +2794,7 @@ int wlan_http_req_command(int argc, char **argv)
     wlan_http_command->header.size += sizeof(NCP_CMD_HTTP_REQ_CFG);
     if (argv[4])
     {
-        if (wlan_http_command->header.size > NCP_BRIDGE_COMMAND_LEN)
+        if (wlan_http_command->header.size > NCP_COMMAND_LEN)
         {
             printf("over buffer size\r\n");
             return FALSE;
@@ -3006,7 +2805,7 @@ int wlan_http_req_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan http recv from bridge_app
+ * @brief      This function processes wlan http recv from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3015,7 +2814,7 @@ int wlan_process_wlan_http_recv_response(uint8_t *res)
 {
     unsigned int recv_size     = 0;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("%s: failed to receive data!\r\n", __FUNCTION__);
         return FALSE;
@@ -3034,11 +2833,10 @@ int wlan_process_wlan_http_recv_response(uint8_t *res)
  */
 int wlan_http_recv_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_HTTP_RECV;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_HTTP_RECV;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 4)
     {
@@ -3070,7 +2868,7 @@ int wlan_http_recv_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan http seth from bridge_app
+ * @brief      This function processes wlan http seth from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3078,7 +2876,7 @@ int wlan_http_recv_command(int argc, char **argv)
 int wlan_process_wlan_http_unseth_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to remove http header-name!\r\n");
         return FALSE;
@@ -3094,11 +2892,10 @@ int wlan_process_wlan_http_unseth_response(uint8_t *res)
  */
 int wlan_http_unseth_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_HTTP_UNSETH;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_HTTP_UNSETH;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 2)
     {
@@ -3121,7 +2918,7 @@ int wlan_http_unseth_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan http unseth from bridge_app
+ * @brief      This function processes wlan http unseth from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3129,7 +2926,7 @@ int wlan_http_unseth_command(int argc, char **argv)
 int wlan_process_wlan_http_seth_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to set http header-name!\r\n");
         return FALSE;
@@ -3145,11 +2942,10 @@ int wlan_process_wlan_http_seth_response(uint8_t *res)
  */
 int wlan_http_seth_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_HTTP_SETH;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_HTTP_SETH;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 3)
     {
@@ -3173,7 +2969,7 @@ int wlan_http_seth_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan websocket upgrade from bridge_app
+ * @brief      This function processes wlan websocket upgrade from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3181,7 +2977,7 @@ int wlan_http_seth_command(int argc, char **argv)
 int wlan_process_wlan_websocket_upg_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to http upgrade!\r\n");
         return FALSE;
@@ -3197,11 +2993,10 @@ int wlan_process_wlan_websocket_upg_response(uint8_t *res)
  */
 int wlan_websocket_upg_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_WEBSOCKET_UPG;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_WEBSOCKET_UPG;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 4)
     {
@@ -3229,7 +3024,7 @@ int wlan_websocket_upg_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan websocket send from bridge_app
+ * @brief      This function processes wlan websocket send from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3237,7 +3032,7 @@ int wlan_websocket_upg_command(int argc, char **argv)
 int wlan_process_wlan_websocket_send_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to send data!\r\n");
         return FALSE;
@@ -3253,11 +3048,10 @@ int wlan_process_wlan_websocket_send_response(uint8_t *res)
  */
 int wlan_websocket_send_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_WEBSOCKET_SEND;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_WEBSOCKET_SEND;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 4 && argc != 5)
     {
@@ -3294,7 +3088,7 @@ int wlan_websocket_send_command(int argc, char **argv)
     /*cmd size*/
     wlan_http_command->header.size += sizeof(NCP_CMD_WEBSOCKET_SEND_CFG);
     wlan_http_command->header.size += wlan_http_tlv->size;
-    if (wlan_http_command->header.size > NCP_BRIDGE_COMMAND_LEN)
+    if (wlan_http_command->header.size > NCP_COMMAND_LEN)
     {
         printf("over buffer size\r\n");
         return FALSE;
@@ -3305,7 +3099,7 @@ int wlan_websocket_send_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan websocket recv from bridge_app
+ * @brief      This function processes wlan websocket recv from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3314,7 +3108,7 @@ int wlan_process_wlan_websocket_recv_response(uint8_t *res)
 {
     unsigned int recv_size     = 0;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("%s: failed to receive data!\r\n", __FUNCTION__);
         return FALSE;
@@ -3335,11 +3129,10 @@ int wlan_process_wlan_websocket_recv_response(uint8_t *res)
  */
 int wlan_websocket_recv_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_http_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_http_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_WEBSOCKET_RECV;
-    wlan_http_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_http_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_http_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_http_command = mpu_host_get_wifi_command_buffer();
+    wlan_http_command->header.cmd        = NCP_CMD_WLAN_WEBSOCKET_RECV;
+    wlan_http_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_http_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 4)
     {
@@ -3373,7 +3166,7 @@ int wlan_websocket_recv_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan socket open response from bridge_app
+ * @brief      This function processes wlan socket open response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3382,7 +3175,7 @@ int wlan_process_wlan_socket_open_response(uint8_t *res)
 {
     int handle                 = -1;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to open!\r\n");
         return FALSE;
@@ -3403,11 +3196,10 @@ int wlan_process_wlan_socket_open_response(uint8_t *res)
  */
 int wlan_socket_open_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_OPEN;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_OPEN;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc < 2 || argc > 4)
     {
@@ -3415,7 +3207,7 @@ int wlan_socket_open_command(int argc, char **argv)
         return FALSE;
     }
 
-    if (strcmp(argv[1], "tcp") && strcmp(argv[1], "udp") && strcmp(argv[1], "raw"))
+    if (!strcmp(argv[1], "tcp") && !strcmp(argv[1], "udp") && !strcmp(argv[1], "raw"))
     {
         printf("Usage: %s tcp/udp/raw [domain] [protocol]\r\n", __func__);
         return FALSE;
@@ -3444,7 +3236,7 @@ int wlan_socket_open_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan socket connect from bridge_app
+ * @brief      This function processes wlan socket connect from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3452,7 +3244,7 @@ int wlan_socket_open_command(int argc, char **argv)
 int wlan_process_wlan_socket_con_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to connect!\r\n");
         return FALSE;
@@ -3472,11 +3264,10 @@ int wlan_process_wlan_socket_con_response(uint8_t *res)
  */
 int wlan_socket_con_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_CON;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_CON;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 4)
     {
@@ -3509,7 +3300,7 @@ int wlan_socket_con_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan socket bind from bridge_app
+ * @brief      This function processes wlan socket bind from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3517,7 +3308,7 @@ int wlan_socket_con_command(int argc, char **argv)
 int wlan_process_wlan_socket_bind_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to bind!\r\n");
         return FALSE;
@@ -3537,11 +3328,10 @@ int wlan_process_wlan_socket_bind_response(uint8_t *res)
  */
 int wlan_socket_bind_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_BIND;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_BIND;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 4)
     {
@@ -3573,7 +3363,7 @@ int wlan_socket_bind_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan socket close from bridge_app
+ * @brief      This function processes wlan socket close from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3581,7 +3371,7 @@ int wlan_socket_bind_command(int argc, char **argv)
 int wlan_process_wlan_socket_close_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to close handle!\r\n");
         return FALSE;
@@ -3601,11 +3391,10 @@ int wlan_process_wlan_socket_close_response(uint8_t *res)
  */
 int wlan_socket_close_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_CLOSE;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_CLOSE;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 2)
     {
@@ -3628,7 +3417,7 @@ int wlan_socket_close_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan socket listen from bridge_app
+ * @brief      This function processes wlan socket listen from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3636,7 +3425,7 @@ int wlan_socket_close_command(int argc, char **argv)
 int wlan_process_wlan_socket_listen_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to listen handle!\r\n");
         return FALSE;
@@ -3656,11 +3445,10 @@ int wlan_process_wlan_socket_listen_response(uint8_t *res)
  */
 int wlan_socket_listen_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_LISTEN;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_LISTEN;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 3)
     {
@@ -3688,7 +3476,7 @@ int wlan_socket_listen_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan socket accept from bridge_app
+ * @brief      This function processes wlan socket accept from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3697,7 +3485,7 @@ int wlan_process_wlan_socket_accept_response(uint8_t *res)
 {
     int handle                 = -1;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to accept handle!\r\n");
         return FALSE;
@@ -3716,11 +3504,10 @@ int wlan_process_wlan_socket_accept_response(uint8_t *res)
  */
 int wlan_socket_accept_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_ACCEPT;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_ACCEPT;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 2)
     {
@@ -3742,7 +3529,7 @@ int wlan_socket_accept_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan socket send from bridge_app
+ * @brief      This function processes wlan socket send from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3750,7 +3537,7 @@ int wlan_socket_accept_command(int argc, char **argv)
 int wlan_process_wlan_socket_send_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         // printf("failed to send data!\r\n");
         return FALSE;
@@ -3767,11 +3554,10 @@ int wlan_process_wlan_socket_send_response(uint8_t *res)
  */
 int wlan_socket_send_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_SEND;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_SEND;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 3 && argc != 4)
     {
@@ -3802,7 +3588,7 @@ int wlan_socket_send_command(int argc, char **argv)
     /*cmd size*/
     wlan_socket_command->header.size += sizeof(NCP_CMD_SOCKET_SEND_CFG);
     wlan_socket_command->header.size += wlan_socket_tlv->size;
-    if (wlan_socket_command->header.size > NCP_BRIDGE_COMMAND_LEN)
+    if (wlan_socket_command->header.size > NCP_COMMAND_LEN)
     {
         printf("over buffer size\r\n");
         return FALSE;
@@ -3812,7 +3598,7 @@ int wlan_socket_send_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan socket sendto from bridge_app
+ * @brief      This function processes wlan socket sendto from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3820,7 +3606,7 @@ int wlan_socket_send_command(int argc, char **argv)
 int wlan_process_wlan_socket_sendto_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         if (ping_res.seq_no < 0)
         {
@@ -3851,11 +3637,10 @@ int wlan_process_wlan_socket_sendto_response(uint8_t *res)
  */
 int wlan_socket_sendto_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_SENDTO;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_SENDTO;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 5 && argc != 6)
     {
@@ -3896,7 +3681,7 @@ int wlan_socket_sendto_command(int argc, char **argv)
     /*cmd size*/
     wlan_socket_command->header.size += sizeof(NCP_CMD_SOCKET_SENDTO_CFG);
     wlan_socket_command->header.size += wlan_socket_tlv->size;
-    if (wlan_socket_command->header.size > NCP_BRIDGE_COMMAND_LEN)
+    if (wlan_socket_command->header.size > NCP_COMMAND_LEN)
     {
         printf("over buffer size\r\n");
         return FALSE;
@@ -3907,7 +3692,7 @@ int wlan_socket_sendto_command(int argc, char **argv)
 
 extern char lwiperf_end_token[NCP_IPERF_END_TOKEN_SIZE];
 /**
- * @brief      This function processes wlan socket receive from bridge_app
+ * @brief      This function processes wlan socket receive from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -3916,7 +3701,7 @@ int wlan_process_wlan_socket_receive_response(uint8_t *res)
 {
     unsigned int recv_size     = 0;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         if (socket_receive_res == true)
         {
@@ -3957,11 +3742,10 @@ int wlan_process_wlan_socket_receive_response(uint8_t *res)
  */
 int wlan_socket_receive_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_RECV;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_RECV;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 4)
     {
@@ -4036,7 +3820,7 @@ static void ping_recv(NCP_CMD_SOCKET_RECVFROM_CFG *recv)
 }
 
 /**
- * @brief      This function processes wlan socket recvfrom from bridge_app
+ * @brief      This function processes wlan socket recvfrom from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -4046,7 +3830,7 @@ int wlan_process_wlan_socket_recvfrom_response(uint8_t *res)
     unsigned int recv_size     = 0;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         if (socket_recvfrom_res == true)
         {
@@ -4105,11 +3889,10 @@ int wlan_process_wlan_socket_recvfrom_response(uint8_t *res)
  */
 int wlan_socket_recvfrom_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wlan_socket_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_socket_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_SOCKET_RECVFROM;
-    wlan_socket_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_socket_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_socket_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_socket_command = mpu_host_get_wifi_command_buffer();
+    wlan_socket_command->header.cmd        = NCP_CMD_WLAN_SOCKET_RECVFROM;
+    wlan_socket_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_socket_command->header.result     = NCP_CMD_RESULT_OK;
 
     if (argc != 4)
     {
@@ -4145,7 +3928,7 @@ int wlan_socket_recvfrom_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan add network response from bridge_app
+ * @brief      This function processes wlan add network response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -4181,7 +3964,7 @@ int wlan_process_add_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes wlan start network response from bridge_app
+ * @brief      This function processes wlan start network response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -4192,7 +3975,7 @@ int wlan_process_start_network_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret != NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret != NCP_CMD_RESULT_OK)
     {
         printf("Error: unable to start network\r\n");
         return FALSE;
@@ -4206,7 +3989,7 @@ int wlan_process_start_network_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes wlan stop network response from bridge_app
+ * @brief      This function processes wlan stop network response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -4217,7 +4000,7 @@ int wlan_process_stop_network_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         printf("Stop network successfully\r\n");
     }
@@ -4229,7 +4012,7 @@ int wlan_process_stop_network_response(uint8_t *res)
 }
 
 /**
- * @brief      This function processes wlan get uap sta list response from bridge_app
+ * @brief      This function processes wlan get uap sta list response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -4239,7 +4022,7 @@ int wlan_process_get_uap_sta_list(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     int i;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("failed to get wlan uap sta list\r\n");
         return FALSE;
@@ -4261,21 +4044,6 @@ int wlan_process_get_uap_sta_list(uint8_t *res)
 
     return TRUE;
 }
-
-wlan_csi_config_params_t g_csi_params = {
-    .bss_type           = 0,
-    .csi_enable         = 1,
-    .head_id            = 0x00010203,
-    .tail_id            = 0x00010203,
-    .csi_filter_cnt     = 0,
-    .chip_id            = 0xaa,
-    .band_config        = 0,
-    .channel            = 0,
-    .csi_monitor_enable = 0,
-    .ra4us              = 0,
-    /*				  mac_addr						  pkt_type	subtype  flags*/
-    //.csi_filter[0] = {0x00,0x00,0x00,0x00,0x00,0x00 , 0x00,     0x00,	 0}
-};
 
 static void dump_wlan_csi_filter_usage()
 {
@@ -4550,11 +4318,10 @@ int wlan_set_csi_filter_command(int argc, char **argv)
 
 int wlan_csi_cfg_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *csi_command = ncp_mpu_bridge_get_command_buffer();
-    csi_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_CSI;
-    csi_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    csi_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    csi_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *csi_command = mpu_host_get_wifi_command_buffer();
+    csi_command->header.cmd        = NCP_CMD_WLAN_STA_CSI;
+    csi_command->header.size       = NCP_CMD_HEADER_LEN;
+    csi_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_CSI *csi_cfg = (NCP_CMD_CSI *)&csi_command->params.csi_cfg;
     memcpy(&csi_cfg->csi_para, &g_csi_params, sizeof(g_csi_params));
@@ -4564,7 +4331,7 @@ int wlan_csi_cfg_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes csi response from bridge_app
+ * @brief      This function processes csi response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -4572,7 +4339,7 @@ int wlan_csi_cfg_command(int argc, char **argv)
 int wlan_process_csi_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("CSI cfg is success!\r\n");
         return TRUE;
@@ -4594,11 +4361,10 @@ int wlan_11k_cfg_command(int argc, char **argv)
 
     enable_11k = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *wlan_11k_cfg_command = ncp_mpu_bridge_get_command_buffer();
-    wlan_11k_cfg_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_11K_CFG;
-    wlan_11k_cfg_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wlan_11k_cfg_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wlan_11k_cfg_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wlan_11k_cfg_command = mpu_host_get_wifi_command_buffer();
+    wlan_11k_cfg_command->header.cmd        = NCP_CMD_WLAN_STA_11K_CFG;
+    wlan_11k_cfg_command->header.size       = NCP_CMD_HEADER_LEN;
+    wlan_11k_cfg_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_11K_CFG *wlan_11k_cfg = (NCP_CMD_11K_CFG *)&wlan_11k_cfg_command->params.wlan_11k_cfg;
     wlan_11k_cfg->enable          = enable_11k;
@@ -4609,12 +4375,11 @@ int wlan_11k_cfg_command(int argc, char **argv)
 
 int wlan_11k_neighbor_req_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *neighbor_req_command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)neighbor_req_command, 0, NCP_BRIDGE_COMMAND_LEN);
-    neighbor_req_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_STA_NEIGHBOR_REQ;
-    neighbor_req_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    neighbor_req_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    neighbor_req_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *neighbor_req_command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)neighbor_req_command, 0, NCP_COMMAND_LEN);
+    neighbor_req_command->header.cmd      = NCP_CMD_WLAN_STA_NEIGHBOR_REQ;
+    neighbor_req_command->header.size     = NCP_CMD_HEADER_LEN;
+    neighbor_req_command->header.result   = NCP_CMD_RESULT_OK;
 
     if ((argc != 1 && argc != 3) || (argc == 3 && !string_equal("ssid", argv[1])))
     {
@@ -4637,10 +4402,10 @@ int wlan_11k_neighbor_req_command(int argc, char **argv)
         else
         {
             NCP_CMD_NEIGHBOR_REQ *neighbor_req = (NCP_CMD_NEIGHBOR_REQ *)&neighbor_req_command->params.neighbor_req;
-            neighbor_req->ssid_tlv.header.type = NCP_BRIDGE_CMD_NETWORK_SSID_TLV;
+            neighbor_req->ssid_tlv.header.type = NCP_CMD_NETWORK_SSID_TLV;
             neighbor_req->ssid_tlv.header.size = strlen(argv[2]);
 
-            neighbor_req_command->header.size += strlen(argv[2]) + NCP_BRIDGE_TLV_HEADER_LEN;
+            neighbor_req_command->header.size += strlen(argv[2]) + NCP_TLV_HEADER_LEN;
             (void)memcpy(neighbor_req->ssid_tlv.ssid, argv[2], strlen(argv[2]));
         }
     }
@@ -4651,7 +4416,7 @@ int wlan_11k_neighbor_req_command(int argc, char **argv)
 int wlan_process_11k_cfg_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("11k cfg is success!\r\n");
         return TRUE;
@@ -4664,7 +4429,7 @@ int wlan_process_11k_cfg_response(uint8_t *res)
 int wlan_process_neighbor_req_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("neighbor_req is success!\r\n");
         return TRUE;
@@ -4676,13 +4441,12 @@ int wlan_process_neighbor_req_response(uint8_t *res)
 
 int wlan_get_signal_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *get_signal_command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)get_signal_command, 0, NCP_BRIDGE_COMMAND_LEN);
+    NCPCmd_DS_COMMAND *get_signal_command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)get_signal_command, 0, NCP_COMMAND_LEN);
 
-    get_signal_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_STA_SIGNAL;
-    get_signal_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_signal_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    get_signal_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    get_signal_command->header.cmd      = NCP_CMD_WLAN_STA_SIGNAL;
+    get_signal_command->header.size     = NCP_CMD_HEADER_LEN;
+    get_signal_command->header.result   = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -4690,7 +4454,7 @@ int wlan_get_signal_command(int argc, char **argv)
 int wlan_process_rssi_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("Cann't get RSSI information in disconnect state.\r\n");
         return TRUE;
@@ -4711,7 +4475,6 @@ int wlan_process_rssi_response(uint8_t *res)
     return TRUE;
 }
 
-power_cfg_t global_power_config;
 uint8_t mpu_device_status = MPU_DEVICE_STATUS_ACTIVE;
 
 static void dump_wlan_multi_mef_command(const char *str)
@@ -4729,7 +4492,7 @@ static void dump_wlan_multi_mef_command(const char *str)
 
 int wlan_multi_mef_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *mef_command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *mef_command = mpu_host_get_wifi_command_buffer();
     int type                       = MEF_TYPE_END;
     uint8_t action                 = 0;
 
@@ -4775,10 +4538,9 @@ int wlan_multi_mef_command(int argc, char **argv)
         }
     }
 
-    mef_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_POWERMGMT_MEF;
-    mef_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    mef_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    mef_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    mef_command->header.cmd      = NCP_CMD_WLAN_POWERMGMT_MEF;
+    mef_command->header.size     = NCP_CMD_HEADER_LEN;
+    mef_command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_POWERMGMT_MEF *mef_config = (NCP_CMD_POWERMGMT_MEF *)&mef_command->params.mef_config;
     mef_config->type                  = type;
@@ -4793,7 +4555,7 @@ int wlan_process_multi_mef_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     uint16_t result            = cmd_res->header.result;
 
-    if (result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (result == NCP_CMD_RESULT_OK)
         printf("multi MEF cfg is success!\r\n");
     else if (result == WM_E_PERM)
         printf("Failed to get IPv4 address!\r\n");
@@ -4804,71 +4566,12 @@ int wlan_process_multi_mef_response(uint8_t *res)
     return TRUE;
 }
 
-int wlan_wake_cfg_command(int argc, char **argv)
-{
-    NCPCmd_DS_COMMAND *wake_cfg_cmd = ncp_mpu_bridge_get_command_buffer();
-    uint8_t wake_mode               = 0;
-    uint8_t subscribe_evt           = 0;
-    uint32_t wake_duration          = 0;
-
-    if (argc != 4)
-    {
-        printf("Error: invalid number of arguments\r\n");
-        printf("Usage:\r\n");
-        printf("    %s <wake_mode> <subscribe_evt> <wake_duration>\r\n", argv[0]);
-        printf("    wake_mode    : INTF -- Interface wakeup\r\n");
-        printf("                   GPIO -- GPIO wakeup\r\n");
-        printf("    subscribe_evt: 1 -- subscribe MPU device sleep status events\r\n");
-        printf("                   0 -- no MPU device sleep status events\r\n");
-        printf("    wake_duration: Within the wake_duration, MCU device will keep active mode\r\n");
-        printf("                   Unit is second\r\n");
-        printf("Example:\r\n");
-        printf("    wlan-wake-cfg INTF 0 5\r\n");
-        printf("    wlan-wake-cfg GPIO 1 10\r\n");
-        return -WM_FAIL;
-    }
-    subscribe_evt = (uint8_t)atoi(argv[2]);
-    if (subscribe_evt != 1 && subscribe_evt != 0)
-    {
-        printf("Invalid value of parameter subscribe_evt\r\n");
-        return -WM_FAIL;
-    }
-    if (string_equal("INTF", argv[1]))
-    {
-        wake_mode = WAKE_MODE_INTF;
-    }
-    else if (string_equal("GPIO", argv[1]))
-    {
-        wake_mode = WAKE_MODE_GPIO;
-    }
-    else
-    {
-        printf("Invalid input of wake_mode\r\n");
-        return -WM_FAIL;
-    }
-    wake_duration                           = atoi(argv[3]);
-    wake_cfg_cmd->header.cmd                = NCP_BRIDGE_CMD_WLAN_POWERMGMT_WAKE_MODE_CFG;
-    wake_cfg_cmd->header.size               = NCP_BRIDGE_CMD_HEADER_LEN;
-    wake_cfg_cmd->header.result             = NCP_BRIDGE_CMD_RESULT_OK;
-    wake_cfg_cmd->header.msg_type           = NCP_BRIDGE_MSG_TYPE_CMD;
-    NCP_CMD_POWERMGMT_WAKE_CFG *wake_config = (NCP_CMD_POWERMGMT_WAKE_CFG *)&wake_cfg_cmd->params.wake_config;
-    wake_config->wake_mode                  = wake_mode;
-    wake_config->subscribe_evt              = subscribe_evt;
-    wake_config->wake_duration              = wake_duration;
-    wake_cfg_cmd->header.size += sizeof(NCP_CMD_POWERMGMT_WAKE_CFG);
-    global_power_config.wake_mode     = wake_mode;
-    global_power_config.subscribe_evt = subscribe_evt;
-    global_power_config.wake_duration = wake_duration;
-
-    return WM_SUCCESS;
-}
-
 int wlan_process_wake_mode_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     uint16_t result            = cmd_res->header.result;
 
-    if (result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (result == NCP_CMD_RESULT_OK)
         printf("Wake mode cfg is successful!\r\n");
     else
         printf("Wake mode cfg is failed!\r\n");
@@ -4878,7 +4581,7 @@ int wlan_process_wake_mode_response(uint8_t *res)
 
 int wlan_wakeup_condition_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wowlan_cfg_cmd = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *wowlan_cfg_cmd = mpu_host_get_wifi_command_buffer();
     uint8_t is_mef                    = false;
     uint32_t wake_up_conds            = 0;
 
@@ -4918,10 +4621,9 @@ int wlan_wakeup_condition_command(int argc, char **argv)
         printf("Invalid wakeup condition.\r\n");
         return -WM_FAIL;
     }
-    wowlan_cfg_cmd->header.cmd                  = NCP_BRIDGE_CMD_WLAN_POWERMGMT_WOWLAN_CFG;
-    wowlan_cfg_cmd->header.size                 = NCP_BRIDGE_CMD_HEADER_LEN;
-    wowlan_cfg_cmd->header.result               = NCP_BRIDGE_CMD_RESULT_OK;
-    wowlan_cfg_cmd->header.msg_type             = NCP_BRIDGE_MSG_TYPE_CMD;
+    wowlan_cfg_cmd->header.cmd                  = NCP_CMD_WLAN_POWERMGMT_WOWLAN_CFG;
+    wowlan_cfg_cmd->header.size                 = NCP_CMD_HEADER_LEN;
+    wowlan_cfg_cmd->header.result               = NCP_CMD_RESULT_OK;
     NCP_CMD_POWERMGMT_WOWLAN_CFG *wowlan_config = (NCP_CMD_POWERMGMT_WOWLAN_CFG *)&wowlan_cfg_cmd->params.wowlan_config;
     wowlan_config->is_mef                       = is_mef;
     wowlan_config->wake_up_conds                = wake_up_conds;
@@ -4938,7 +4640,7 @@ int wlan_process_wakeup_condition_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     uint16_t result            = cmd_res->header.result;
 
-    if (result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (result == NCP_CMD_RESULT_OK)
         printf("Wowlan cfg is successful!\r\n");
     else
     {
@@ -4951,139 +4653,12 @@ int wlan_process_wakeup_condition_response(uint8_t *res)
     return WM_SUCCESS;
 }
 
-int wlan_mcu_sleep_command(int argc, char **argv)
-{
-    NCPCmd_DS_COMMAND *mcu_sleep_command = ncp_mpu_bridge_get_command_buffer();
-    uint8_t enable                       = 0;
-    uint8_t is_manual                    = false;
-    int rtc_timeout_s                    = 0;
-
-    if (argc < 2 || argc > 4)
-    {
-        printf("Error: invalid number of arguments\r\n");
-        printf("Usage:\r\n");
-        printf("    %s <enable> <mode> <rtc_timeout>\r\n", argv[0]);
-        printf("    enable : enable/disable mcu sleep\r\n");
-        printf("             0 - disable mcu sleep\r\n");
-        printf("             1 - enable mcu sleep\r\n");
-        printf("    mode   : Mode of how host enter low power.\r\n");
-        printf("             manual - Manual mode. Need to use wlan-suspend command to enter low power.\r\n");
-        printf("             pm     - Power Manager.\r\n");
-        printf("    rtc_timeout: RTC timer value. Unit is second. For Power Manager only!\r\n");
-        printf("Examples:\r\n");
-        printf("    wlan-mcu-sleep 1 pm 5\r\n");
-        printf("    wlan-mcu-sleep 1 manual\r\n");
-        printf("    wlan-mcu-sleep 0\r\n");
-        return -WM_FAIL;
-    }
-    enable = (uint8_t)atoi(argv[1]);
-    if (enable != 0 && enable != 1)
-    {
-        printf("Invalid value of parameter enable\r\n");
-        return -WM_FAIL;
-    }
-    if (enable)
-    {
-        if (argc < 3)
-        {
-            printf("Invalid number of input!\r\n");
-            printf("Usage:\r\n");
-            printf("    wlan-mcu-sleep <enable> <mode> <rtc_timer>\r\n");
-            return -WM_FAIL;
-        }
-        if (string_equal("manual", argv[2]))
-            is_manual = true;
-        else if (string_equal("pm", argv[2]))
-        {
-            if (argc != 4)
-            {
-                printf("Error!Invalid number of inputs! Need to specify both <rtc_timeout> and <periodic>\r\n");
-                return -WM_FAIL;
-            }
-            rtc_timeout_s = atoi(argv[3]);
-            if (rtc_timeout_s == 0)
-            {
-                printf("Error!Invalid value of <rtc_timeout>!\r\n");
-                return -WM_FAIL;
-            }
-        }
-        else
-        {
-            printf("Invalid input!\r\n");
-            printf("Usage:\r\n");
-            printf("    wlan-mcu-sleep <enable> <mode> <rtc_timer>\r\n");
-            return -WM_FAIL;
-        }
-    }
-
-    mcu_sleep_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_POWERMGMT_MCU_SLEEP;
-    mcu_sleep_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    mcu_sleep_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    mcu_sleep_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
-    NCP_CMD_POWERMGMT_MCU_SLEEP *mcu_sleep_config =
-        (NCP_CMD_POWERMGMT_MCU_SLEEP *)&mcu_sleep_command->params.mcu_sleep_config;
-    mcu_sleep_config->enable      = enable;
-    mcu_sleep_config->is_manual   = is_manual;
-    mcu_sleep_config->rtc_timeout = rtc_timeout_s;
-    mcu_sleep_command->header.size += sizeof(NCP_CMD_POWERMGMT_MCU_SLEEP);
-
-    global_power_config.enable      = enable;
-    global_power_config.is_manual   = is_manual;
-    global_power_config.rtc_timeout = rtc_timeout_s;
-    if (global_power_config.wake_mode == 0)
-    {
-        global_power_config.wake_mode     = WAKE_MODE_GPIO;
-        global_power_config.subscribe_evt = 1;
-        global_power_config.wake_duration = 5;
-    }
-    return WM_SUCCESS;
-}
-
-void wlan_mpu_sleep_cfm(NCP_BRIDGE_COMMAND *header)
-{
-    header->cmd            = NCP_BRIDGE_CMD_WLAN_POWERMGMT_MPU_SLEEP_CFM;
-    header->size           = NCP_BRIDGE_CMD_HEADER_LEN;
-    header->result         = NCP_BRIDGE_CMD_RESULT_OK;
-    header->msg_type       = NCP_BRIDGE_MSG_TYPE_CMD;
-}
-
-int wlan_process_sleep_status(uint8_t *res)
-{
-    NCPCmd_DS_COMMAND *event = (NCPCmd_DS_COMMAND *)res;
-
-    if (event->header.cmd == NCP_BRIDGE_EVENT_MCU_SLEEP_ENTER)
-    {
-        NCP_BRIDGE_COMMAND sleep_cfm;
-        int status = 0;
-
-        if(global_power_config.subscribe_evt)
-            printf("NCP device enters sleep mode\r\n");
-        memset(&sleep_cfm, 0x0, sizeof(sleep_cfm));
-        wlan_mpu_sleep_cfm(&sleep_cfm);
-        status = (int)ncp_tlv_send((void *)&sleep_cfm, sleep_cfm.size);
-        if(status != WM_SUCCESS)
-            printf("Failed to send mpu sleep cfm\r\n");
-        usleep(100000); // Wait 100ms to make sure NCP device enters low power.
-        mpu_device_status = MPU_DEVICE_STATUS_SLEEP;
-        pthread_mutex_lock(&gpio_wakeup_mutex);
-    }
-    else
-    {
-        if(global_power_config.subscribe_evt)
-            printf("NCP device exits sleep mode\r\n");
-        mpu_device_status = MPU_DEVICE_STATUS_ACTIVE;
-        pthread_mutex_unlock(&gpio_wakeup_mutex);
-    }
-
-    return WM_SUCCESS;
-}
-
 int wlan_process_mcu_sleep_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     uint16_t result            = cmd_res->header.result;
 
-    if (result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (result == NCP_CMD_RESULT_OK)
     {
         printf("mcu sleep cfg is success!\r\n");
         /* Clear previous power configs if mcu sleep is disabled */
@@ -5098,7 +4673,7 @@ int wlan_process_mcu_sleep_response(uint8_t *res)
 
 int wlan_suspend_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *suspend_command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *suspend_command = mpu_host_get_wifi_command_buffer();
     int mode                           = 0;
 
     if (!global_power_config.is_manual)
@@ -5124,10 +4699,9 @@ int wlan_suspend_command(int argc, char **argv)
         return -WM_FAIL;
     }
 
-    suspend_command->header.cmd               = NCP_BRIDGE_CMD_WLAN_POWERMGMT_SUSPEND;
-    suspend_command->header.size              = NCP_BRIDGE_CMD_HEADER_LEN;
-    suspend_command->header.result            = NCP_BRIDGE_CMD_RESULT_OK;
-    suspend_command->header.msg_type          = NCP_BRIDGE_MSG_TYPE_CMD;
+    suspend_command->header.cmd               = NCP_CMD_WLAN_POWERMGMT_SUSPEND;
+    suspend_command->header.size              = NCP_CMD_HEADER_LEN;
+    suspend_command->header.result            = NCP_CMD_RESULT_OK;
     NCP_CMD_POWERMGMT_SUSPEND *suspend_config = (NCP_CMD_POWERMGMT_SUSPEND *)&suspend_command->params.suspend_config;
     suspend_config->mode                      = mode;
     suspend_command->header.size += sizeof(NCP_CMD_POWERMGMT_SUSPEND);
@@ -5140,53 +4714,12 @@ int wlan_process_suspend_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     uint16_t result            = cmd_res->header.result;
 
-    if (result == NCP_BRIDGE_CMD_RESULT_ERROR)
+    if (result == NCP_CMD_RESULT_ERROR)
         printf("suspend command is failed\r\n");
     else
         printf("suspend command is successful\r\n");
 
     return WM_SUCCESS;
-}
-
-int wlan_get_mcu_sleep_conf_command(int argc, char **argv)
-{
-    printf("MCU sleep: %s\r\n", global_power_config.enable ? "enabled" : "disabled");
-    if (global_power_config.wake_mode == 0)
-    {
-        global_power_config.wake_mode     = WAKE_MODE_INTF;
-        global_power_config.wake_duration = 5;
-        printf("Wake mode: INTF\r\n");
-    }
-    printf("Subscribe event: %s\r\n", global_power_config.subscribe_evt ? "enabled" : "disabled");
-    printf("Wake duration: %ds\r\n", global_power_config.wake_duration);
-    printf("Wake up method: %s\r\n", global_power_config.is_mef ? "MEF" : "default");
-    if (!global_power_config.is_mef)
-        printf("Wakeup bitmap: 0x%x\r\n", global_power_config.wake_up_conds);
-    printf("MCU sleep method: %s\r\n", global_power_config.is_manual ? "Manual" : "Power Manager");
-    printf("MCU rtc timeout: %ds\r\n", global_power_config.rtc_timeout);
-    return WM_SUCCESS;
-}
-
-/**
- * @brief      This function processes ncp systtem configuration response from bridge_app
- * @param res  A pointer to uint8_t
- * @return     Status returned
- */
-int ncp_process_set_cfg_response(uint8_t *res)
-{
-    int ret;
-    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    ret                        = cmd_res->header.result;
-
-    if (ret == NCP_BRIDGE_CMD_RESULT_ERROR)
-    {
-        printf("Error: failed to set system configuration!\r\n");
-        return FALSE;
-    }
-
-    printf("Set system configuration successfully!\r\n");
-
-    return TRUE;
 }
 
 int wlan_set_wmm_uapsd_command(int argc, char **argv)
@@ -5201,11 +4734,10 @@ int wlan_set_wmm_uapsd_command(int argc, char **argv)
 
     enable_uapsd = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *uapsd_command = ncp_mpu_bridge_get_command_buffer();
-    uapsd_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_POWERMGMT_UAPSD;
-    uapsd_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    uapsd_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    uapsd_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *uapsd_command = mpu_host_get_wifi_command_buffer();
+    uapsd_command->header.cmd        = NCP_CMD_WLAN_POWERMGMT_UAPSD;
+    uapsd_command->header.size       = NCP_CMD_HEADER_LEN;
+    uapsd_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_POWERMGMT_UAPSD *wlan_uapsd_cfg = (NCP_CMD_POWERMGMT_UAPSD *)&uapsd_command->params.uapsd_cfg;
     wlan_uapsd_cfg->enable                  = enable_uapsd;
@@ -5218,7 +4750,7 @@ int wlan_process_wmm_uapsd_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         printf("UAPSD cfg is success!\r\n");
     else
         printf("UAPSD cfg is fail!\r\n");
@@ -5240,11 +4772,10 @@ int wlan_wmm_uapsd_qosinfo_command(int argc, char **argv)
     if (argc == 2)
         qos_info = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *qosinfo_command = ncp_mpu_bridge_get_command_buffer();
-    qosinfo_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_POWERMGMT_QOSINFO;
-    qosinfo_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    qosinfo_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    qosinfo_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *qosinfo_command = mpu_host_get_wifi_command_buffer();
+    qosinfo_command->header.cmd        = NCP_CMD_WLAN_POWERMGMT_QOSINFO;
+    qosinfo_command->header.size       = NCP_CMD_HEADER_LEN;
+    qosinfo_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_POWERMGMT_QOSINFO *qosinfo_cfg = (NCP_CMD_POWERMGMT_QOSINFO *)&qosinfo_command->params.qosinfo_cfg;
     qosinfo_cfg->qos_info                  = qos_info;
@@ -5263,7 +4794,7 @@ int wlan_process_uapsd_qosinfo_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res             = (NCPCmd_DS_COMMAND *)res;
     NCP_CMD_POWERMGMT_QOSINFO *qosinfo_cfg = (NCP_CMD_POWERMGMT_QOSINFO *)&cmd_res->params.qosinfo_cfg;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         printf("qosinfo is %u\r\n", qosinfo_cfg->qos_info);
     else
         printf("qosinfo cfg is fail!\r\n");
@@ -5284,11 +4815,10 @@ int wlan_uapsd_sleep_period_command(int argc, char **argv)
     if (argc == 2)
         period = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *sleep_period_command = ncp_mpu_bridge_get_command_buffer();
-    sleep_period_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_POWERMGMT_SLEEP_PERIOD;
-    sleep_period_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    sleep_period_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    sleep_period_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *sleep_period_command = mpu_host_get_wifi_command_buffer();
+    sleep_period_command->header.cmd        = NCP_CMD_WLAN_POWERMGMT_SLEEP_PERIOD;
+    sleep_period_command->header.size       = NCP_CMD_HEADER_LEN;
+    sleep_period_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_POWERMGMT_SLEEP_PERIOD *sleep_period_cfg =
         (NCP_CMD_POWERMGMT_SLEEP_PERIOD *)&sleep_period_command->params.sleep_period_cfg;
@@ -5309,7 +4839,7 @@ int wlan_process_uapsd_sleep_period_response(uint8_t *res)
     NCP_CMD_POWERMGMT_SLEEP_PERIOD *sleep_period_cfg =
         (NCP_CMD_POWERMGMT_SLEEP_PERIOD *)&cmd_res->params.sleep_period_cfg;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         printf("sleep period is %u\r\n", sleep_period_cfg->period);
     else
         printf("sleep period cfg is fail!\r\n");
@@ -5317,7 +4847,7 @@ int wlan_process_uapsd_sleep_period_response(uint8_t *res)
     return TRUE;
 }
 
-NCP_CMD_11AX_CFG g_11axcfg_params = {
+NCP_CMD_11AX_CFG_INFO g_11axcfg_params = {
     /* band */
     0x03,
     {/* tlv header */
@@ -5333,7 +4863,7 @@ NCP_CMD_11AX_CFG g_11axcfg_params = {
      /* val for txrx mcs 160Mhz or 80+80, and PPE thresholds */
      {0x88, 0x1f}}};
 
-NCP_CMD_BTWT_CFG g_btwt_params = {.action          = 0x0001,
+NCP_CMD_BTWT_CFG_INFO g_btwt_params = {.action          = 0x0001,
                                   .sub_id          = 0x0125,
                                   .nominal_wake    = 0x40,
                                   .max_sta_support = 0x04,
@@ -5342,7 +4872,7 @@ NCP_CMD_BTWT_CFG g_btwt_params = {.action          = 0x0001,
                                   .twt_exponent    = 0x0a,
                                   .sp_gap          = 0x05};
 
-NCP_CMD_TWT_SETUP g_twt_setup_params = {.implicit            = 0x01,
+NCP_CMD_TWT_SETUP_CFG g_twt_setup_params = {.implicit            = 0x01,
                                         .announced           = 0x00,
                                         .trigger_enabled     = 0x00,
                                         .twt_info_disabled   = 0x01,
@@ -5354,7 +4884,7 @@ NCP_CMD_TWT_SETUP g_twt_setup_params = {.implicit            = 0x01,
                                         .twt_mantissa        = 0x0200,
                                         .twt_request         = 0x00};
 
-NCP_CMD_TWT_TEARDOWN g_twt_teardown_params = {
+NCP_CMD_TWT_TEARDOWN_CFG g_twt_teardown_params = {
     .flow_identifier = 0x00, .negotiation_type = 0x00, .teardown_all_twt = 0x00};
 
 /* index enum of cfgs */
@@ -5461,13 +4991,12 @@ static test_cfg_table_t g_test_cfg_table_list[] = {
 
 static int wlan_send_11axcfg_command(void)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_11AX_CFG;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_11AX_CFG;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     (void)memcpy((uint8_t *)&command->params.he_cfg, (uint8_t *)&g_11axcfg_params, sizeof(g_11axcfg_params));
     command->header.size += sizeof(g_11axcfg_params);
@@ -5484,13 +5013,12 @@ int wlan_process_11axcfg_response(uint8_t *res)
 
 static int wlan_send_btwt_command(void)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_BTWT_CFG;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_BTWT_CFG;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     (void)memcpy((uint8_t *)&command->params.btwt_cfg, (uint8_t *)&g_btwt_params, sizeof(g_btwt_params));
     command->header.size += sizeof(g_btwt_params);
@@ -5507,13 +5035,12 @@ int wlan_process_btwt_response(uint8_t *res)
 
 static int wlan_send_twt_setup_command(void)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_TWT_SETUP;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_TWT_SETUP;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     (void)memcpy((uint8_t *)&command->params.twt_setup, (uint8_t *)&g_twt_setup_params, sizeof(g_twt_setup_params));
     command->header.size += sizeof(g_twt_setup_params);
@@ -5530,13 +5057,12 @@ int wlan_process_twt_setup_response(uint8_t *res)
 
 static int wlan_send_twt_teardown_command(void)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_TWT_TEARDOWN;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_TWT_TEARDOWN;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     (void)memcpy((uint8_t *)&command->params.he_cfg, (uint8_t *)&g_twt_teardown_params, sizeof(g_twt_teardown_params));
     command->header.size += sizeof(g_twt_teardown_params);
@@ -5553,13 +5079,12 @@ int wlan_process_twt_teardown_response(uint8_t *res)
 
 int wlan_get_twt_report_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_TWT_GET_REPORT;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_TWT_GET_REPORT;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -5570,8 +5095,8 @@ int wlan_process_twt_report_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res    = (NCPCmd_DS_COMMAND *)res;
     NCP_CMD_TWT_REPORT twt_report = {0};
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK &&
-        cmd_res->header.size >= NCP_BRIDGE_CMD_HEADER_LEN + sizeof(twt_report))
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK &&
+        cmd_res->header.size >= NCP_CMD_HEADER_LEN + sizeof(twt_report))
     {
         /* TODO: sensable var */
         (void)memcpy((uint8_t *)&twt_report, (uint8_t *)&cmd_res->params.twt_report, sizeof(twt_report));
@@ -5754,7 +5279,7 @@ int wlan_twt_teardown_command(int argc, char **argv)
 
 int wlan_set_11d_enable_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
     if (argc != 3)
     {
@@ -5762,11 +5287,10 @@ int wlan_set_11d_enable_command(int argc, char **argv)
         return FALSE;
     }
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_11D_ENABLE;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_11D_ENABLE;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     if (string_equal(argv[1], "sta"))
     {
@@ -5782,7 +5306,7 @@ int wlan_set_11d_enable_command(int argc, char **argv)
         return FALSE;
     }
     command->params.wlan_11d_cfg.state = atoi(argv[2]);
-    command->header.size += sizeof(NCP_CMD_11D_ENABLE);
+    command->header.size += sizeof(NCP_CMD_11D_ENABLE_CFG);
 
     return TRUE;
 }
@@ -5790,7 +5314,7 @@ int wlan_set_11d_enable_command(int argc, char **argv)
 int wlan_process_11d_enable_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if(cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if(cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         (void)printf("Config successfully!\r\n");
     }
@@ -5804,7 +5328,7 @@ int wlan_process_11d_enable_response(uint8_t *res)
 
 int wlan_region_code_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
     if (argc < 2 || argc > 3)
     {
@@ -5812,11 +5336,10 @@ int wlan_region_code_command(int argc, char **argv)
         return FALSE;
     }
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_REGION_CODE;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_REGION_CODE;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     if (string_equal(argv[1], "get"))
     {
@@ -5832,7 +5355,7 @@ int wlan_region_code_command(int argc, char **argv)
         (void)printf("region code invalid argument, please input set/get\r\n");
         return FALSE;
     }
-    command->header.size += sizeof(NCP_CMD_REGION_CODE);
+    command->header.size += sizeof(NCP_CMD_REGION_CODE_CFG);
 
     return TRUE;
 }
@@ -5840,9 +5363,9 @@ int wlan_region_code_command(int argc, char **argv)
 int wlan_process_region_code_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res  = (NCPCmd_DS_COMMAND *)res;
-    NCP_CMD_REGION_CODE *region = &cmd_res->params.region_cfg;
+    NCP_CMD_REGION_CODE_CFG *region = &cmd_res->params.region_cfg;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         if (region->action == 1)
             (void)printf("region code set 0x%x success\r\n", region->region_code);
@@ -5856,52 +5379,6 @@ int wlan_process_region_code_response(uint8_t *res)
     return TRUE;
 }
 
-/**
- * @brief      This function processes ncp device configuration response from bridge_app
- * @param res  A pointer to uint8_t
- * @return     Status returned
- */
-int ncp_process_get_cfg_response(uint8_t *res)
-{
-    int ret;
-    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    ret                        = cmd_res->header.result;
-
-    if (ret == NCP_BRIDGE_CMD_RESULT_ERROR)
-    {
-        printf("Error: failed to set system configuration!\r\n");
-        return FALSE;
-    }
-
-    NCP_CMD_SYSTEM_CFG *sys_cfg = (NCP_CMD_SYSTEM_CFG *)&cmd_res->params.system_cfg;
-    printf("%s = %s\r\n", sys_cfg->variable_name, sys_cfg->value);
-
-    return TRUE;
-}
-
-/**
- * @brief      This function processes ncp device test loopback response from bridge_app
- * @param res  A pointer to uint8_t
- * @return     Status returned
- */
-int ncp_process_test_loopback_response(uint8_t *res)
-{
-    int ret;
-    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-
-    ret                        = cmd_res->header.result;
-    if (ret == NCP_BRIDGE_CMD_RESULT_ERROR)
-    {
-        printf("%s: Error: test loopback failed!\r\n", __FUNCTION__);
-        return FALSE;
-    }
-
-    printf("Response test-loopback cmd size=0x%x:\r\n", cmd_res->header.size);
-    mpu_dump_hex(cmd_res, cmd_res->header.size);
-
-    return TRUE;
-}
-
 int wlan_set_max_clients_count_command(int argc, char **argv)
 {
     if (argc != 2)
@@ -5912,13 +5389,12 @@ int wlan_set_max_clients_count_command(int argc, char **argv)
 
     uint16_t max_sta_count = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *set_client_cnt_command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)set_client_cnt_command, 0, NCP_BRIDGE_COMMAND_LEN);
+    NCPCmd_DS_COMMAND *set_client_cnt_command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)set_client_cnt_command, 0, NCP_COMMAND_LEN);
 
-    set_client_cnt_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_UAP_MAX_CLIENT_CNT;
-    set_client_cnt_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_client_cnt_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    set_client_cnt_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    set_client_cnt_command->header.cmd      = NCP_CMD_WLAN_UAP_MAX_CLIENT_CNT;
+    set_client_cnt_command->header.size     = NCP_CMD_HEADER_LEN;
+    set_client_cnt_command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_CLIENT_CNT *sta_count = (NCP_CMD_CLIENT_CNT *)&set_client_cnt_command->params.max_client_count;
     sta_count->max_sta_count      = max_sta_count;
@@ -5934,7 +5410,7 @@ int wlan_process_client_count_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res    = (NCPCmd_DS_COMMAND *)res;
     NCP_CMD_CLIENT_CNT *sta_count = (NCP_CMD_CLIENT_CNT *)&cmd_res->params.max_client_count;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         if (sta_count->set_status == WLAN_SET_MAX_CLIENT_CNT_START)
             printf("Failed to set max client count, already started an UAP.\r\n");
@@ -5997,13 +5473,12 @@ int wlan_set_antenna_cfg_command(int argc, char **argv)
         evaluate_time = value & 0XFF;
     }
 
-    NCPCmd_DS_COMMAND *set_antenna_cfg_command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)set_antenna_cfg_command, 0, NCP_BRIDGE_COMMAND_LEN);
+    NCPCmd_DS_COMMAND *set_antenna_cfg_command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)set_antenna_cfg_command, 0, NCP_COMMAND_LEN);
 
-    set_antenna_cfg_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_STA_ANTENNA;
-    set_antenna_cfg_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_antenna_cfg_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    set_antenna_cfg_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    set_antenna_cfg_command->header.cmd      = NCP_CMD_WLAN_STA_ANTENNA;
+    set_antenna_cfg_command->header.size     = NCP_CMD_HEADER_LEN;
+    set_antenna_cfg_command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_ANTENNA_CFG *antenna_cfg = (NCP_CMD_ANTENNA_CFG *)&set_antenna_cfg_command->params.antenna_cfg;
     antenna_cfg->action              = ACTION_SET;
@@ -6027,13 +5502,12 @@ int wlan_get_antenna_cfg_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *get_antenna_cfg_command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)get_antenna_cfg_command, 0, NCP_BRIDGE_COMMAND_LEN);
+    NCPCmd_DS_COMMAND *get_antenna_cfg_command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)get_antenna_cfg_command, 0, NCP_COMMAND_LEN);
 
-    get_antenna_cfg_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_STA_ANTENNA;
-    get_antenna_cfg_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_antenna_cfg_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    get_antenna_cfg_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    get_antenna_cfg_command->header.cmd      = NCP_CMD_WLAN_STA_ANTENNA;
+    get_antenna_cfg_command->header.size     = NCP_CMD_HEADER_LEN;
+    get_antenna_cfg_command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_ANTENNA_CFG *antenna_cfg = (NCP_CMD_ANTENNA_CFG *)&get_antenna_cfg_command->params.antenna_cfg;
     antenna_cfg->action              = ACTION_GET;
@@ -6049,7 +5523,7 @@ int wlan_process_antenna_cfg_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res       = (NCPCmd_DS_COMMAND *)res;
     NCP_CMD_ANTENNA_CFG *antenna_cfg = (NCP_CMD_ANTENNA_CFG *)&cmd_res->params.antenna_cfg;
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         if (antenna_cfg->action == ACTION_SET)
             printf("Failed to set antenna config.\r\n");
@@ -6073,7 +5547,7 @@ int wlan_process_antenna_cfg_response(uint8_t *res)
 int wlan_process_deep_sleep_ps_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("Deep sleep ps is success!\r\n");
     }
@@ -6087,7 +5561,7 @@ int wlan_process_deep_sleep_ps_response(uint8_t *res)
 int wlan_process_ieee_ps_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         printf("IEEE ps is success!\r\n");
     }
@@ -6158,12 +5632,11 @@ int wlan_register_access_command(int argc, char **argv)
         }
     }
 
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_WLAN_DEBUG_REGISTER_ACCESS;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_WLAN_DEBUG_REGISTER_ACCESS;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_REGISTER_ACCESS *register_access = (NCP_CMD_REGISTER_ACCESS *)&command->params.register_access;
 
@@ -6183,7 +5656,7 @@ int wlan_process_register_access_response(uint8_t *res)
     NCP_CMD_REGISTER_ACCESS *register_access = (NCP_CMD_REGISTER_ACCESS *)&cmd_res->params.register_access;
 
     char type[4][4] = {"MAC", "BBP", "RF", "CAU"};
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         if (register_access->action == ACTION_GET)
             (void)printf("Register: %s  offset = 0x%08x    value = 0x%08x\r\n", type[register_access->type - 1],
@@ -6207,12 +5680,11 @@ int wlan_process_register_access_response(uint8_t *res)
 #ifdef CONFIG_MEM_MONITOR_DEBUG
 int wlan_memory_state_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_WLAN_MEMORY_HEAP_SIZE;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_WLAN_MEMORY_HEAP_SIZE;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
@@ -6222,7 +5694,7 @@ int wlan_process_memory_state_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res  = (NCPCmd_DS_COMMAND *)res;
     NCP_CMD_MEM_STAT *mem_state = (NCP_CMD_MEM_STAT *)&cmd_res->params.register_access;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         (void)printf("FreeHeapSize    : %d \r\n", mem_state->free_heap_size);
         (void)printf("MinFreeHeapSize : %d \r\n\r\n", mem_state->minimun_ever_free_heap_size);
@@ -6276,12 +5748,11 @@ int wlan_ed_mac_mode_set_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_WLAN_REGULATORY_ED_MAC_MODE;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_WLAN_REGULATORY_ED_MAC_MODE;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_ED_MAC *ed_mac_mode = (NCP_CMD_ED_MAC *)&command->params.ed_mac_mode;
     ed_mac_mode->action         = ACTION_SET;
@@ -6347,12 +5818,11 @@ int wlan_ed_mac_mode_get_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_WLAN_REGULATORY_ED_MAC_MODE;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_WLAN_REGULATORY_ED_MAC_MODE;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_ED_MAC *ed_mac_mode = (NCP_CMD_ED_MAC *)&command->params.ed_mac_mode;
     ed_mac_mode->action         = ACTION_GET;
@@ -6369,7 +5839,7 @@ int wlan_process_ed_mac_response(uint8_t *res)
 
     if (ed_mac_mode->action == ACTION_SET)
     {
-        if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+        if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         {
             (void)printf("ED MAC MODE settings configuration successful\r\n");
         }
@@ -6380,7 +5850,7 @@ int wlan_process_ed_mac_response(uint8_t *res)
     }
     else
     {
-        if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+        if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         {
             (void)printf("EU adaptivity for 2.4GHz band : %s\r\n",
                          ed_mac_mode->ed_ctrl_2g == 1 ? "Enabled" : "Disabled");
@@ -6429,17 +5899,16 @@ int wlan_set_rf_test_mode_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *set_rf_test_mode_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_test_mode_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TEST_MODE;
-    set_rf_test_mode_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_test_mode_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_test_mode_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_test_mode_command = mpu_host_get_wifi_command_buffer();
+    set_rf_test_mode_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_TEST_MODE;
+    set_rf_test_mode_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_test_mode_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 /**
- * @brief      This function processes wlan set rf test mode response from bridge_app
+ * @brief      This function processes wlan set rf test mode response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6450,7 +5919,7 @@ int wlan_process_set_rf_test_mode_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         ncp_rf_test_mode = true;
         (void)printf("RF Test Mode configuration successful\r\n");
@@ -6499,11 +5968,10 @@ int wlan_set_rf_tx_antenna_command(int argc, char **argv)
 
     ant = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *set_rf_tx_antenna_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_tx_antenna_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_ANTENNA;
-    set_rf_tx_antenna_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_tx_antenna_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_tx_antenna_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_tx_antenna_command = mpu_host_get_wifi_command_buffer();
+    set_rf_tx_antenna_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_TX_ANTENNA;
+    set_rf_tx_antenna_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_tx_antenna_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_TX_ANTENNA *tx_antenna = (NCP_CMD_RF_TX_ANTENNA *)&set_rf_tx_antenna_command->params.rf_tx_antenna;
     tx_antenna->ant                   = ant;
@@ -6513,7 +5981,7 @@ int wlan_set_rf_tx_antenna_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf tx antenna response from bridge_app
+ * @brief      This function processes wlan set rf tx antenna response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6524,7 +5992,7 @@ int wlan_process_set_rf_tx_antenna_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("RF Tx Antenna configuration successful\r\n");
     }
@@ -6560,17 +6028,16 @@ int wlan_get_rf_tx_antenna_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *get_rf_tx_antenna_command = ncp_mpu_bridge_get_command_buffer();
-    get_rf_tx_antenna_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_TX_ANTENNA;
-    get_rf_tx_antenna_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_rf_tx_antenna_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    get_rf_tx_antenna_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *get_rf_tx_antenna_command = mpu_host_get_wifi_command_buffer();
+    get_rf_tx_antenna_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_GET_RF_TX_ANTENNA;
+    get_rf_tx_antenna_command->header.size       = NCP_CMD_HEADER_LEN;
+    get_rf_tx_antenna_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 /**
- * @brief      This function processes wlan get rf tx antenna response from bridge_app
+ * @brief      This function processes wlan get rf tx antenna response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6579,7 +6046,7 @@ int wlan_process_get_rf_tx_antenna_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("RF Tx Antenna configuration read failed\r\n");
         return FALSE;
@@ -6622,11 +6089,10 @@ int wlan_set_rf_rx_antenna_command(int argc, char **argv)
 
     ant = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *set_rf_rx_antenna_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_rx_antenna_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_RX_ANTENNA;
-    set_rf_rx_antenna_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_rx_antenna_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_rx_antenna_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_rx_antenna_command = mpu_host_get_wifi_command_buffer();
+    set_rf_rx_antenna_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_RX_ANTENNA;
+    set_rf_rx_antenna_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_rx_antenna_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_RX_ANTENNA *rx_antenna = (NCP_CMD_RF_RX_ANTENNA *)&set_rf_rx_antenna_command->params.rf_rx_antenna;
     rx_antenna->ant                   = ant;
@@ -6636,7 +6102,7 @@ int wlan_set_rf_rx_antenna_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf rx antenna response from bridge_app
+ * @brief      This function processes wlan set rf rx antenna response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6647,7 +6113,7 @@ int wlan_process_set_rf_rx_antenna_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("RF Rx Antenna configuration successful\r\n");
     }
@@ -6683,17 +6149,16 @@ int wlan_get_rf_rx_antenna_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *get_rf_rx_antenna_command = ncp_mpu_bridge_get_command_buffer();
-    get_rf_rx_antenna_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_RX_ANTENNA;
-    get_rf_rx_antenna_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_rf_rx_antenna_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    get_rf_rx_antenna_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *get_rf_rx_antenna_command = mpu_host_get_wifi_command_buffer();
+    get_rf_rx_antenna_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_GET_RF_RX_ANTENNA;
+    get_rf_rx_antenna_command->header.size       = NCP_CMD_HEADER_LEN;
+    get_rf_rx_antenna_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 /**
- * @brief      This function processes wlan get rf rx antenna response from bridge_app
+ * @brief      This function processes wlan get rf rx antenna response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6702,7 +6167,7 @@ int wlan_process_get_rf_rx_antenna_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("RF Rx Antenna configuration read failed\r\n");
         return FALSE;
@@ -6749,11 +6214,10 @@ int wlan_set_rf_band_command(int argc, char **argv)
 
     band = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *set_rf_band_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_band_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_BAND;
-    set_rf_band_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_band_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_band_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_band_command = mpu_host_get_wifi_command_buffer();
+    set_rf_band_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_BAND;
+    set_rf_band_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_band_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_BAND *rf_band = (NCP_CMD_RF_BAND *)&set_rf_band_command->params.rf_band;
     rf_band->band            = band;
@@ -6763,7 +6227,7 @@ int wlan_set_rf_band_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf band response from bridge_app
+ * @brief      This function processes wlan set rf band response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6774,7 +6238,7 @@ int wlan_process_set_rf_band_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("RF Band configuration successful\r\n");
     }
@@ -6810,17 +6274,16 @@ int wlan_get_rf_band_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *get_rf_band_command = ncp_mpu_bridge_get_command_buffer();
-    get_rf_band_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_BAND;
-    get_rf_band_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_rf_band_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    get_rf_band_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *get_rf_band_command = mpu_host_get_wifi_command_buffer();
+    get_rf_band_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_GET_RF_BAND;
+    get_rf_band_command->header.size       = NCP_CMD_HEADER_LEN;
+    get_rf_band_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 /**
- * @brief      This function processes wlan get rf band response from bridge_app
+ * @brief      This function processes wlan get rf band response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6829,7 +6292,7 @@ int wlan_process_get_rf_band_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("RF Band configuration read failed\r\n");
         return FALSE;
@@ -6880,11 +6343,10 @@ int wlan_set_rf_bandwidth_command(int argc, char **argv)
 
     bandwidth = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *set_rf_bandwidth_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_bandwidth_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_BANDWIDTH;
-    set_rf_bandwidth_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_bandwidth_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_bandwidth_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_bandwidth_command = mpu_host_get_wifi_command_buffer();
+    set_rf_bandwidth_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_BANDWIDTH;
+    set_rf_bandwidth_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_bandwidth_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_BANDWIDTH *rf_bandwidth = (NCP_CMD_RF_BANDWIDTH *)&set_rf_bandwidth_command->params.rf_bandwidth;
     rf_bandwidth->bandwidth            = bandwidth;
@@ -6894,7 +6356,7 @@ int wlan_set_rf_bandwidth_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf bandwidth response from bridge_app
+ * @brief      This function processes wlan set rf bandwidth response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6905,7 +6367,7 @@ int wlan_process_set_rf_bandwidth_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("RF Bandwidth configuration successful\r\n");
     }
@@ -6941,17 +6403,16 @@ int wlan_get_rf_bandwidth_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *get_rf_bandwidth_command = ncp_mpu_bridge_get_command_buffer();
-    get_rf_bandwidth_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_BANDWIDTH;
-    get_rf_bandwidth_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_rf_bandwidth_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    get_rf_bandwidth_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *get_rf_bandwidth_command = mpu_host_get_wifi_command_buffer();
+    get_rf_bandwidth_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_GET_RF_BANDWIDTH;
+    get_rf_bandwidth_command->header.size       = NCP_CMD_HEADER_LEN;
+    get_rf_bandwidth_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 /**
- * @brief      This function processes wlan get rf bandwidth response from bridge_app
+ * @brief      This function processes wlan get rf bandwidth response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -6960,7 +6421,7 @@ int wlan_process_get_rf_bandwidth_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("RF Bandwidth configuration read failed\r\n");
         return FALSE;
@@ -7003,11 +6464,10 @@ int wlan_set_rf_channel_command(int argc, char **argv)
 
     channel = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *set_rf_channel_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_channel_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_CHANNEL;
-    set_rf_channel_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_channel_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_channel_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_channel_command = mpu_host_get_wifi_command_buffer();
+    set_rf_channel_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_CHANNEL;
+    set_rf_channel_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_channel_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_CHANNEL *rf_channel = (NCP_CMD_RF_CHANNEL *)&set_rf_channel_command->params.rf_channel;
     rf_channel->channel            = channel;
@@ -7017,7 +6477,7 @@ int wlan_set_rf_channel_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf channel response from bridge_app
+ * @brief      This function processes wlan set rf channel response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -7028,7 +6488,7 @@ int wlan_process_set_rf_channel_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("RF channel configuration successful\r\n");
     }
@@ -7064,17 +6524,16 @@ int wlan_get_rf_channel_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *get_rf_channel_command = ncp_mpu_bridge_get_command_buffer();
-    get_rf_channel_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_CHANNEL;
-    get_rf_channel_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_rf_channel_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    get_rf_channel_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *get_rf_channel_command = mpu_host_get_wifi_command_buffer();
+    get_rf_channel_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_GET_RF_CHANNEL;
+    get_rf_channel_command->header.size       = NCP_CMD_HEADER_LEN;
+    get_rf_channel_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 /**
- * @brief      This function processes wlan get rf channel response from bridge_app
+ * @brief      This function processes wlan get rf channel response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -7083,7 +6542,7 @@ int wlan_process_get_rf_channel_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("RF channel configuration read failed\r\n");
         return FALSE;
@@ -7125,11 +6584,10 @@ int wlan_set_rf_radio_mode_command(int argc, char **argv)
 
     radio_mode = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *set_rf_radio_mode_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_radio_mode_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_RADIO_MODE;
-    set_rf_radio_mode_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_radio_mode_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_radio_mode_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_radio_mode_command = mpu_host_get_wifi_command_buffer();
+    set_rf_radio_mode_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_RADIO_MODE;
+    set_rf_radio_mode_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_radio_mode_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_RADIO_MODE *rf_radio_mode = (NCP_CMD_RF_RADIO_MODE *)&set_rf_radio_mode_command->params.rf_radio_mode;
     rf_radio_mode->radio_mode            = radio_mode;
@@ -7139,7 +6597,7 @@ int wlan_set_rf_radio_mode_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf radio mode response from bridge_app
+ * @brief      This function processes wlan set rf radio mode response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -7150,7 +6608,7 @@ int wlan_process_set_rf_radio_mode_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("Set RF radio mode successful\r\n");
     }
@@ -7186,17 +6644,16 @@ int wlan_get_rf_radio_mode_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *get_rf_radio_mode_command = ncp_mpu_bridge_get_command_buffer();
-    get_rf_radio_mode_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_RF_RADIO_MODE;
-    get_rf_radio_mode_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_rf_radio_mode_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    get_rf_radio_mode_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *get_rf_radio_mode_command = mpu_host_get_wifi_command_buffer();
+    get_rf_radio_mode_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_GET_RF_RADIO_MODE;
+    get_rf_radio_mode_command->header.size       = NCP_CMD_HEADER_LEN;
+    get_rf_radio_mode_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 /**
- * @brief      This function processes wlan get rf radio mode response from bridge_app
+ * @brief      This function processes wlan get rf radio mode response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -7205,7 +6662,7 @@ int wlan_process_get_rf_radio_mode_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("RF radio mode configuration read failed\r\n");
         return FALSE;
@@ -7232,7 +6689,7 @@ static void dump_wlan_set_rf_tx_power_usage()
  *
  * @return Status returned
  */
-int wlan_bridge_set_rf_tx_power_command(int argc, char **argv)
+int wlan_ncp_set_rf_tx_power_command(int argc, char **argv)
 {
     uint8_t power;
     uint8_t mod;
@@ -7272,11 +6729,10 @@ int wlan_bridge_set_rf_tx_power_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *set_rf_tx_power_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_tx_power_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_POWER;
-    set_rf_tx_power_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_tx_power_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_tx_power_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_tx_power_command = mpu_host_get_wifi_command_buffer();
+    set_rf_tx_power_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_TX_POWER;
+    set_rf_tx_power_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_tx_power_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_TX_POWER *rf_tx_power = (NCP_CMD_RF_TX_POWER *)&set_rf_tx_power_command->params.rf_tx_power;
     rf_tx_power->power               = power;
@@ -7288,7 +6744,7 @@ int wlan_bridge_set_rf_tx_power_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf tx power response from bridge_app
+ * @brief      This function processes wlan set rf tx power response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -7299,7 +6755,7 @@ int wlan_process_set_rf_tx_power_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("Set RF tx power configuration successful\r\n");
     }
@@ -7332,7 +6788,7 @@ static void dump_wlan_set_tx_cont_mode_usage()
  *
  * @return Status returned
  */
-int wlan_bridge_set_rf_tx_cont_mode_command(int argc, char **argv)
+int wlan_ncp_set_rf_tx_cont_mode_command(int argc, char **argv)
 {
     uint32_t enable_tx, cw_mode, payload_pattern, cs_mode, act_sub_ch, tx_rate;
 
@@ -7366,11 +6822,10 @@ int wlan_bridge_set_rf_tx_cont_mode_command(int argc, char **argv)
         tx_rate         = atoi(argv[6]);
     }
 
-    NCPCmd_DS_COMMAND *set_rf_tx_cont_mode_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_tx_cont_mode_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_CONT_MODE;
-    set_rf_tx_cont_mode_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_tx_cont_mode_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_tx_cont_mode_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_tx_cont_mode_command = mpu_host_get_wifi_command_buffer();
+    set_rf_tx_cont_mode_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_TX_CONT_MODE;
+    set_rf_tx_cont_mode_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_tx_cont_mode_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_TX_CONT_MODE *rf_tx_power =
         (NCP_CMD_RF_TX_CONT_MODE *)&set_rf_tx_cont_mode_command->params.rf_tx_cont_mode;
@@ -7386,7 +6841,7 @@ int wlan_bridge_set_rf_tx_cont_mode_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf tx cont mode response from bridge_app
+ * @brief      This function processes wlan set rf tx cont mode response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -7397,7 +6852,7 @@ int wlan_process_set_rf_tx_cont_mode_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("Set RF tx continuous configuration successful\r\n");
     }
@@ -7439,7 +6894,7 @@ static void dump_wlan_set_tx_frame_usage()
  *
  * @return Status returned
  */
-int wlan_bridge_set_rf_tx_frame_command(int argc, char **argv)
+int wlan_ncp_set_rf_tx_frame_command(int argc, char **argv)
 {
     int ret;
     uint32_t enable;
@@ -7515,11 +6970,10 @@ int wlan_bridge_set_rf_tx_frame_command(int argc, char **argv)
         }
     }
 
-    NCPCmd_DS_COMMAND *set_rf_tx_frame_command = ncp_mpu_bridge_get_command_buffer();
-    set_rf_tx_frame_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_SET_RF_TX_FRAME;
-    set_rf_tx_frame_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    set_rf_tx_frame_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    set_rf_tx_frame_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *set_rf_tx_frame_command = mpu_host_get_wifi_command_buffer();
+    set_rf_tx_frame_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_SET_RF_TX_FRAME;
+    set_rf_tx_frame_command->header.size       = NCP_CMD_HEADER_LEN;
+    set_rf_tx_frame_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_RF_TX_FRAME *rf_tx_frame = (NCP_CMD_RF_TX_FRAME *)&set_rf_tx_frame_command->params.rf_tx_frame;
     rf_tx_frame->enable              = enable;
@@ -7542,7 +6996,7 @@ int wlan_bridge_set_rf_tx_frame_command(int argc, char **argv)
 }
 
 /**
- * @brief      This function processes wlan set rf tx frame response from bridge_app
+ * @brief      This function processes wlan set rf tx frame response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -7553,7 +7007,7 @@ int wlan_process_set_rf_tx_frame_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     ret                        = cmd_res->header.result;
 
-    if (ret == NCP_BRIDGE_CMD_RESULT_OK)
+    if (ret == NCP_CMD_RESULT_OK)
     {
         (void)printf("Set RF tx frame configuration successful\r\n");
     }
@@ -7575,7 +7029,7 @@ static void dump_wlan_get_and_reset_rf_per_usage()
  *
  * @return Status returned
  */
-int wlan_bridge_set_rf_get_and_reset_rf_per_command(int argc, char **argv)
+int wlan_ncp_set_rf_get_and_reset_rf_per_command(int argc, char **argv)
 {
     if (!ncp_rf_test_mode)
     {
@@ -7589,17 +7043,16 @@ int wlan_bridge_set_rf_get_and_reset_rf_per_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *get_and_reset_rf_per_command = ncp_mpu_bridge_get_command_buffer();
-    get_and_reset_rf_per_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_REGULATORY_GET_AND_RESET_RF_PER;
-    get_and_reset_rf_per_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    get_and_reset_rf_per_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    get_and_reset_rf_per_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *get_and_reset_rf_per_command = mpu_host_get_wifi_command_buffer();
+    get_and_reset_rf_per_command->header.cmd        = NCP_CMD_WLAN_REGULATORY_GET_AND_RESET_RF_PER;
+    get_and_reset_rf_per_command->header.size       = NCP_CMD_HEADER_LEN;
+    get_and_reset_rf_per_command->header.result     = NCP_CMD_RESULT_OK;
 
     return TRUE;
 }
 
 /**
- * @brief      This function processes wlan get and reset rf per response from bridge_app
+ * @brief      This function processes wlan get and reset rf per response from ncp device
  *
  * @param res  A pointer to uint8_t
  * @return     Status returned
@@ -7608,7 +7061,7 @@ int wlan_process_set_rf_get_and_reset_rf_per_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         printf("RF PER configuration read failed\r\n");
         return FALSE;
@@ -7651,12 +7104,11 @@ int wlan_eu_crypto_ccmp128_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_WLAN_REGULATORY_EU_CRYPTO_CCMP_128;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_WLAN_REGULATORY_EU_CRYPTO_CCMP_128;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_EU_CRYPRTO *eu_crypto = (NCP_CMD_EU_CRYPRTO *)&command->params.eu_crypto;
     eu_crypto->enc = EncDec;
@@ -7669,7 +7121,7 @@ int wlan_process_eu_crypto_ccmp128_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         (void)printf("EU Crypto CCMP 128 verified successfully.\r\n");
     }
@@ -7708,12 +7160,11 @@ int wlan_eu_crypto_gcmp128_command(int argc, char **argv)
         return FALSE;
     }
 
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_WLAN_REGULATORY_EU_CRYPTO_GCMP_128;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_WLAN_REGULATORY_EU_CRYPTO_GCMP_128;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_EU_CRYPRTO *eu_crypto = (NCP_CMD_EU_CRYPRTO *)&command->params.eu_crypto;
     eu_crypto->enc = EncDec;
@@ -7726,7 +7177,7 @@ int wlan_process_eu_crypto_gcmp128_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res       = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         (void)printf("EU Crypto GCMP 128 verified successfully.\r\n");
     }
@@ -7740,8 +7191,8 @@ int wlan_process_eu_crypto_gcmp128_response(uint8_t *res)
 
 int wlan_set_time_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
-    NCP_CMD_DATE_TIME *time    = &command->params.date_time;
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
+    NCP_CMD_DATE_TIME_CFG *time    = &command->params.date_time;
 
     if (argc != 7)
     {
@@ -7749,11 +7200,10 @@ int wlan_set_time_command(int argc, char **argv)
         return FALSE;
     }
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_DATE_TIME;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_DATE_TIME;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     time->action           = 1;
     time->date_time.year   = atoi(argv[1]);
@@ -7763,23 +7213,22 @@ int wlan_set_time_command(int argc, char **argv)
     time->date_time.minute = atoi(argv[5]);
     time->date_time.second = atoi(argv[6]);
 
-    command->header.size += sizeof(NCP_CMD_DATE_TIME);
+    command->header.size += sizeof(NCP_CMD_DATE_TIME_CFG);
 
     return TRUE;
 }
 
 int wlan_get_time_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_DATE_TIME;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_DATE_TIME;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     command->params.date_time.action = 0;
-    command->header.size += sizeof(NCP_CMD_DATE_TIME);
+    command->header.size += sizeof(NCP_CMD_DATE_TIME_CFG);
 
     return TRUE;
 }
@@ -7787,9 +7236,9 @@ int wlan_get_time_command(int argc, char **argv)
 int wlan_process_time_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    NCP_CMD_DATE_TIME *time    = &cmd_res->params.date_time;
+    NCP_CMD_DATE_TIME_CFG *time    = &cmd_res->params.date_time;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
     {
         if (time->action == 1)
         {
@@ -7810,13 +7259,12 @@ int wlan_process_time_response(uint8_t *res)
 
 int wlan_get_temperature_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
-    (void)memset((uint8_t *)command, 0, NCP_BRIDGE_COMMAND_LEN);
-    command->header.cmd      = NCP_BRIDGE_CMD_GET_TEMPERATUE;
-    command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_GET_TEMPERATUE;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
 
     command->header.size += sizeof(NCP_CMD_TEMPERATURE);
 
@@ -7827,7 +7275,7 @@ int wlan_process_get_temperature_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         (void)printf("temperature %dC\r\n", cmd_res->params.temperature.temp);
     else
         (void)printf("temperature get fail\r\n");
@@ -7836,11 +7284,10 @@ int wlan_process_get_temperature_response(uint8_t *res)
 
 int wlan_start_wps_pbc_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wpspbc_command = ncp_mpu_bridge_get_command_buffer();
-    wpspbc_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_WPS_PBC;
-    wpspbc_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wpspbc_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wpspbc_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wpspbc_command = mpu_host_get_wifi_command_buffer();
+    wpspbc_command->header.cmd        = NCP_CMD_WLAN_STA_WPS_PBC;
+    wpspbc_command->header.size       = NCP_CMD_HEADER_LEN;
+    wpspbc_command->header.result     = NCP_CMD_RESULT_OK;
 
     return WM_SUCCESS;
 }
@@ -7849,7 +7296,7 @@ int wlan_process_wps_pbc_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         (void)printf("start wps pbc is successful!\r\n");
     else
         (void)printf("start wps pbc is fail!\r\n");
@@ -7859,11 +7306,10 @@ int wlan_process_wps_pbc_response(uint8_t *res)
 
 int wlan_wps_generate_pin_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *wps_gen_pin_command = ncp_mpu_bridge_get_command_buffer();
-    wps_gen_pin_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_GEN_WPS_PIN;
-    wps_gen_pin_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wps_gen_pin_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wps_gen_pin_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wps_gen_pin_command = mpu_host_get_wifi_command_buffer();
+    wps_gen_pin_command->header.cmd        = NCP_CMD_WLAN_STA_GEN_WPS_PIN;
+    wps_gen_pin_command->header.size       = NCP_CMD_HEADER_LEN;
+    wps_gen_pin_command->header.result     = NCP_CMD_RESULT_OK;
     wps_gen_pin_command->header.size += sizeof(NCP_CMD_WPS_GEN_PIN);
 
     return WM_SUCCESS;
@@ -7874,7 +7320,7 @@ int wlan_process_wps_generate_pin_response(uint8_t *res)
     NCPCmd_DS_COMMAND *cmd_res    = (NCPCmd_DS_COMMAND *)res;
     NCP_CMD_WPS_GEN_PIN *pin_info = (NCP_CMD_WPS_GEN_PIN *)&cmd_res->params.wps_gen_pin_info;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         (void)printf("WPS PIN is %u\r\n", pin_info->pin);
     else
         (void)printf("WPS PIN generation is fail!\r\n");
@@ -7894,11 +7340,10 @@ int wlan_start_wps_pin_command(int argc, char **argv)
 
     pin = atoi(argv[1]);
 
-    NCPCmd_DS_COMMAND *wps_pin_command = ncp_mpu_bridge_get_command_buffer();
-    wps_pin_command->header.cmd        = NCP_BRIDGE_CMD_WLAN_STA_WPS_PIN;
-    wps_pin_command->header.size       = NCP_BRIDGE_CMD_HEADER_LEN;
-    wps_pin_command->header.result     = NCP_BRIDGE_CMD_RESULT_OK;
-    wps_pin_command->header.msg_type   = NCP_BRIDGE_MSG_TYPE_CMD;
+    NCPCmd_DS_COMMAND *wps_pin_command = mpu_host_get_wifi_command_buffer();
+    wps_pin_command->header.cmd        = NCP_CMD_WLAN_STA_WPS_PIN;
+    wps_pin_command->header.size       = NCP_CMD_HEADER_LEN;
+    wps_pin_command->header.result     = NCP_CMD_RESULT_OK;
 
     NCP_CMD_WPS_PIN *wps_pin_cfg = (NCP_CMD_WPS_PIN *)&wps_pin_command->params.wps_pin_cfg;
     wps_pin_cfg->pin             = pin;
@@ -7911,7 +7356,7 @@ int wlan_process_wps_pin_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result == NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
         (void)printf("start wps pin is successful!\r\n");
     else
         (void)printf("start wps pin is fail!\r\n");
@@ -7921,7 +7366,7 @@ int wlan_process_wps_pin_response(uint8_t *res)
 
 int wlan_mdns_query_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *mdns_command = ncp_mpu_bridge_get_command_buffer();
+    NCPCmd_DS_COMMAND *mdns_command = mpu_host_get_wifi_command_buffer();
 
     if (!(argc == 3 || argc == 2))
     {
@@ -7935,10 +7380,9 @@ int wlan_mdns_query_command(int argc, char **argv)
 
     mdns_result_num = 0;
 
-    mdns_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_NETWORK_MDNS_QUERY;
-    mdns_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    mdns_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    mdns_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    mdns_command->header.cmd      = NCP_CMD_WLAN_NETWORK_MDNS_QUERY;
+    mdns_command->header.size     = NCP_CMD_HEADER_LEN;
+    mdns_command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_MDNS_QUERY *mdns_query = (NCP_CMD_MDNS_QUERY *)&mdns_command->params.mdns_query;
 
@@ -7976,7 +7420,7 @@ int wlan_process_mdns_query_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("failed to mDNS query!\r\n");
         return FALSE;
@@ -7990,7 +7434,7 @@ int wlan_process_mdns_query_result_event(uint8_t *res)
 {
     uint32_t tlv_buf_len               = 0;
     uint8_t *ptlv_pos                  = NULL;
-    NCP_BRIDGE_TLV_HEADER *ptlv_header = NULL;
+    NCP_TLV_HEADER *ptlv_header = NULL;
     PTR_ParamSet_t *ptr_tlv            = NULL;
     SRV_ParamSet_t *srv_tlv            = NULL;
     TXT_ParamSet_t *txt_tlv            = NULL;
@@ -7999,7 +7443,7 @@ int wlan_process_mdns_query_result_event(uint8_t *res)
 
     NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (evt_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (evt_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("Unknown mDNS result!\r\n");
         return FALSE;
@@ -8013,26 +7457,26 @@ int wlan_process_mdns_query_result_event(uint8_t *res)
 
     do
     {
-        ptlv_header = (NCP_BRIDGE_TLV_HEADER *)ptlv_pos;
+        ptlv_header = (NCP_TLV_HEADER *)ptlv_pos;
 
         switch (ptlv_header->type)
         {
-            case NCP_BRIDGE_CMD_NETWORK_MDNS_RESULT_PTR:
+            case NCP_CMD_NETWORK_MDNS_RESULT_PTR:
                 ptr_tlv = (PTR_ParamSet_t *)ptlv_pos;
                 if (ptr_tlv->instance_name[0] != '\0')
                     (void)printf("PTR : %s\r\n", ptr_tlv->instance_name);
                 else
                     (void)printf("PTR : %s.%s.local\r\n", ptr_tlv->service_type, ptr_tlv->proto);
                 break;
-            case NCP_BRIDGE_CMD_NETWORK_MDNS_RESULT_SRV:
+            case NCP_CMD_NETWORK_MDNS_RESULT_SRV:
                 srv_tlv = (SRV_ParamSet_t *)ptlv_pos;
                 (void)printf("SRV : %s:%d\r\n", srv_tlv->target, srv_tlv->port);
                 break;
-            case NCP_BRIDGE_CMD_NETWORK_MDNS_RESULT_TXT:
+            case NCP_CMD_NETWORK_MDNS_RESULT_TXT:
                 txt_tlv = (TXT_ParamSet_t *)ptlv_pos;
                 (void)printf("TXT : %s\r\n", txt_tlv->txt);
                 break;
-            case NCP_BRIDGE_CMD_NETWORK_MDNS_RESULT_IP_ADDR:
+            case NCP_CMD_NETWORK_MDNS_RESULT_IP_ADDR:
                 ip_addr_tlv = (IP_ADDR_ParamSet_t *)ptlv_pos;
                 if (ip_addr_tlv->addr_type == 4)
                 {
@@ -8050,8 +7494,8 @@ int wlan_process_mdns_query_result_event(uint8_t *res)
                 (void)printf("Invaild TLV\r\n");
                 return FALSE;
         }
-        ptlv_pos += NCP_BRIDGE_TLV_HEADER_LEN + ptlv_header->size;
-        tlv_buf_len -= NCP_BRIDGE_TLV_HEADER_LEN + ptlv_header->size;
+        ptlv_pos += NCP_TLV_HEADER_LEN + ptlv_header->size;
+        tlv_buf_len -= NCP_TLV_HEADER_LEN + ptlv_header->size;
     } while (tlv_buf_len > 0);
 
     (void)printf("TTL : %d\r\n", mdns_result_tlv->ttl);
@@ -8065,7 +7509,7 @@ int wlan_process_mdns_resolve_domain_event(uint8_t *res)
     struct in_addr ip;
     char addr_type[40] = {0};
 
-    if (evt_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (evt_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("Unknown IP address!\r\n");
         return FALSE;
@@ -8089,54 +7533,6 @@ int wlan_process_mdns_resolve_domain_event(uint8_t *res)
     return TRUE;
 }
 
-/* Display the usage of test-loopback */
-static void display_test_loopback_usage()
-{
-    printf("Usage:\r\n");
-    printf("\ttest-loopback <string1> <string2> ... <stringN>\r\n");
-}
-
-int ncp_test_loopback_command(int argc, char **argv)
-{
-    int ret = WM_SUCCESS;
-    uint8_t *pos = 0;
-    uint32_t copy_size = 0;
-    int i = 1;
-    NCPCmd_DS_COMMAND *cmd = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)cmd, 0, NCP_BRIDGE_COMMAND_LEN);
-    cmd->header.cmd      = NCP_BRIDGE_CMD_SYSTEM_TEST_LOOPBACK;
-    cmd->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    cmd->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    cmd->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
-
-    /* If number of arguments is not even then print error */
-    if (argc < 2)
-    {
-        ret = FALSE;
-        goto end;
-    }
-
-    pos = (uint8_t *)cmd + sizeof(NCP_BRIDGE_COMMAND);
-    while ((i < argc) && (cmd->header.size < sizeof(cmd_buf)))
-    {
-        copy_size = MIN(strlen(argv[i]), sizeof(cmd_buf) - cmd->header.size);
-        memcpy(pos, argv[i], copy_size);
-        pos += copy_size;
-        cmd->header.size += copy_size;
-        //printf("%s: copy_size=0x%x cmd->header.size=0x%x\r\n", __FUNCTION__, copy_size, cmd->header.size);
-        //printf("%s: argv[%d]=%s\r\n", __FUNCTION__, i, argv[i]);
-        i++;
-    }
-
-    return TRUE;
-
-end:
-    printf("Incorrect usage\r\n");
-    display_test_loopback_usage();
-
-    return ret;
-}
-
 /* Display the usage of ping */
 static void display_ping_usage()
 {
@@ -8155,7 +7551,7 @@ int ncp_ping_command(int argc, char **argv)
 {
     ping_msg_t ping_cmd;
     int c;
-    int ret = WM_SUCCESS;
+    int ret = WM_SUCCESS, err = 0;
     uint16_t size    = PING_DEFAULT_SIZE;
     uint32_t count   = PING_DEFAULT_COUNT, temp;
     uint32_t timeout = PING_DEFAULT_TIMEOUT_SEC;
@@ -8170,6 +7566,7 @@ int ncp_ping_command(int argc, char **argv)
     cli_optind = 1;
     while ((c = cli_getopt(argc, argv, "c:s:W:")) != -1)
     {
+        err = 0;
         switch (c)
         {
             case 'c':
@@ -8179,6 +7576,8 @@ int ncp_ping_command(int argc, char **argv)
                 temp = strtoul(cli_optarg, NULL, 10);
                 if (temp > PING_MAX_SIZE)
                 {
+                    if (err != 0)
+                        printf("Error during strtoul errno:%d", err);
                     printf(
                         "ping: packet size too large: %u."
                         " Maximum is %u\r\n",
@@ -8193,6 +7592,8 @@ int ncp_ping_command(int argc, char **argv)
             default:
                 goto end;
         }
+        if (err != 0)
+            printf("Error during strtoul errno:%d", err);
     }
     if (cli_optind == argc)
         goto end;
@@ -8232,10 +7633,49 @@ int wlan_process_csi_data_event(uint8_t *res)
     return WM_SUCCESS;
 }
 
+int wlan_process_con_event(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+    struct in_addr ip;
+
+    if (evt_res->header.result != NCP_CMD_RESULT_OK)
+    {
+        printf("Failed to get correct AP info!\r\n");
+        printf("Please input 'wlan-connect' to connect an AP or wait a few moments for the AP information.\r\n");
+        return -WM_FAIL;
+    }
+
+    NCP_CMD_WLAN_CONN *connect_res_tlv = (NCP_CMD_WLAN_CONN *)&evt_res->params.wlan_connect;
+    ip.s_addr                          = connect_res_tlv->ip;
+    printf("STA connected:\r\n");
+    printf("SSID = [%s]\r\n", connect_res_tlv->ssid);
+    printf("IPv4 Address: [%s]\r\n", inet_ntoa(ip));
+
+    return WM_SUCCESS;
+}
+
+int wlan_process_discon_event(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+
+    printf("STA disconnect, result %d\r\n",evt_res->header.result);
+
+    return WM_SUCCESS;
+}
+
+int wlan_process_stop_network_event(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+
+    printf("Stop network, result %d\r\n",evt_res->header.result);
+
+    return WM_SUCCESS;
+}
+
 int wlan_list_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *network_list_command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)network_list_command, 0, NCP_BRIDGE_COMMAND_LEN);
+    NCPCmd_DS_COMMAND *network_list_command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)network_list_command, 0, NCP_COMMAND_LEN);
 
     if (argc != 1)
     {
@@ -8245,10 +7685,9 @@ int wlan_list_command(int argc, char **argv)
         return -WM_FAIL;
     }
 
-    network_list_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_NETWORK_LIST;
-    network_list_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    network_list_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    network_list_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    network_list_command->header.cmd      = NCP_CMD_WLAN_NETWORK_LIST;
+    network_list_command->header.size     = NCP_CMD_HEADER_LEN;
+    network_list_command->header.result   = NCP_CMD_RESULT_OK;
 
     return WM_SUCCESS;
 }
@@ -8257,7 +7696,7 @@ int wlan_process_network_list_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("Failed to get network list!\r\n");
         return -WM_FAIL;
@@ -8277,8 +7716,8 @@ int wlan_process_network_list_response(uint8_t *res)
 
 int wlan_remove_command(int argc, char **argv)
 {
-    NCPCmd_DS_COMMAND *network_remove_command = ncp_mpu_bridge_get_command_buffer();
-    (void)memset((uint8_t *)network_remove_command, 0, NCP_BRIDGE_COMMAND_LEN);
+    NCPCmd_DS_COMMAND *network_remove_command = mpu_host_get_wifi_command_buffer();
+    (void)memset((uint8_t *)network_remove_command, 0, NCP_COMMAND_LEN);
 
     if (argc != 2)
     {
@@ -8296,10 +7735,9 @@ int wlan_remove_command(int argc, char **argv)
         return -WM_FAIL;
     }
 
-    network_remove_command->header.cmd      = NCP_BRIDGE_CMD_WLAN_NETWORK_REMOVE;
-    network_remove_command->header.size     = NCP_BRIDGE_CMD_HEADER_LEN;
-    network_remove_command->header.result   = NCP_BRIDGE_CMD_RESULT_OK;
-    network_remove_command->header.msg_type = NCP_BRIDGE_MSG_TYPE_CMD;
+    network_remove_command->header.cmd      = NCP_CMD_WLAN_NETWORK_REMOVE;
+    network_remove_command->header.size     = NCP_CMD_HEADER_LEN;
+    network_remove_command->header.result   = NCP_CMD_RESULT_OK;
 
     NCP_CMD_NETWORK_REMOVE *network_remove = (NCP_CMD_NETWORK_REMOVE *)&network_remove_command->params.network_remove;
 
@@ -8315,7 +7753,7 @@ int wlan_process_network_remove_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
 
-    if (cmd_res->header.result != NCP_BRIDGE_CMD_RESULT_OK)
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
     {
         (void)printf("Failed to remove network!\r\n");
         return -WM_FAIL;
@@ -8343,13 +7781,11 @@ int wlan_process_network_remove_response(uint8_t *res)
 }
 
 #ifdef CONFIG_SDIO_TEST_LOOPBACK
-static struct mpu_bridge_cli_command mpu_bridge_app_cli_commands_loopback[] = {
-    {"help", NULL, help_command},
+static struct mpu_host_cli_command mpu_host_app_cli_commands_loopback[] = {
     {"test-loopback", NULL, ncp_test_loopback_command},
 };
 #else
-static struct mpu_bridge_cli_command mpu_bridge_app_cli_commands[] = {
-    {"help", NULL, help_command},
+static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
     {"wlan-scan", NULL, wlan_scan_command},
     {"wlan-connect", NULL, wlan_connect_command},
     {"wlan-disconnect", NULL, wlan_disconnect_command},
@@ -8402,11 +7838,8 @@ static struct mpu_bridge_cli_command mpu_bridge_app_cli_commands[] = {
     {"wlan-uapsd-enable", NULL, wlan_set_wmm_uapsd_command},
     {"wlan-uapsd-qosinfo", NULL, wlan_wmm_uapsd_qosinfo_command},
     {"wlan-uapsd-sleep-period", NULL, wlan_uapsd_sleep_period_command},
-    {"wlan-wake-cfg", NULL, wlan_wake_cfg_command},
     {"wlan-wakeup-condition", NULL, wlan_wakeup_condition_command},
-    {"wlan-mcu-sleep", NULL, wlan_mcu_sleep_command},
     {"wlan-suspend", NULL, wlan_suspend_command},
-    {"wlan-get-mcu-sleep-config", NULL, wlan_get_mcu_sleep_conf_command},
     {"wlan-set-11axcfg", NULL, wlan_set_11axcfg_command},
     {"wlan-set-btwt-cfg", NULL, wlan_set_btwt_command},
     {"wlan-twt-setup", NULL, wlan_twt_setup_command},
@@ -8414,11 +7847,6 @@ static struct mpu_bridge_cli_command mpu_bridge_app_cli_commands[] = {
     {"wlan-get-twt-report", NULL, wlan_get_twt_report_command},
     {"wlan-set-11d-enable", "sta/uap <state>", wlan_set_11d_enable_command},
     {"wlan-region-code", "get/set <region_code hex>", wlan_region_code_command},
-    {"ncp-set", "<module_name> <variable_name> <value>", ncp_set_command},
-    {"ncp-get", "<module_name> <variable_name>", ncp_get_command},
-#if 0
-    {"ncp-set-sdio", "<value>", ncp_set_sdio_command},
-#endif
     {"wlan-set-max-clients-count", "<max clients count>", wlan_set_max_clients_count_command},
     {"wlan-set-antenna-cfg", "<antenna mode> <evaluate_time>", wlan_set_antenna_cfg_command},
     {"wlan-get-antenna-cfg", NULL, wlan_get_antenna_cfg_command},
@@ -8448,14 +7876,14 @@ static struct mpu_bridge_cli_command mpu_bridge_app_cli_commands[] = {
     {"wlan-get-rf-channel", NULL, wlan_get_rf_channel_command},
     {"wlan-set-rf-radio-mode", "<radio_mode>", wlan_set_rf_radio_mode_command},
     {"wlan-get-rf-radio-mode", NULL, wlan_get_rf_radio_mode_command},
-    {"wlan-set-rf-tx-power", "<tx_power> <modulation> <path_id>", wlan_bridge_set_rf_tx_power_command},
+    {"wlan-set-rf-tx-power", "<tx_power> <modulation> <path_id>", wlan_ncp_set_rf_tx_power_command},
     {"wlan-set-rf-tx-cont-mode", "<enable_tx> <cw_mode> <payload_pattern> <cs_mode> <act_sub_ch> <tx_rate>",
-     wlan_bridge_set_rf_tx_cont_mode_command},
+     wlan_ncp_set_rf_tx_cont_mode_command},
     {"wlan-set-rf-tx-frame",
      "<start> <data_rate> <frame_pattern> <frame_len> <adjust_burst_sifs> <burst_sifs_in_us> <short_preamble> "
      "<act_sub_ch> <short_gi> <adv_coding> <tx_bf> <gf_mode> <stbc> <bssid>",
-     wlan_bridge_set_rf_tx_frame_command},
-    {"wlan-get-and-reset-rf-per", NULL, wlan_bridge_set_rf_get_and_reset_rf_per_command},
+     wlan_ncp_set_rf_tx_frame_command},
+    {"wlan-get-and-reset-rf-per", NULL, wlan_ncp_set_rf_get_and_reset_rf_per_command},
 #endif
     {"wlan-eu-crypto-ccmp-128", "<EncDec>", wlan_eu_crypto_ccmp128_command},
     {"wlan-eu-crypto-gcmp-128", "<EncDec>", wlan_eu_crypto_gcmp128_command},
@@ -8473,17 +7901,33 @@ static struct mpu_bridge_cli_command mpu_bridge_app_cli_commands[] = {
 };
 #endif
 
-int mpu_bridge_init_cli_commands()
+int mpu_host_init_cli_commands_wifi()
 {
 #ifdef CONFIG_SDIO_TEST_LOOPBACK
-    if (mpu_bridge_register_commands(mpu_bridge_app_cli_commands_loopback,
-                                     sizeof(mpu_bridge_app_cli_commands_loopback) / sizeof(struct mpu_bridge_cli_command)) != 0)
+    if (mpu_host_register_commands(mpu_host_app_cli_commands_loopback,
+                                     sizeof(mpu_host_app_cli_commands_loopback) / sizeof(struct mpu_host_cli_command)) != 0)
         return FALSE;
 #else
-    if (mpu_bridge_register_commands(mpu_bridge_app_cli_commands,
-                                     sizeof(mpu_bridge_app_cli_commands) / sizeof(struct mpu_bridge_cli_command)) != 0)
+    if (mpu_host_register_commands(mpu_host_app_cli_commands,
+                                     sizeof(mpu_host_app_cli_commands) / sizeof(struct mpu_host_cli_command)) != 0)
         return FALSE;
 #endif
 
     return TRUE;
 }
+
+int mpu_host_deinit_cli_commands_wifi()
+{
+#ifdef CONFIG_SDIO_TEST_LOOPBACK
+    if (mpu_host_unregister_commands(mpu_host_app_cli_commands_loopback,
+                                     sizeof(mpu_host_app_cli_commands_loopback) / sizeof(struct mpu_host_cli_command)) != 0)
+        return FALSE;
+#else
+    if (mpu_host_unregister_commands(mpu_host_app_cli_commands,
+                                     sizeof(mpu_host_app_cli_commands) / sizeof(struct mpu_host_cli_command)) != 0)
+        return FALSE;
+#endif
+
+    return TRUE;
+}
+
