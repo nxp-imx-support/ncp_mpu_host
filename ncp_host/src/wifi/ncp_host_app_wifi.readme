@@ -1,17 +1,20 @@
 Overview
 ========
-This is a MPU Bridge APP demo. Pls compile and run this app on Linux platform.
+This is a MPU ncp host APP demo. Pls compile and run this app on Linux platform.
 
 
 Prepare the Demo
 ================
-1.  All files needed by mpu bridge app are included in ../mpu_bridge_app_demo.
-2.  Enter 'make' to generate MPU_BRIDGE
+1.  All files needed by mpu ncp host app are included in ncp_host.
+2.  Enter 'make func=XXX interface=XXX' to generate MPU_NCP_HOST
+    func: WIFI or BLE
+    interface: UART / USB / SPI / SDIO
+    You can find MPU_NCP_HOST in ncp_host/bin/ path.
 
 
 Running the demo
 ================
-1. sudo ./MPU_BRIDGE /dev/tty*
+1. sudo ./MPU_NCP_HOST /dev/tty*
 2. When the demo starts, a welcome message would appear on the terminal, press enter for command prompt:
 
     ==========================================

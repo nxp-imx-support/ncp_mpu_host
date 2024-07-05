@@ -288,14 +288,16 @@ ncp_status_t ncp_adapter_init(char * dev_name)
     }
 
     ncp_lpm_gpio_init();
-
-    if (device_notify_gpio_init() != NCP_STATUS_SUCCESS)
+#if defined(CONFIG_NCP_USB) || defined(CONFIG_NCP_SDIO)
+	status = device_notify_gpio_init();
+    if (status != NCP_STATUS_SUCCESS)
     {
         ncp_adap_e("ERROR device_notify_gpio_init \r\n");
         ncp_tlv_adapter.intf_ops->deinit((void *)dev_name);
         ncp_tlv_tx_deinit();
         return NCP_STATUS_ERROR;
     }
+#endif
 
     return status;
 }
@@ -303,9 +305,9 @@ ncp_status_t ncp_adapter_init(char * dev_name)
 ncp_status_t ncp_adapter_deinit(void)
 {
     ncp_status_t status = NCP_STATUS_SUCCESS;
-
+#if defined(CONFIG_NCP_USB) || defined(CONFIG_NCP_SDIO)
     device_notify_gpio_deinit();
-
+#endif
     /* Deinit interface */
     status                   = (ncp_status_t)ncp_tlv_adapter.intf_ops->deinit(NULL);
     ncp_tlv_adapter.intf_ops = NULL;

@@ -59,6 +59,8 @@
 #define PRINT_DEBUG pr_debug
 #define PRINT_DUMP print_hex_dump
 
+#define GET_MSG_TYPE(cmd)     ((cmd) & 0x000f0000)
+
 /** Find minimum */
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -272,33 +274,34 @@ struct mcu_sdio_mmc_card {
 	struct tx_ring_buf tx_ring;
 };
 
-#define NCP_BRIDGE_CMD_WLAN 0x00000000
-#define NCP_BRIDGE_CMD_BLE    0x01000000
-#define NCP_BRIDGE_CMD_15D4   0x02000000
-#define NCP_BRIDGE_CMD_MATTER 0x03000000
-#define NCP_BRIDGE_CMD_SYSTEM 0x04000000
+#define NCP_CMD_WLAN   0x00000000
+#define NCP_CMD_BLE    0x10000000
+#define NCP_CMD_15D4   0x20000000
+#define NCP_CMD_MATTER 0x30000000
+#define NCP_CMD_SYSTEM 0x40000000
+
+#define NCP_MSG_TYPE_CMD   0x00010000
+
+#define NCP_CMD_WLAN_SOCKET      0x00900000
+
+#define NCP_CMD_WLAN_SOCKET_SEND     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000004)
+#define NCP_CMD_WLAN_SOCKET_SENDTO   (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000005)
 
 
-#define NCP_BRIDGE_CMD_WLAN_SOCKET      0x00090000
+#define NCP_CMD_SYSTEM_CONFIG   0x00000000
 
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_SEND     (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000004)
-#define NCP_BRIDGE_CMD_WLAN_SOCKET_SENDTO   (NCP_BRIDGE_CMD_WLAN | NCP_BRIDGE_CMD_WLAN_SOCKET | 0x00000005)
-
-
-#define NCP_BRIDGE_CMD_SYSTEM_CONFIG   0x00000000
-
-#define NCP_BRIDGE_CMD_SYSTEM_CONFIG_SDIO_SET  (NCP_BRIDGE_CMD_SYSTEM | NCP_BRIDGE_CMD_SYSTEM_CONFIG | 0x00000003) /* set-sdio-cfg */
+#define NCP_CMD_SYSTEM_CONFIG_SDIO_SET  (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_CMD | 0x00000003) /* set-sdio-cfg */
 
 
-typedef struct BRIDGE_COMMAND
+typedef struct _NCP_COMMAND
 {
     /*bit0 ~ bit15 cmd id  bit16 ~ bit23 cmd subclass bit24 ~ bit31 cmd class*/
     uint32_t cmd;
     uint16_t size;
     uint16_t seqnum;
     uint16_t result;
-    uint16_t msg_type;
-} NCP_BRIDGE_COMMAND, NCP_BRIDGE_RESPONSE;
+    uint16_t rsvd;
+} NCP_COMMAND, NCP_RESPONSE;
 
 static inline void inc_cmdqhead(struct cmd_ring_buf *ring)
 {
@@ -1574,7 +1577,7 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 	struct miscdevice *miscdev = file->private_data;
 	struct mcu_sdio_misc_priv *priv = dev_get_drvdata(miscdev->this_device);
 	u32 tx_len;
-	NCP_BRIDGE_COMMAND ncp_cmd = {0};
+	NCP_COMMAND ncp_cmd = {0};
 	bool is_data = false;
 	u32 max_len = 0;
 	sdio_header *sdio_hdr = NULL;
@@ -1585,7 +1588,7 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 	if (!priv->sdio_dev)
 		return -EIO;
 
-	if (count < sizeof(NCP_BRIDGE_COMMAND))
+	if (count < sizeof(NCP_COMMAND))
 		return -EINVAL;
 
 	func = dev_to_sdio_func(priv->sdio_dev);
@@ -1593,34 +1596,32 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 	if (!card)
 		return -EIO;
 
-	if (copy_from_user((char *)(&ncp_cmd), buf, sizeof(NCP_BRIDGE_COMMAND)) != 0) {
+	if (copy_from_user((char *)(&ncp_cmd), buf, sizeof(NCP_COMMAND)) != 0) {
 		PRINT_ERR("%s: copy_from_user fail for ncp hdr!\n", __FUNCTION__);
 		ret = -EFAULT;
 		goto out_w1;
 	}
 	//PRINT_DUMP(KERN_DEBUG, "WRITE input buf: ", DUMP_PREFIX_OFFSET, 16, 1, buf, count, 1);
-	//PRINT_DUMP(KERN_DEBUG, "WRITE ncp_cmd: ", DUMP_PREFIX_OFFSET, 16, 1, (void *)&ncp_cmd, sizeof(NCP_BRIDGE_COMMAND), 1);
+	//PRINT_DUMP(KERN_DEBUG, "WRITE ncp_cmd: ", DUMP_PREFIX_OFFSET, 16, 1, (void *)&ncp_cmd, sizeof(NCP_COMMAND), 1);
 
-    if ((ncp_cmd.cmd == 0) && (ncp_cmd.size == sizeof(NCP_BRIDGE_COMMAND) - 1) &&
-         (ncp_cmd.seqnum == 0) && (ncp_cmd.result == 0) && (ncp_cmd.msg_type == 0)) {
+    if ((ncp_cmd.cmd == 0) && (ncp_cmd.size == sizeof(NCP_COMMAND) - 1) &&
+         (ncp_cmd.seqnum == 0) && (ncp_cmd.result == 0) && (GET_MSG_TYPE(ncp_cmd.cmd) == 0)) {
         PRINT_DEBUG("%s: Special cmd to wakeup card!\n", __FUNCTION__);
-        spin_unlock_irqrestore(&priv->state_lock, flags);
         mcu_sdio_wakeup_card(priv, card);
-        spin_lock_irqsave(&priv->state_lock, flags);
         ret = count;
         goto out_w;
     }
 
-	if (ncp_cmd.size < sizeof(NCP_BRIDGE_COMMAND)) {
+	if (ncp_cmd.size < sizeof(NCP_COMMAND)) {
 		PRINT_ERR("%s: invalid ncp_cmd.size=%d!\n", __FUNCTION__, ncp_cmd.size);
 		ret = -EFAULT;
 		goto out_w1;
 	}
 
-	if (ncp_cmd.cmd == NCP_BRIDGE_CMD_SYSTEM_CONFIG_SDIO_SET) {
+	if (ncp_cmd.cmd == NCP_CMD_SYSTEM_CONFIG_SDIO_SET) {
 		int val = 0;
-		if (count >= (sizeof(NCP_BRIDGE_COMMAND) + sizeof(int))) {
-			if (copy_from_user((char *)(&val), buf + sizeof(NCP_BRIDGE_COMMAND), sizeof(int)) != 0) {
+		if (count >= (sizeof(NCP_COMMAND) + sizeof(int))) {
+			if (copy_from_user((char *)(&val), buf + sizeof(NCP_COMMAND), sizeof(int)) != 0) {
 				PRINT_ERR("%s: copy_from_user fail for SYSTEM_CONFIG_SDIO_SET!\n", __FUNCTION__);
 				ret = -EFAULT;
 				goto out_w1;
@@ -1673,8 +1674,8 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 
 	spin_lock_irqsave(&priv->state_lock, flags);
 
-	if ((ncp_cmd.cmd == NCP_BRIDGE_CMD_WLAN_SOCKET_SEND) ||
-		(ncp_cmd.cmd == NCP_BRIDGE_CMD_WLAN_SOCKET_SENDTO)) {
+	if ((ncp_cmd.cmd == NCP_CMD_WLAN_SOCKET_SEND) ||
+		(ncp_cmd.cmd == NCP_CMD_WLAN_SOCKET_SENDTO)) {
 		max_len = MAX_DATA_PAYLOAD_SIZE - SDIO_INTF_HEADER_LEN;
 		if ((count > max_len) || (ncp_cmd.size > max_len)) {
 			PRINT_ERR("%s: max_data_len=%d : invalid ncp_cmd: cmd=0x%x size=%d !\n",
