@@ -242,9 +242,9 @@ int ble_connect_command(int argc, char **argv)
     }
 
     if (!strncmp(argv[1], "public", 7))
-        type = 0x02;
+        type = 0x00;
     else if (!strncmp(argv[1], "random", 7))
-        type = 0x03;
+        type = 0x01;
     else
     {
         printf("Usage: %s [addr_type<public|random>] [addr<XX:XX:XX:XX:XX:XX>]\r\n", argv[0]);

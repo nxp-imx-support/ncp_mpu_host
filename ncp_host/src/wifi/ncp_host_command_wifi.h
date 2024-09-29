@@ -2173,23 +2173,69 @@ typedef struct _NCPCmd_DS_COMMAND
 
 NCPCmd_DS_COMMAND *mpu_host_get_wifi_command_buffer();
 
-/*Convert IP Adderss to hexadecimal*/
-int strip_to_hex(int *number, int len);
-
 /*Dump buffer in hex format on console*/
 void dump_hex(const void *data, unsigned len);
-
-/*Convert IP Adderss to hexadecimal*/
-int IP_to_hex(char *IPstr, uint8_t *hex);
 
 /*Prase command*/
 int string_to_command(char *strcom);
 
+/**
+ * Scan for Wi-Fi networks.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-scan \n
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_scan_command(int argc, char **argv);
 
+/**
+ * Connect to a Wi-Fi network (access point).
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-connect \n
+ *                    argv[1]: string value of name (Required) \n
+ *                             A string representing the name of the network to connect to.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_connect_command(int argc, char **argv);
 
+/**
+ * Disconnect from the current Wi-Fi network (access point).
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-disconnect
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_disconnect_command(int argc, char **argv);
+
+/**
+ * Reset Wi-Fi driver.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-reset \n
+ *                    argv[1]: action (Required) \n
+ *                             0: disable Wi-Fi  \n
+ *                             1: enable Wi-Fi   \n
+ *                             2: reset Wi-Fi    \n
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
+int wlan_reset_command(int argc, char **argv);
 
 int wlan_start_wps_pbc_command(int argc, char **argv);
 
@@ -2209,39 +2255,317 @@ int wlan_stop_network_command(int argc, char **argv);
 
 int wlan_get_uap_sta_list_command(int argc, char **argv);
 
+/**
+ * Get the Wi-Fi driver and firmware extended version.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-version
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_version_command(int argc, char **argv);
 
+/**
+ * Set Wi-Fi MAC Address in Wi-Fi firmware.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-set-mac \n
+ *                    argv[1]: string value of MAC (Required) \n
+ *                             The MAC address format like "xx:xx:xx:xx:xx:xx".
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_set_mac_address_command(int argc, char **argv);
 
+/**
+ * Get Wi-Fi MAC Address in Wi-Fi firmware.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-get-mac
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_get_mac_address_command(int argc, char **argv);
 
+/**
+ * Retrieve the connection state of station and uAP interface.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-stat
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_stat_command(int argc, char **argv);
 
 int wlan_roaming_command(int argc, char **argv);
 
+/**
+ * Get the configured Wi-Fi network information.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-info
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_info_command(int argc, char **argv);
 
+/**
+ * Add a network profile to the list of known networks.
+ *
+ * The network's 'name' field is unique and between \ref WLAN_NETWORK_NAME_MIN_LENGTH and
+ * \ref WLAN_NETWORK_NAME_MAX_LENGTH characters.
+ *
+ * \note The network must specify at least an SSID or BSSID.
+ *
+ * \note This API can be used to add profiles for station or UAP interfaces.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should range from 3 to 14.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-add \n
+ *                    argv[1]: string value of profile name (Required) \n
+ *                             The name of network profile. \n
+ *                    argv[2]: string value of ssid (Optional) \n
+ *                             The network SSID, represented as a C string of up to 32 characters in length. \n
+ *                    argv[3]: string value of ip address (Optional) \n
+ *                             The ip address format like "ip:<ip_addr>,<gateway_ip>,<netmask>". \n
+ *                             The network IP address configuration specified by struct \n
+ *                             NCP_WLAN_IPV4_CONFIG that should be associated with this interface. \n
+ *                             If this profile is used in the UAP mode, this field is mandatory. \n
+ *                             If this profile is used in the station mode, this field is mandatory \n
+ *                             if using static IP, and is optional if using DHCP. \n
+ *                    argv[4]: string value of bssid (Optional) \n
+ *                             The network BSSID, represented as a 6-byte array. \n
+ *                             If this profile is used in the UAP mode, this field is ignored. \n
+ *                             If this profile is used in the station mode, this field is used to \n
+ *                             identify the network. Set all 6 bytes to 0 to use any BSSID, in which \n
+ *                             case only the SSID is used to find the network. \n
+ *                    argv[5]: string value of role (Required) \n
+ *                             The network Wi-Fi mode enum wlan_bss_role. \n
+ *                             Set this to specify what type of Wi-Fi network mode to use. \n
+ *                             This can either be \ref WLAN_BSS_ROLE_STA for use in the station mode, \n
+ *                             or it can be \ref WLAN_BSS_ROLE_UAP for use in the UAP mode. \n
+ *                    argv[6]: string value of security (Optional) \n
+ *                             The network security configuration specified for the network. \n
+ *                    argv[7]: channel (Optional) \n
+ *                             The channel for this network. \n
+ *                             If this profile is used in UAP mode, this field specifies the channel to \n
+ *                             start the UAP interface on. Set this to 0 for auto channel selection. \n
+ *                             If this profile is used in the station mode, this constrains the channel on \n
+ *                             which the network to connect should be present. Set this to 0 to allow the \n
+ *                             network to be found on any channel. \n
+ *                    argv[8]: capa (Optional) \n
+ *                             Wi-Fi capabilities of UAP network 802.11n, 802.11ac or/and 802.11ax. \n
+ *                    argv[9]: mfpc (Optional) \n
+ *                             Management frame protection capable (MFPC) \n
+ *                    argv[10]: mfpr (Optional) \n
+ *                              Management frame protection required (MFPR) \n
+ *                    argv[11]: dtim (Optional) \n
+ *                              DTIM period of associated BSS \n
+ *                    argv[12]: aid (Optional) \n
+ *                              Client anonymous identity \n
+ *                    argv[13]: string value of key_passwd (Optional) \n
+ *                              Client Key password \n
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
+int wlan_add_command(int argc, char **argv);
+
+/**
+ * This API can be used to get RSSI information.
+ * 
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-signal
+ *
+ * \return WM_SUCCESS.
+ */
 int wlan_get_signal_command(int argc, char **argv);
 
 int wlan_multi_mef_command(int argc, char **argv);
 
+/**
+ * This API can be used to set maximum number of stations that can be allowed to connect to the UAP.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-max-clients-count\n
+ *                    argv[1]: string value of STA count, maximum supported STA count is 8.
+ *
+ * \return WM_SUCCESS if successful.
+ * \return -WM_FAIL if unsuccessful.
+ *
+ * \note Set operation in not allowed in \ref WLAN_UAP_STARTED state.
+ */
 int wlan_set_max_clients_count_command(int argc, char **argv);
 
+/** 
+ * This API can be used to set the mode of TX/RX antenna.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2 or 3.
+ * \param[in] argv    Argument vector\n
+ *                    argc[0]: wlan-set-antenna-cfg\n
+ *                    argv[1]: string of antenna mode (Required\n
+ *                             0  -- TX/RX antenna 1\n
+ *                             1  -- TX/RX antenna 2\n
+ *                             15 -- TX/RX antenna diversity.\n
+ *                    argv[2]: string of evaluate_time (Optional)\n
+ *                             if ant mode = 15, SAD (slow antenna diversity) evaluate time interval.\n
+ *                             default value is 6s(6000).
+ *
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ *
+ */
 int wlan_set_antenna_cfg_command(int argc, char **argv);
 
+/** 
+ * This API can be used to get the mode of TX/RX antenna.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-antenna-cfg
+ *
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ *
+ */
 int wlan_get_antenna_cfg_command(int argc, char **argv);
 
+/**
+ * This API can be used to enable/disable deep sleep power save mode.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-deep-sleep-ps\n
+ *                    argv[1]: enable/disable deep sleep power save mode.\n
+ *                             0 -- disable deep sleep\n
+ *                             1 -- enable deep sleep
+ *
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ *
+ * \note Deep sleep power save is enabled by default.
+ */
 int wlan_deep_sleep_ps_command(int argc, char **argv);
 
+/**
+ * This API can be used to enable/disable ieee power save mode.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-ieee-ps\n
+ *                    argv[1]: enable/disable ieee power save mode.\n
+ *                             0 -- disable ieee power save mode\n
+ *                             1 -- enable ieee power save mode
+ *
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ *
+ * \note Ieee power save is enabled by default.
+ */
 int wlan_ieee_ps_command(int argc, char **argv);
 
+/**
+ * This API can be used to configure ED(energy detect) MAC mode for station in Wi-Fi firmware.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv.\n
+ *                    If enable CONFIG_NCP_5GHz_SUPPORT:\n
+ *                              argc should be 5.\n
+ *                    If disable CONFIG_NCP_5GHz_SUPPORT:\n
+ *                              argc should be 3.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-ed-mac-mode\n
+ *                    argv[1]: string of ed_ctrl_2g\n
+ *                             0 -- disable EU adaptivity for 2.4GHz band.\n
+ *                             1 -- enable EU adaptivity for 2.4GHz band.\n
+ *                    argv[2]: string of ed_offset_2g\n
+ *                             0 -- default dnergy detect threshold.\n
+ *                             ed_threshold = ed_base - ed_offset_2g\n
+ *                             e.g., if ed_base default is -62dBm, ed_offset_2g is 0x8, then ed_threshold is -70dBm.\n
+ *             #if CONFIG_NCP_5GHz_SUPPORT\n
+ *                    argv[3]: string of ed_ctrl_5g\n
+ *                             0 -- disable EU adaptivity for 5GHz band.\n
+ *                             1 -- enable EU adaptivity for 5GHz band.\n
+ *                    argv[4]: string of ed_offset_5g\n
+ *                             0 -- default energy detect threshold.\n
+ *                             ed_threshold = ed_base - ed_offset_5g\n
+ *                             e.g., if ed_base default is -62dBm, ed_offset_5g is 0x8, then ed_threshold is -70dBm.\n
+ *             #endif
+ * 
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ *
+ */
 int wlan_ed_mac_mode_set_command(int argc, char **argv);
 
+/**
+ * This API can be used to get current ED MAC mode configuration for station.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-ed-mac-mode
+ *
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ *
+ */
 int wlan_ed_mac_mode_get_command(int argc, char **argv);
 
+/** This API can be used to reads/writes adapter registers value.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv.
+ *                    argc should be 3 or 4.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-reg-access\n
+ *                    argv[1]: type (Required)\n
+ *                             1: MAC\n
+ *                             2: BBP\n
+ *                             3: RF\n
+ *                             4: CAU\n
+ *                    argv[2]: offset (Required)\n
+ *                             offset value of register.\n
+ *                    agrv[3]: value  (Optional)\n
+ *                             Set register value.\n
+ *
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ */
 int wlan_register_access_command(int argc, char **argv);
 
 #ifdef CONFIG_MEM_MONITOR_DEBUG
+/** This API can be used to get OS memory allocate and free info.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-mem-stat
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_memory_state_command(int argc, char **argv);
 #endif
 
@@ -2253,16 +2577,51 @@ int wlan_process_ncp_event(uint8_t *res);
 
 int wlan_process_response(uint8_t *res);
 
+/**
+ * This API can be used to process disconnect response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_discon_response(uint8_t *res);
 
+/**
+ * This API can be used to process connect response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response.
+ *                   Response body refer to \ref NCP_CMD_WLAN_CONN.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_con_response(uint8_t *res);
 
 void print_security_mode(uint8_t sec);
 
+/**
+ * This API can be used to process scan response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response. \n
+ *                   Response body refer to \ref NCP_CMD_SCAN_NETWORK_INFO.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_scan_response(uint8_t *res);
 
 int wlan_process_ping_response(uint8_t *res);
 
+/**
+ * This API can be used to process Wi-Fi version response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response.
+ *                   Response body refer to \ref NCP_CMD_FW_VERSION.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_version_response(uint8_t *res);
 
 int wlan_process_monitor_response(uint8_t *res);
@@ -2273,21 +2632,114 @@ int wlan_process_11k_cfg_response(uint8_t *res);
 
 int wlan_process_neighbor_req_response(uint8_t *res);
 
+/**
+ * This API can be used to process RSSI information response.
+ *
+ * \param[in] res     A pointer to \ref NCPCmd_DS_COMMAND response.\n
+ *                    Response body refer to \ref NCP_CMD_RSSI.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_rssi_response(uint8_t *res);
 
+/**
+ * This API can be used to process set MAC address response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_set_mac_address(uint8_t *res);
 
+/**
+ * This API can be used to process get MAC address response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response. \n
+ *                   Response body refer to \ref NCP_CMD_GET_MAC_ADDRESS.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_get_mac_address(uint8_t *res);
 
+/**
+ * This API can be used to process Wi-Fi connection state response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response. \n
+ *                   Response body refer to \ref NCP_CMD_CONNECT_STAT.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_stat(uint8_t *res);
 
+/**
+ * This API can be used to process get Wi-Fi network information response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response. \n
+ *                   Response body refer to \ref NCP_CMD_NETWORK_INFO.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_info(uint8_t *res);
 int wlan_process_address(uint8_t *res);
 
+/**
+ * This API can be used to process Wi-Fi reset response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_wlan_reset_result_response(uint8_t *res);
 
+/**
+ * This API can be used to start UAP provisioning.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-uap-prov-start
+ *
+ * \return WM_SUCCESS if success.
+ *
+ */
+int wlan_uap_prov_start_command(int argc, char **argv);
+
+/**
+ * This API can be used to process start UAP provisioning response.
+ *
+ * \param[in] res     A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                    Response body: None.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_wlan_uap_prov_start_result_response(uint8_t *res);
 
+/**
+ * This API can be used to reset UAP provisioning.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-uap-prov-reset
+ *
+ * \return WM_SUCCESS if success.
+ *
+ */
+int wlan_uap_prov_reset_command(int argc, char **argv);
+
+/**
+ * This API can be used to process reset UAP provisioning response.
+ *
+ * \param[in] res     A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                    Response body: None.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_wlan_uap_prov_reset_result_response(uint8_t *res);
 
 int wlan_process_roaming(uint8_t *res);
@@ -2330,6 +2782,14 @@ int wlan_process_wlan_websocket_send_response(uint8_t *res);
 
 int wlan_process_wlan_websocket_recv_response(uint8_t *res);
 
+/**
+ * This API can be used to process add network response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_add_response(uint8_t *res);
 
 int wlan_process_start_network_response(uint8_t *res);
@@ -2394,98 +2854,650 @@ int wlan_region_code_command(int argc, char **argv);
 
 int wlan_process_region_code_response(uint8_t *res);
 
+/**
+ * This API can be used to process set maximum number of stations response.
+ *
+ * \param[in] res     A pointer to \ref NCPCmd_DS_COMMAND response.\n
+ *                    Response body refer to \ref NCP_CMD_CLIENT_CNT.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_client_count_response(uint8_t *res);
 
+/**
+ * This API can be used to process set/get antenna configuration response.
+ *
+ * \param[in] res     A pointer to \ref NCPCmd_DS_COMMAND response.\n
+ *                    Response body refer to \ref NCP_CMD_ANTENNA_CFG.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_antenna_cfg_response(uint8_t *res);
 
+/**
+ * This API can be used to process deep sleep ps response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_deep_sleep_ps_response(uint8_t *res);
 
+/**
+ * This API can be used to process ieee ps response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_ieee_ps_response(uint8_t *res);
 
+/**
+ * This API can be used to process set/get ED(energy detect) MAC mode for station response.
+ *
+ * \param[in] res     A pointer to \ref NCPCmd_DS_COMMAND response.\n
+ *                    Response body refer to \ref NCP_CMD_ED_MAC.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_ed_mac_response(uint8_t *res);
 
 #ifdef CONFIG_NCP_RF_TEST_MODE
+/**
+ * This API can be used to set rf test mode.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-test-mode
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ * \note If you test with RF test mode, don't use wlan-reset 2, it is not supported.
+ */
 int wlan_set_rf_test_mode_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf test mode response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_test_mode_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf tx antenna.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-tx-antenna\n
+ *                    argv[1]: antenna\n
+ *                             1 -- Main\n
+ *                             2 -- Aux
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_set_rf_tx_antenna_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf tx antenna response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_tx_antenna_response(uint8_t *res);
 
+/**
+ * This API can be used to get rf tx antenna.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-rf-tx-antenna
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ * \note Please set rf tx antenna before get it.
+ */
 int wlan_get_rf_tx_antenna_command(int argc, char **argv);
 
+/**
+ * This API can be used to process get rf tx antenna response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                   Response body refer to \ref NCP_CMD_RF_TX_ANTENNA.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_process_get_rf_tx_antenna_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf rx antenna.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-rx-antenna\n
+ *                    argv[1]: antenna\n
+ *                             1 -- Main\n
+ *                             2 -- Aux
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_set_rf_rx_antenna_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf rx antenna response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_rx_antenna_response(uint8_t *res);
 
+/**
+ * This API can be used to get rf rx antenna.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-rf-rx-antenna
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ * \note Please set rf rx antenna before get it.
+ */
 int wlan_get_rf_rx_antenna_command(int argc, char **argv);
 
+/**
+ * This API can be used to process get rf rx antenna response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                   Response body refer to \ref NCP_CMD_RF_RX_ANTENNA.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_process_get_rf_rx_antenna_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf band.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-band\n
+ *                    argv[1]: band\n
+ *                             0 -- 2.4G\n
+ *                             1 -- 5G
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_set_rf_band_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf band response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_band_response(uint8_t *res);
 
+/**
+ * This API can be used to get rf band.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-rf-band
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ * \note Please set rf band before get it.
+ */
 int wlan_get_rf_band_command(int argc, char **argv);
 
+/**
+ * This API can be used to process get rf band response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                   Response body refer to \ref NCP_CMD_RF_BAND.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_process_get_rf_band_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf bandwidth.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-bandwidth\n
+ *                    argv[1]: bandwidth\n
+ *                             0 -- 20MHz\n
+ *                             1 -- 40MHz\n
+ *                             4 -- 80MHz
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_set_rf_bandwidth_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf bandwidth response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_bandwidth_response(uint8_t *res);
 
+/**
+ * This API can be used to get rf bandwidth.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-rf-bandwidth
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ * \note Please set rf bandwidth before get it.
+ */
 int wlan_get_rf_bandwidth_command(int argc, char **argv);
 
+/**
+ * This API can be used to process get rf bandwidth response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                   Response body refer to \ref NCP_CMD_RF_BANDWIDTH.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_process_get_rf_bandwidth_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf channel.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-channel\n
+ *                    argv[1]: channel, 2.4G channel numbers or 5G channel numbers
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_set_rf_channel_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf rx antenna response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_channel_response(uint8_t *res);
 
+/**
+ * This API can be used to get rf channel.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-rf-channel
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ * \note Please set rf channel before get it.
+ */
 int wlan_get_rf_channel_command(int argc, char **argv);
 
+/**
+ * This API can be used to process get rf channel response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                   Response body refer to \ref NCP_CMD_RF_CHANNEL.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_process_get_rf_channel_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf radio mode.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-radio-mode\n
+ *                    argv[1]: radio_mode\n
+ *                             0 -- set the radio in power down mode\n
+ *                             3 -- set the radio in 5GHz band, 1X1 mode(path A)\n
+ *                             11 -- set the radio in 2.4GHz band, 1X1 mode(path A)
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_set_rf_radio_mode_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf radio mode response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_radio_mode_response(uint8_t *res);
 
+/**
+ * This API can be used to get rf radio mode.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-rf-radio-mode
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ * \note Please set rf radio mode before get it.
+ */
 int wlan_get_rf_radio_mode_command(int argc, char **argv);
 
+/**
+ * This API can be used to process get rf radio mode response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                   Response body refer to \ref NCP_CMD_RF_RADIO_MODE.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_process_get_rf_radio_mode_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf tx power.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 4.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-tx-power\n
+ *                    argv[1]: power\n
+ *                             0 to 24 (dBm)\n
+ *                    argv[2]: modulation\n
+ *                             0 -- CCK\n
+ *                             1 -- OFDM\n
+ *                             2 -- MCS\n
+ *                    argv[3]: path ID\n
+ *                             0 -- PathA\n
+ *                             1 -- PathB\n
+ *                             2 -- PathA+B\n
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_ncp_set_rf_tx_power_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf tx power response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_tx_power_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf tx cont mode.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2 or 6.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-tx-cont-mode\n
+ *                    argv[1]: enable/disable rf tx cont mode (Required)\n
+ *                             0 -- disable rf tx cont mode\n
+ *                             1 -- enable rf tx cont mode\n
+ *                    argv[2]: continuous Wave Mode (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- disable continuous Wave Mode\n
+ *                             1 -- enable continuous Wave Mode\n
+ *                    argv[3]: payload Pattern (Optional)\n
+ *                             Required when argv[1] is 1\n
+ *                             0 to 0xFFFFFFFF (Enter hexadecimal value)\n
+ *                    argv[4]: CS mode (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             Applicable only when continuous wave is disabled.\n
+ *                             0 -- disable CS mode\n
+ *                             1 -- enable CS mode\n
+ *                    argv[5]: Active SubChannel (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- low\n
+ *                             1 -- upper\n
+ *                             3 -- both\n
+ *                    argv[6]: tx Data Rate (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             Rate index corresponding to legacy/HT/VHT rates.\n
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_ncp_set_rf_tx_cont_mode_command(int argc, char **argv);
 
+/**
+ * This API can be used to process wlan set rf tx cont mode response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_tx_cont_mode_response(uint8_t *res);
 
+/**
+ * This API can be used to set rf tx frame.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 4.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-set-rf-tx-frame\n
+ *                    argv[1]: enable/disable rf tx frame (Required)\n
+ *                             0 -- disable rf tx frame\n
+ *                             1 -- enable rf tx frame\n
+ *                    argv[2]: tx data rate (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             Rate index corresponding to legacy/HT/VHT rates).\n
+ *                    argv[3]: Payload Pattern (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 to 0xFFFFFFFF (Enter hexadecimal value)\n
+ *                    argv[4]: Payload Length (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             1 to 0x400 (Enter hexadecimal value)\n
+ *                    argv[5]: Adjust burst SIFS3 gap (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- disable\n
+ *                             1 -- enable\n
+ *                    argv[6]: Burst SIFS in us (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 to 255 (us)\n
+ *                    argv[7]: Short preamble (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- disable\n
+ *                             1 -- enable\n
+ *                    argv[8]: active subchannel (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- low\n
+ *                             1 -- upper\n
+ *                             3 -- both\n
+ *                    argv[9]: short GI (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- disable\n
+ *                             1 -- enable\n
+ *                    argv[10]: adv coding (Optional).\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- disable\n
+ *                             1 -- enable\n
+ *                    argv[11]: Beamforming (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- disable\n
+ *                             1 -- enable\n
+ *                    argv[12]: GreenField Mode (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- disable\n
+ *                             1 -- enable\n
+ *                    argv[13]: STBC (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             0 -- disable\n
+ *                             1 -- enable\n
+ *                    argv[14]: BSSID (Optional)\n
+ *                             Required when argv[1] is 1.\n
+ *                             xx:xx:xx:xx:xx:xx
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_ncp_set_rf_tx_frame_command(int argc, char **argv);
 
+/**
+ * This API can be used to process set rf tx frame response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE
+ */
 int wlan_process_set_rf_tx_frame_response(uint8_t *res);
 
+/**
+ * This API can be used to get and reset rf per.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 1.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-get-and-reset-rf-per
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_ncp_set_rf_get_and_reset_rf_per_command(int argc, char **argv);
 
+/**
+ * This API can be used to process get and reset rf per response.
+ *
+ * \param[in] res    A pointer to \ref MCU_NCPCmd_DS_COMMAND response.\n
+ *                   Response body refer to \ref NCP_CMD_RF_PER.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ *
+ */
 int wlan_process_set_rf_get_and_reset_rf_per_response(uint8_t *res);
 #endif
 
+/**
+ * This API can be used to process reads/writes adapter registers value response.
+ *
+ * \param[in] res     A pointer to \ref NCPCmd_DS_COMMAND response.\n
+ *                    Response body refer to \ref NCP_CMD_REGISTER_ACCESS.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_register_access_response(uint8_t *res);
 
 #ifdef CONFIG_MEM_MONITOR_DEBUG
+/**
+ * This API can be used to process get OS memory allocate and free info response.
+ *
+ * \param[in] res     A pointer to \ref NCPCmd_DS_COMMAND response.\n
+ *                    Response body refer to \ref NCP_CMD_MEM_STAT.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_memory_state_response(uint8_t *res);
 #endif
 
+/** 
+ * This API can be used to verify algorithm AES-CCMP-128 encryption and decryption.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-eu-crypto-ccmp-128\n
+ *                    argv[1]: string value of decrypt or encrypt option.\n
+ *                             0 -- decrypt\n
+ *                             1 -- encrypt\n
+ *
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ *
+ */
 int wlan_eu_crypto_ccmp128_command(int argc, char **argv);
 
+/**
+ * This API can be used to process algorithm AES-CCMP-128 encryption and decryption response.
+ *
+ * \param[in] res     A pointer to \ref NCPCmd_DS_COMMAND response.\n
+ *                    Response body: None.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_eu_crypto_ccmp128_response(uint8_t *res);
 
+/** 
+ * This API can be used to verify algorithm AES-GCMP-128 encryption and decryption.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv,
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector.\n
+ *                    argv[0]: wlan-eu-crypto-gcmp-128\n
+ *                    argv[1]: string value of decrypt or encrypt option.\n
+ *                             0 -- decrypt\n
+ *                             1 -- encrypt
+ *
+ * \return WM_SUCCESS if success.
+ * \return -WM_FAIL if failure.
+ *
+ */
 int wlan_eu_crypto_gcmp128_command(int argc, char **argv);
 
+/**
+ * This API can be used to process algorithm AES-GCMP-128 encryption and decryption response.
+ *
+ * \param[in] res     A pointer to \ref NCPCmd_DS_COMMAND response.\n
+ *                    Response body: None.
+ *
+ * \return WM_SUCCESS if success.
+ */
 int wlan_process_eu_crypto_gcmp128_response(uint8_t *res);
 
 int wlan_set_time_command(int argc, char **argv);
@@ -2498,12 +3510,45 @@ int wlan_get_temperature_command(int argc, char **argv);
 
 int wlan_process_get_temperature_response(uint8_t *res);
 
+/**
+ * This function returns a list of discovered service on the local network.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 3.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-mdns-query \n
+ *                    argv[1]: string value of service types (Required) \n
+ *                             The type of service to be discovered. \n
+ *                             The service types can be found at http://www.dns-sd.org/ServiceTypes.html. \n
+ *                    argv[2]: string value of protocol (Required) \n
+ *                             e.g. TCP or UDP
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_mdns_query_command(int argc, char **argv);
 
+/**
+ * This API can be used to process mDNS query response.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_mdns_query_response(uint8_t *res);
 
 int wlan_process_csi_data_event(uint8_t *res);
 
+/**
+ * This API can be used to process mDNS query event.
+ *
+ * \param[in] res    A pointer to \ref NCPCmd_DS_COMMAND response. \n
+ *                   Event body refer to \ref NCP_EVT_MDNS_RESULT.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int wlan_process_mdns_query_result_event(uint8_t *res);
 
 int wlan_process_mdns_resolve_domain_event(uint8_t *res);
@@ -2518,6 +3563,22 @@ int wlan_process_discon_event(uint8_t *res);
 
 int wlan_process_stop_network_event(uint8_t *res);
 
+/**
+ * Send an ICMP echo request, receive its response and print its statistics and result.
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should range from 2 to 5.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: ping \n
+ *                    argv[1]: value of -s <packet_size> (Optional)     \n
+ *                    argv[2]: value of -c <packet_count> (Optional)    \n
+ *                    argv[3]: value of -W <timeout in sec> (Optional)  \n
+ *                    argv[4]: value of <ipv4 address> (Required)       \n
+ *                             The ipv4 address of target device.
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
 int ncp_ping_command(int argc, char **argv);
 
 int mpu_host_init_cli_commands_wifi();

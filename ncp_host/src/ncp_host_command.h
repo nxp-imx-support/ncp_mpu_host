@@ -22,10 +22,6 @@
 #define NCP_CMD_MATTER 0x30000000
 #define NCP_CMD_SYSTEM 0x40000000
 
-/* System NCP subclass */
-#define NCP_CMD_SYSTEM_CONFIG   0x00000000
-#define NCP_CMD_SYSTEM_TEST   0x00010000
-
 #define GET_MSG_TYPE(cmd)     ((cmd) & 0x000f0000)
 #define GET_CMD_CLASS(cmd)    (((cmd)&0xf0000000) >> 28)
 
@@ -136,6 +132,7 @@ typedef struct _power_cfg_t
 /* Host wakes up MPU device through interface */
 #define WAKE_MODE_INTF 0x1
 #define WAKE_MODE_GPIO 0x2
+#define WAKE_MODE_WIFI_NB 0x3
 
 /** Structure for registering CLI commands */
 struct mpu_host_cli_command

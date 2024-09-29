@@ -95,9 +95,7 @@ static void *device_notify_gpio_input_task(void *pvParameters)
         if ((ret == 1) && (fds[0].revents & POLLIN))
         {
             ssize_t rd_size = 0;
-            unsigned int i = 0;
             char buf[GPIO_POLL_BUF_LEN] = {0};
-            const char *data8 = (const char *)buf;
 
             memset(buf, 0x00, sizeof(buf));
 

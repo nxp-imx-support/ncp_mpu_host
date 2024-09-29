@@ -54,28 +54,6 @@ NCPCmd_DS_COMMAND *mpu_host_get_wifi_command_buffer()
     return (NCPCmd_DS_COMMAND *)(cmd_buf);
 }
 
-/**
- * @brief         Convert IP string to hex IP
- *
- * @param number  A pointer to int
- * @return        If IPstr can be converted hex IP: hex ip value, else : False
- */
-int strip_to_hex(int *number, int len)
-{
-    int ip_value = 0;
-    for (int jk = 0; jk < len; jk++)
-    {
-        int temp = 1;
-        for (int ji = 1; ji < len - jk; ji++)
-            temp *= 10;
-        ip_value += number[jk] * temp;
-    }
-    if (ip_value > NCP_IP_VALID)
-        return FALSE;
-
-    return ip_value;
-}
-
 /** Dump buffer in hex format on console
  *
  * This function prints the received buffer in HEX format on the console
@@ -98,76 +76,6 @@ void dump_hex(const void *data, unsigned len)
     }
 
     (void)printf("\n\r******** End Dump *******\n\r");
-}
-
-/**
- * @brief         Convert IP string to hex IP
- *
- * @param IPstr   A pointer to char
- * @param hex     A pointer to uint8_t
- * @return        If IPstr can be converted hex IP: TRUE, else : False
- */
-int IP_to_hex(char *IPstr, uint8_t *hex)
-{
-    int len          = strlen(IPstr);
-    int ip_number[3] = {0};
-    int j = 0, k = 0, dot_number = 0, hex_numer = 0;
-    for (int i = 0; i < len; i++)
-    {
-        if (IPstr[i] == '.')
-        {
-            if (j > 0)
-            {
-                hex[k] = strip_to_hex(ip_number, j);
-                if (hex[k] == FALSE)
-                {
-                    printf("Please input the correct IP address!\r\n");
-                    return FALSE;
-                }
-                k++;
-                j = 0;
-                hex_numer++;
-            }
-            dot_number++;
-        }
-        else if (IPstr[i] >= '0' && IPstr[i] <= '9')
-        {
-            if (j >= 3)
-            {
-                printf("Please input the correct IP address!\r\n");
-                return FALSE;
-            }
-            ip_number[j] = IPstr[i] - '0';
-            j++;
-        }
-        else
-        {
-            printf("Please input the correct IP address!\r\n");
-            return FALSE;
-        }
-    }
-    /* String IP address check*/
-    if (dot_number != 3) // the number of '.' should be 3
-    {
-        printf("Please input the correct IP address!\r\n");
-        return FALSE;
-    }
-    if (dot_number == 3 && j > 0)
-        hex_numer++;
-    if (hex_numer != 4) // the number of ip number should be 4
-    {
-        printf("Please input the correct IP address!\r\n");
-        return FALSE;
-    }
-
-    hex[k] = strip_to_hex(ip_number, j);
-    if (hex[k] == FALSE)
-    {
-        printf("Please input the correct IP address!\r\n");
-        return FALSE;
-    }
-
-    return TRUE;
 }
 
 /**
@@ -4715,7 +4623,15 @@ int wlan_process_suspend_response(uint8_t *res)
     uint16_t result            = cmd_res->header.result;
 
     if (result == NCP_CMD_RESULT_ERROR)
+    {
         printf("suspend command is failed\r\n");
+        printf("PM1/2 allowed with INTF mode\r\n");
+        printf("If NCP device is RDRW612:\r\n");
+        printf("    PM1/2/3 allowed with GPIO mode\r\n");
+        printf("If NCP device is FRDMRW612:\r\n");
+        printf("    PM1/2 allowed with GPIO mode\r\n");
+        printf("    PM1/2/3 allowed with WIFI-NB mode\r\n");
+    }
     else
         printf("suspend command is successful\r\n");
 
