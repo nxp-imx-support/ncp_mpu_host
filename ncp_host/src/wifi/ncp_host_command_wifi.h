@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <sys/times.h>
 #include "ncp_host_wifi_config.h"
 #include "ncp_host_command.h"
@@ -164,6 +165,8 @@ typedef struct _ping_res
 #define IPERF_TCP_RECV_TIMEOUT           1000
 #define IPERF_UDP_RECV_TIMEOUT           1000
 #define NCP_IPERF_END_TOKEN_SIZE     11
+extern uint32_t g_udp_recv_timeout;
+
 enum ncp_iperf_item
 {
     NCP_IPERF_TCP_TX,
@@ -196,7 +199,7 @@ typedef struct _iperf_msg_t
 
 extern int cli_optind;
 extern char *cli_optarg;
-static inline int cli_getopt(int argc, char **argv, const char *fmt)
+static inline int cli_getopt(int argc, char ** argv, char * fmt)
 {
     char *opt, *c;
 
@@ -265,8 +268,6 @@ static inline uint16_t inet_chksum(const void *dataptr, int len)
 
     return (uint16_t)(~(unsigned int)(uint16_t)sum);
 }
-
-int gettimeofday();
 
 static inline int ping_time_now(ping_time_t *time)
 {
@@ -495,8 +496,12 @@ typedef struct _ncp_wlan_scan_result
     unsigned wpa : 1;
     /** The network uses WPA2 security */
     unsigned wpa2 : 1;
+    /** The network uses WPA2 SHA256 security */
+    unsigned wpa2_sha256 : 1;
     /** The network uses WPA3 SAE security */
     unsigned wpa3_sae : 1;
+    /** The network uses WPA3 Enterprise security */
+    unsigned wpa3_entp: 1;
 
     /** The signal strength of the beacon */
     unsigned char rssi;
@@ -515,6 +520,19 @@ typedef struct _ncp_wlan_scan_result
 
     /** DTIM Period */
     uint8_t dtim_period;
+    /** MFPC (Management Frame Protection Capable) bit of AP (Access Point) */
+    uint8_t ap_mfpc;
+    /** MFPR (Management Frame Protection Required) bit of AP (Access Point) */
+    uint8_t ap_mfpr;
+
+#if CONFIG_NCP_11K
+    /** Neighbor report support */
+    bool neighbor_report_supported;
+#endif
+#if CONFIG_NCP_11V
+    /** bss transition support */
+    bool bss_transition_supported;
+#endif
 } NCP_WLAN_SCAN_RESULT;
 
 
@@ -603,6 +621,8 @@ enum wlan_security_type
     WLAN_SECURITY_WPA3_FT_SAE,
 #endif
 #endif
+    /** The network uses WPA3 security with SAE EXT KEY. */
+    WLAN_SECURITY_WPA3_SAE_EXT_KEY,
     /** The network uses WPA2/WPA3 SAE mixed security with PSK. This security mode
      * is specific to uAP or SoftAP only */
     WLAN_SECURITY_WPA2_WPA3_SAE_MIXED,
@@ -864,6 +884,21 @@ typedef struct _NCP_CMD_NETWORK_REMOVE
     int8_t remove_state;
 } NCP_CMD_NETWORK_REMOVE;
 
+typedef struct _NCP_CMD_GET_CURRENT_NETWORK
+{
+    NCP_WLAN_NETWORK sta_network;
+} NCP_CMD_GET_CURRENT_NETWORK;
+
+typedef struct _NCP_CMD_SCAN_RESULT_COUNT
+{
+    uint8_t count;
+} NCP_CMD_SCAN_RESULT_COUNT;
+
+typedef struct _NCP_CMD_GET_SCAN_RESULT
+{
+    NCP_WLAN_SCAN_RESULT scan_result;
+} NCP_CMD_GET_SCAN_RESULT;
+
 /*NCP SSID tlv*/
 typedef struct _SSID_ParamSet_t
 {
@@ -994,6 +1029,17 @@ typedef struct _NCP_CMD_NETWORK_START
     char name[32];
     char ssid[32 + 1];
 } NCP_CMD_NETWORK_START;
+
+/** This structure is used to configure the provisioning UAP. */
+typedef struct _NCP_CMD_UAP_PROV_SET_UAPCFG
+{   
+   /** Security type, detail value refer to enum wlan_security_type. */
+    uint32_t security_type;
+   /** SSID string, the maximum valid length of SSID is 32 bytes. */   
+    char ssid[WLAN_SSID_MAX_LENGTH + 1];
+   /** Password string, the maximum valid length of password is 255 bytes. */
+    char uapPass[WLAN_PASSWORD_MAX_LENGTH + 1];
+} NCP_CMD_UAP_PROV_SET_UAPCFG;
 
 /** Station information structure */
 typedef struct _wlan_sta_info
@@ -1355,6 +1401,10 @@ typedef struct _NCP_CMD_RSSI
 #define NCP_RSP_WLAN_STA_GEN_WPS_PIN   (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000032)
 #define NCP_CMD_WLAN_STA_WPS_PIN       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD |0x00000033) /* wlan-start-wps-pin */
 #define NCP_RSP_WLAN_STA_WPS_PIN       (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000033)
+#define NCP_CMD_WLAN_GET_CURRENT_NETWORK (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000034) /* wlan-get-current-network */
+#define NCP_RSP_WLAN_GET_CURRENT_NETWORK (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000034)
+#define NCP_CMD_WLAN_NETWORKS_REMOVE_ALL  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000035) /* wlan-remove-all-networks */
+#define NCP_RSP_WLAN_NETWORKS_REMOVE_ALL  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000035)
 
 /*WLAN Basic command/response*/
 #define NCP_CMD_WLAN_BASIC_WLAN_RESET           (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-reset */
@@ -1363,6 +1413,9 @@ typedef struct _NCP_CMD_RSSI
 #define NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_START  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_RESP | 0x00000002)
 #define NCP_CMD_WLAN_BASIC_WLAN_UAP_PROV_RESET  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_CMD | 0x00000003) /* wlan-uap-prov-reset */
 #define NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_RESET  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_WLAN_BASIC_WLAN_UAP_PROV_SET_UAPCFG  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_CMD | 0x00000004) /* wlan-uap-prov-set-uapcfg */
+#define NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_SET_UAPCFG  (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_RESP | 0x00000004)
+
 
 /*WLAN Socket command*/
 #define NCP_CMD_WLAN_SOCKET_OPEN     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-socket-open */
@@ -2065,6 +2118,8 @@ typedef struct _NCPCmd_DS_COMMAND
         NCP_CMD_NETWORK_ADD network_add;
         /** wlan start network*/
         NCP_CMD_NETWORK_START network_start;
+        /** pro set uap config */
+        NCP_CMD_UAP_PROV_SET_UAPCFG prov_set_uap_cfg;
         /** wlan uap sta list*/
         NCP_CMD_NETWORK_UAP_STA_LIST uap_sta_list;
         NCP_CMD_CSI csi_cfg;
@@ -2166,6 +2221,8 @@ typedef struct _NCPCmd_DS_COMMAND
         NCP_CMD_NETWORK_LIST network_list;
         /** remove network*/
         NCP_CMD_NETWORK_REMOVE network_remove;
+        /** get current network*/
+        NCP_CMD_GET_CURRENT_NETWORK current_network;
     } params;
 } NCPCmd_DS_COMMAND;
 
@@ -2820,9 +2877,11 @@ int wlan_process_wakeup_condition_response(uint8_t *res);
 
 int wlan_process_mcu_sleep_response(uint8_t *res);
 
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
 int wlan_suspend_command(int argc, char **argv);
 
 int wlan_process_suspend_response(uint8_t *res);
+#endif
 
 int wlan_process_sleep_status(uint8_t *res);
 

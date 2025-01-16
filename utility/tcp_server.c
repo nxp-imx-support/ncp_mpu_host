@@ -331,16 +331,24 @@ void *send_data(void *arg)
     int rate = 0;
     struct timeval prev_time, cur_time;
     int send_interval = 1;
-    if (udp_rate <= 120)
-        send_interval = 1000;
-    else if (udp_rate <= 30 * 1024)
+	
+    if(udp_rate <= 120) 
+        send_interval = 1000; 
+    else if (udp_rate <= 30 * 1000) // 30Mbps
         send_interval = 4;
-    else if (udp_rate <= 60 * 1024)
+    else if (udp_rate <= 60 * 1000) // 60Mbps
         send_interval = 2;
     else
         send_interval = 1;
-    pkt_num_per_xms = ((udp_rate * 1024 / 8) / per_pkt_size / (1000 / send_interval)); /*num pkt per send_interval(ms)*/
-
+    /* pkt_num_per_xms == number of packet needs to transfter per send_internal
+     * suppose udp_rate = 80Kbps
+     * send_internal = 1000
+     * each packet send takes (per_pkt_size * 8 ) / 80000 second
+     * 1s = 1000 ms , which contains (1000/send_interval ) number of send opportunity
+     * then each send opportunity could send (1000/send_interval)/((per_pkt_size * 8 ) / 80000) packets
+    */
+    pkt_num_per_xms = (udp_rate * 1000 / 8) / per_pkt_size / (1000/ send_interval); /* num pkt per send_interval(ms) */
+    pkt_num_per_xms = pkt_num_per_xms < 1 ? 1 : pkt_num_per_xms;
     gettimeofday(&prev_time, NULL);
     prev_time_us  = prev_time.tv_sec * 1000 * 1000 + prev_time.tv_usec;
     start_time_us = prev_time_us;
@@ -387,7 +395,7 @@ void *send_data(void *arg)
 
     gettimeofday(&cur_time, NULL);
     cur_time_us = cur_time.tv_sec * 1000 * 1000 + cur_time.tv_usec;
-    rate        = send_sum * 1000000 * 8 / (cur_time_us - start_time_us) / (1024);
+    rate        = send_sum * 1000000 * 8 / (cur_time_us - start_time_us) / (1000);
 
     /*Try to make data can recved success by peer*/
     sleep(1);

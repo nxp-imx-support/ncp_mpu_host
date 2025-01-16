@@ -29,7 +29,9 @@
 #include "ncp_host_app.h"
 #include "ncp_host_app_wifi.h"
 #include "ncp_host_app_ble.h"
+#ifndef NCP_OT_STANDALONE
 #include "ncp_host_app_ot.h"
+#endif
 #include "ncp_host_command.h"
 #include "ncp_host_command_wifi.h"
 #include "ncp_tlv_adapter.h"
@@ -41,19 +43,26 @@ uint8_t resp_buf[NCP_RESPONSE_LEN];
 uint8_t cmd_buf[NCP_COMMAND_LEN];
 uint8_t temp_buf[NCP_RESPONSE_LEN];
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-uint16_t sequence_number = 1;
+uint16_t g_cmd_seqno = 1;
 /** command semaphore*/
 sem_t cmd_sem;
 uint32_t last_resp_rcvd, last_cmd_sent;
+uint16_t last_seqno_rcvd, last_seqno_sent;
 
 /* ble service variables */
 #if defined(CONFIG_NCP_HTS) || defined(CONFIG_NCP_HTC) || defined(CONFIG_NCP_HRS) || defined(CONFIG_NCP_HRC) || defined(CONFIG_NCP_BAS)
 send_data_t *service_S_D = NULL;
 #endif
 
+#if CONFIG_NCP_UART
+#define UART_WAKEUP_MAGIC_PATTERN (0xABCDEF8987FEDCBAU)
+uint64_t magic_pattern = UART_WAKEUP_MAGIC_PATTERN;
+#endif
+
 pthread_mutex_t gpio_wakeup_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t ncp_device_status_mutex = PTHREAD_MUTEX_INITIALIZER;
 extern power_cfg_t global_power_config;
-extern uint8_t mpu_device_status;
+extern uint8_t ncp_device_status;
 
 #if defined(CONFIG_NCP_BLE)
 extern int mpu_host_init_cli_commands_ble();
@@ -149,7 +158,6 @@ void mpu_dump_hex(const void *data, unsigned int len)
 
     printf("\r\n**********  End Dump **********\r\n");
 }
-
 
 
 static int handle_input(uint8_t *inbuf)
@@ -370,14 +378,17 @@ void send_tlv_command(send_data_t *S_D)
     int index;
     uint32_t bridge_checksum = 0;
 #endif
-    uint8_t *temp_cmd        = cmd_buf;
-    int Datalen, ret = TRUE;
+    int ret = TRUE;
+    uint16_t transfer_len    = 0;
+    NCP_COMMAND *header = (NCP_COMMAND *)cmd_buf;
 
-    Datalen = (temp_cmd[NCP_CMD_SIZE_HIGH_BYTES] << 8) | temp_cmd[NCP_CMD_SIZE_LOW_BYTES];
-    ncp_adap_d("%s Enter: cmd_buf=%p Datalen=%d", __FUNCTION__, cmd_buf, Datalen);
-    if ((0 == Datalen) || (Datalen > NCP_COMMAND_LEN))
+    /* set cmd seqno */
+    header->seqnum = g_cmd_seqno;
+    transfer_len   = header->size;
+
+    ncp_adap_d("%s Enter: cmd_buf=%p transfer_len=%d", __FUNCTION__, cmd_buf, transfer_len);
+    if (transfer_len == 0)
     {
-        printf("%s: Invalid Datalen=%d!\r\n", __FUNCTION__, Datalen);
 #ifdef CONFIG_MPU_IO_DUMP
         mpu_dump_hex(cmd_buf, 64);
 #endif
@@ -385,23 +396,31 @@ void send_tlv_command(send_data_t *S_D)
         goto out_clear;
     }
 
-    temp_cmd[NCP_CMD_SEQUENCE_LOW_BYTES]  = (sequence_number & 0xFF);
-    temp_cmd[NCP_CMD_SEQUENCE_HIGH_BYTES] = (sequence_number >> 8) & 0xFF;
+    if (transfer_len > NCP_COMMAND_LEN || transfer_len < sizeof(NCP_COMMAND))
+    {
+        printf("%s: Invalid transfer_len=%d!\r\n", __FUNCTION__, transfer_len);
+#ifdef CONFIG_MPU_IO_DUMP
+        mpu_dump_hex(cmd_buf, 64);
+#endif
+        ret = FALSE;
+        goto out_clear;
+    }
 
 #ifdef CONFIG_MPU_IO_DUMP
     printf("Send command:\r\n");
-    mpu_dump_hex(cmd_buf, Datalen);
+    mpu_dump_hex(cmd_buf, transfer_len);
 #endif
-    if (ncp_tlv_send(temp_cmd, Datalen) != NCP_STATUS_SUCCESS)
+    if (ncp_tlv_send(header, transfer_len) != NCP_STATUS_SUCCESS)
     {
         printf("ncp_tlv_send failed!\r\n");
         ret = FALSE;
         goto out_clear;
     }
 
-    last_cmd_sent = ((NCPCmd_DS_COMMAND *)temp_cmd)->header.cmd;
-    sequence_number++;
-    ncp_adap_d("%s: last_cmd_sent=0x%x sequence_number=0x%x", __FUNCTION__, last_cmd_sent, sequence_number);
+    last_cmd_sent   = header->cmd;
+    last_seqno_sent = header->seqnum;
+    g_cmd_seqno++;
+    ncp_adap_d("%s: last_cmd_sent=0x%x last_seqno_sent=0x%x", __FUNCTION__, last_cmd_sent, last_seqno_sent);
 
 out_clear:
     clear_mpu_host_command_buffer();
@@ -505,31 +524,70 @@ static void ncp_handle_input_task(void *arg)
                 }
                 else
                 {
-                    if (mpu_device_status == MPU_DEVICE_STATUS_SLEEP)
+                    if (ncp_device_status != NCP_DEVICE_STATUS_ACTIVE)
                     {
-#ifdef CONFIG_NCP_SDIO
-                        if(global_power_config.wake_mode == WAKE_MODE_INTF)
-                        {
-                            memset(&wakeup_buf, 0x0, sizeof(NCP_COMMAND));
-                            wakeup_buf.size = NCP_CMD_HEADER_LEN - 1;
-                            //write(S_D->serial_fd, &wakeup_buf, NCP_CMD_HEADER_LEN);
-                            ncp_adap_d("%s: send wakeup_buf", __FUNCTION__);
-                            ncp_tlv_send(&wakeup_buf, NCP_CMD_HEADER_LEN);
-                        }
-                        else
+                        switch(global_power_config.wake_mode) {
+                            case WAKE_MODE_WIFI_NB:
+                                ncp_e("Command is not allowed when wake mode is WIFI-NB and device is sleeping.");
+                                ncp_e("With WIFI-NB mode, host is not able to wakeup device.");
+                                ncp_e("Please send command after device wakes up.");
+                                ret = FALSE;
+                                break;
+                            case WAKE_MODE_INTF:
+                                pthread_mutex_lock(&ncp_device_status_mutex);
+                                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
+                                {
+                                    usleep(10000); // Wait 10ms to make sure NCP device enters low power.
+                                }
+                                pthread_mutex_unlock(&ncp_device_status_mutex);
+#if defined(CONFIG_NCP_SDIO)
+                                memset(&wakeup_buf, 0x0, sizeof(NCP_COMMAND));
+                                wakeup_buf.size = NCP_CMD_HEADER_LEN - 1;
+                                //write(S_D->serial_fd, &wakeup_buf, NCP_CMD_HEADER_LEN);
+                                ncp_d("%s: send wakeup_buf", __FUNCTION__);
+                                ncp_tlv_send(&wakeup_buf, NCP_CMD_HEADER_LEN);
+#elif defined(CONFIG_NCP_UART)
+                                /* Send the magic pattern to wakeup the NCP device */
+                                ncp_tlv_send(&magic_pattern, sizeof(magic_pattern));
+                                /* Block here to wait for NCP device complete the PM2 exit process */
+                                pthread_mutex_lock(&gpio_wakeup_mutex);
+                                /* Release semaphore here to make sure software can get it successfully when receiving sleep enter event for next sleep loop. */
+                                pthread_mutex_unlock(&gpio_wakeup_mutex);
 #endif
-                        if(global_power_config.wake_mode == WAKE_MODE_GPIO)
-                        {
-                            set_lpm_gpio_value(0);
-                            pthread_mutex_unlock(&mutex);
-                            pthread_mutex_lock(&gpio_wakeup_mutex);
-                            set_lpm_gpio_value(1);
-                            pthread_mutex_unlock(&gpio_wakeup_mutex);
-                            pthread_mutex_lock(&mutex);
+                                ret = TRUE;
+                                break;
+                            case WAKE_MODE_GPIO:
+                                pthread_mutex_lock(&ncp_device_status_mutex);
+                                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
+                                {
+                                    usleep(10000); // Wait 10ms to make sure NCP device enters low power.
+                                }
+                                pthread_mutex_unlock(&ncp_device_status_mutex);
+
+                                set_lpm_gpio_value(0);
+                                pthread_mutex_unlock(&mutex);
+                                pthread_mutex_lock(&gpio_wakeup_mutex);
+                                set_lpm_gpio_value(1);
+                                pthread_mutex_unlock(&gpio_wakeup_mutex);
+                                pthread_mutex_lock(&mutex);
+                                ret = TRUE;
+                                break;
+                            default:
+                                ncp_d("%s: invalid wakeup mode", __FUNCTION__);
+                                ret = FALSE;
+                                break;
                         }
                     }
-                    ncp_adap_d("%s: input cmd send", __FUNCTION__);
-                    send_tlv_command(S_D);
+                    if (ret == TRUE)
+                    {
+                        ncp_d("%s: input cmd send", __FUNCTION__);
+                        send_tlv_command(S_D);
+                    }
+                    else
+                    {
+                        clear_mpu_host_command_buffer();
+                        sem_post(&cmd_sem);
+                    }
                 }
             }
             pthread_mutex_unlock(&mutex);
@@ -539,7 +597,6 @@ static void ncp_handle_input_task(void *arg)
 
     pthread_exit(NULL);
 }
-
 
 /**
  * @brief        Main function
@@ -552,6 +609,7 @@ static void ncp_handle_input_task(void *arg)
 extern int ncp_system_app_init();
 extern int ncp_host_system_command_init();
 extern void ncp_system_app_deinit(void);
+#ifndef NCP_OT_STANDALONE
 int main(int argc, char **argv)
 {
     pthread_t send_thread;
@@ -639,6 +697,12 @@ int main(int argc, char **argv)
 
     recv_data.data_buf = ring_buf;
 
+    if(ncp_cmd_node_list_init() != 0)
+    {
+        printf("Failed to init cmd_node mutex!\r\n");
+        goto err_cmd_node_list;
+    }
+
     send_thread = pthread_create(&send_thread, NULL, (void *)ncp_handle_input_task, (void *)&send_data);
     if (send_thread != 0)
     {
@@ -719,7 +783,9 @@ err_wifi_ncp_app_task_init:
 #endif
     pthread_join(send_thread, NULL);
 err_send_thread:
+err_cmd_node_list:
     ring_buf_free(ring_buf);
+    ncp_cmd_node_list_deinit();
 err_ring_buf_init:
 err_ring_lock:
     free(ring_lock);
@@ -764,4 +830,4 @@ err_adapter_init:
 
     return TRUE;
 }
-
+#endif

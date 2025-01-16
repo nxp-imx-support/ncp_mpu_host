@@ -54,10 +54,30 @@
 
 #define MAX_DATA_PORT				32
 
+#define RETRY_CNT					1
+
+#define SDIO_SET_RE_ENUM				1
+#define SDIO_SET_DIS_INT_IRQ			2
+#define SDIO_SET_DIS_INT_IRQ_TEST	3
+
+static u32 drvdbg = 0;
+
 #define PRINT_ERR pr_err
 #define PRINT_INFO pr_info
-#define PRINT_DEBUG pr_debug
-#define PRINT_DUMP print_hex_dump
+#define PRINT_DEBUG pr_info//pr_debug
+#define PRINT_HEXDUMP print_hex_dump
+
+#define PRINT_HEXDUMP_LEVEL KERN_DEBUG //KERN_INFO
+
+/** DEBUG HEX dump */
+#define DBG_BIT_DEBUG			BIT(1)
+#define DBG_BIT_HEXDUMP			BIT(0)
+
+/** Print hex dump */
+#define PRINTM_HEXDUMP(msg...)  do {if (drvdbg & DBG_BIT_HEXDUMP)  PRINT_HEXDUMP(PRINT_HEXDUMP_LEVEL,msg);} while(0)
+/** Print hex dump */
+#define PRINTM_DEBUG(msg...)  do {if (drvdbg & DBG_BIT_DEBUG)  PRINT_DEBUG(msg);} while(0)
+
 
 #define GET_MSG_TYPE(cmd)     ((cmd) & 0x000f0000)
 
@@ -153,6 +173,9 @@ static const mcu_sdio_card_reg mcu_reg_rw610 = {
 };
 
 int g_dev_noblock = 0;
+uint32_t g_last_cmd_all = 0;
+uint32_t g_last_cmd_app = 0;
+
 
 struct sdio_buffer {
 	char buf[DATA_BUFFER_SIZE + SDIO_BUFF_ALIGN];
@@ -281,6 +304,8 @@ struct mcu_sdio_mmc_card {
 #define NCP_CMD_SYSTEM 0x40000000
 
 #define NCP_MSG_TYPE_CMD   0x00010000
+#define NCP_MSG_TYPE_EVENT 0x00020000
+#define NCP_MSG_TYPE_RESP  0x00030000
 
 #define NCP_CMD_WLAN_SOCKET      0x00900000
 
@@ -493,7 +518,7 @@ static int mcu_sdio_write_data_sync(struct mcu_sdio_mmc_card *card,
 
 	if (len) {
 		sdio_claim_host(func);
-		PRINT_DEBUG("%s: port=%u buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
+		PRINTM_DEBUG("%s: port=0x%x buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
 		ret = sdio_writesb(func, port, buf, aligned_size);
 
 		if (ret) {
@@ -528,7 +553,7 @@ static int mcu_sdio_read_data_sync(struct mcu_sdio_mmc_card *card,
 
 	if (len) {
 		sdio_claim_host(func);
-		PRINT_DEBUG("%s: port=%u buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
+		PRINTM_DEBUG("%s: port=%u buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
 		ret = sdio_readsb(func, buf, port, aligned_size);
 		if (ret) {
 			PRINT_ERR("cmd53 read error=%d\n", ret);
@@ -559,14 +584,19 @@ static int mcu_disable_sdio_host_int(struct mcu_sdio_mmc_card *card, u32 mask)
 	/* Read back the host_int_mask register */
 	ret = mcu_sdio_read_reg(card, card->regs->host_int_mask_reg,
 							&host_int_mask);
-	if (ret)
+	if (ret) {
+		PRINTM_DEBUG("%s: read %u fail.\n", __FUNCTION__, card->regs->host_int_mask_reg);
 		return ret;
+	}
 
 	/* Update with the mask and write back to the register */
 	host_int_mask &= ~mask;
 
 	ret = mcu_sdio_write_reg(card, card->regs->host_int_mask_reg,
 							host_int_mask);
+	if (ret) {
+		PRINTM_DEBUG("%s: write %u to %u fail.\n", __FUNCTION__, card->regs->host_int_mask_reg, host_int_mask);
+	}
 	return ret;
 }
 
@@ -586,14 +616,19 @@ static int mcu_enable_sdio_host_int(struct mcu_sdio_mmc_card *card, u32 mask)
 	/* Read back the host_int_mask register */
 	ret = mcu_sdio_read_reg(card, card->regs->host_int_mask_reg,
 							&host_int_mask);
-	if (ret)
+	if (ret) {
+		PRINTM_DEBUG("%s: read %u fail.\n", __FUNCTION__, card->regs->host_int_mask_reg);
 		return ret;
+	}
 
 	/* Update with the mask and write back to the register */
 	host_int_mask |= mask;
 
 	ret = mcu_sdio_write_reg(card, card->regs->host_int_mask_reg,
 							host_int_mask);
+	if (ret) {
+		PRINTM_DEBUG("%s: write %u to %u fail.\n", __FUNCTION__, card->regs->host_int_mask_reg, host_int_mask);
+	}
 	return ret;
 }
 
@@ -620,7 +655,7 @@ static int wlan_get_rd_port(struct mcu_sdio_mmc_card *card, u8 *pport)
 		    return -ENODATA;
 	}
 
-	PRINT_DEBUG("port=%d mp_rd_bitmap=0x%08x -> 0x%08x\n", *pport,
+	PRINTM_DEBUG("port=%d mp_rd_bitmap=0x%08x -> 0x%08x\n", *pport,
 		rd_bitmap, card->mp_rd_bitmap);
 
 	return 0;
@@ -637,12 +672,12 @@ static void mcu_sdio_rx_function(struct work_struct *work)
 	u32 ireg, reg[4];
 	unsigned long flags;
 
-	PRINT_DEBUG("%s: Enter\n", __FUNCTION__);
+	PRINTM_DEBUG("%s: Enter\n", __FUNCTION__);
 	func = dev_to_sdio_func(priv->sdio_dev);
 	card = sdio_get_drvdata(func);
 	if (! card) {
-		PRINT_ERR("sdio_mmc_interrupt(func = %p) card or handle is NULL, card=%p\n",
-			func, card);
+		PRINT_ERR("%s: sdio_mmc_interrupt(func = %p) card or handle is NULL, card=%p\n",
+			__FUNCTION__, func, card);
 		return;
 	}
 
@@ -656,14 +691,15 @@ static void mcu_sdio_rx_function(struct work_struct *work)
 	card->ireg = 0;
 	spin_unlock_irqrestore(&card->int_lock, flags);
 
-	PRINT_DEBUG("%s: sdio_ireg = 0x%x\n", __FUNCTION__, ireg);
+	PRINTM_DEBUG("%s: sdio_ireg = 0x%x\n", __FUNCTION__, ireg);
 	if (! ireg)
 		goto done;
 
 	/* check the command port */
 	if (ireg & DN_LD_CMD_PORT_HOST_INT_STATUS) {
-		PRINT_DEBUG("DNLD_CMD---\n");
+		PRINTM_DEBUG("%s: DNLD_CMD DONE---\n", __FUNCTION__);
 		card->cmd_sent = false;
+		PRINTM_DEBUG("%s: cmd_sent=%d\n", __FUNCTION__, card->cmd_sent);
 	}
 
 	if (ireg & UP_LD_CMD_PORT_HOST_INT_STATUS) {
@@ -673,26 +709,26 @@ static void mcu_sdio_rx_function(struct work_struct *work)
 		struct mcu_sdio_misc_priv *priv = card->misc_priv;
 		u32 rx_cmd_ok = 0;
 
-		PRINT_DEBUG("UPLD_CMD---\n");
+		PRINTM_DEBUG("%s: UPLD_CMD---\n", __FUNCTION__);
 
 		ret = mcu_sdio_read_reg(card, card->regs->cmd_rd_len_0, &reg[0]);
 		ret |= mcu_sdio_read_reg(card, card->regs->cmd_rd_len_1, &reg[1]);
 		if (ret) {
-			PRINT_ERR("UPLD_CMD: mcu_sdio_read_reg ret=0x%x\n", ret);
+			PRINT_ERR("%s: UPLD_CMD: mcu_sdio_read_reg ret=0x%x\n", __FUNCTION__, ret);
 			goto done_UPLD_CMD;
 		}
 
 		rx_len = ((u32)reg[0]);
 		rx_len |= ((u32)reg[1]) << 8;
-		PRINT_DEBUG("UPLD_CMD: cmd port rx_len=%u\n", rx_len);
+		PRINTM_DEBUG("%s: UPLD_CMD: cmd port rx_len=%u\n", __FUNCTION__, rx_len);
 		if (rx_len <= SDIO_INTF_HEADER_LEN || rx_len > MAX_CMD_EVENT_PAYLOAD_SIZE) {
-			PRINT_ERR("UPLD_CMD: invalid rx_len=%d\n", rx_len);
+			PRINT_ERR("%s: UPLD_CMD: invalid rx_len=%d\n", __FUNCTION__, rx_len);
 			goto done_UPLD_CMD;
 		}
 
 		//spin_lock_irqsave(&card->rx_cmd_event_ring.lock, flags);
 		if (!cmdeventq_has_space(&card->rx_cmd_event_ring)) {
-			PRINT_ERR("UPLD_CMD: No space in cmdrsp_ring\n");
+			PRINT_ERR("%s: UPLD_CMD: No space in cmdrsp_ring\n", __FUNCTION__);
 			//spin_unlock_irqrestore(&card->rx_cmd_event_ring.lock, flags);
 			goto done_UPLD_CMD;
 		}
@@ -702,14 +738,14 @@ static void mcu_sdio_rx_function(struct work_struct *work)
 		ret = mcu_sdio_read_data_sync(card, rx_buf->buf_align, rx_len,
 						card->ioport | CMD_PORT_SLCT);
 		if (ret) {
-			PRINT_ERR("UPLD_CMD: mcu_sdio_read_data_sync ret=0x%x\n", ret);
+			PRINT_ERR("%s: UPLD_CMD: mcu_sdio_read_data_sync ret=0x%x\n", __FUNCTION__, ret);
 			//spin_unlock_irqrestore(&card->rx_cmd_event_ring.lock, flags);
 			goto done_UPLD_CMD;
 		}
 		sdio_hdr = (sdio_header *)(rx_buf->buf_align);
 		if (((sdio_hdr->type != MLAN_TYPE_CMD) && (sdio_hdr->type != MLAN_TYPE_EVENT)) ||
 		((sdio_hdr->len < SDIO_INTF_HEADER_LEN) || (sdio_hdr->len > MAX_CMD_EVENT_PAYLOAD_SIZE))) {
-			PRINT_ERR("UPLD_CMD: receive a wrong packet from CMD PORT: type=%d len=%d\n", sdio_hdr->type, sdio_hdr->len);
+			PRINT_ERR("%s: UPLD_CMD: receive a wrong packet from CMD PORT: type=%d len=%d\n", __FUNCTION__, sdio_hdr->type, sdio_hdr->len);
 			//spin_unlock_irqrestore(&card->rx_cmd_event_ring.lock, flags);
 			goto done_UPLD_CMD;
 		}
@@ -720,10 +756,11 @@ static void mcu_sdio_rx_function(struct work_struct *work)
 		rx_cmd_ok = 1;
 		card->cmd_resp_received = true;
 done_UPLD_CMD:
-		//PRINT_DUMP(KERN_DEBUG, "UPLD_CMD rx cmdrsp: ", DUMP_PREFIX_OFFSET, 16, 1, &(rx_buf->buf_align), rx_buf->size, 1);
+		if (rx_buf)
+			PRINTM_HEXDUMP("UPLD_CMD rx cmdrsp: ", DUMP_PREFIX_OFFSET, 16, 1, &(rx_buf->buf_align), rx_buf->size, 1);
 		if (!g_dev_noblock && rx_cmd_ok) {
 			if (priv) {
-				PRINT_DEBUG("UPLD_CMD: wake_up_all wq\n");
+				PRINTM_DEBUG("%s: UPLD_CMD: wake_up_all wq\n", __FUNCTION__);
 				priv->wq_wkcond = true;
 				wake_up_all(&priv->wq);
 			}
@@ -731,13 +768,13 @@ done_UPLD_CMD:
 	}
 
 	if (ireg & DN_LD_HOST_INT_STATUS) {
-		PRINT_DEBUG("DNLD_DATA ---\n");
+		PRINTM_DEBUG("%s: DNLD_DATA DONE---\n", __FUNCTION__);
 		ret = mcu_sdio_read_reg(card, card->regs->wr_bitmap_l, &reg[0]);
 		ret |= mcu_sdio_read_reg(card, card->regs->wr_bitmap_u, &reg[1]);
 		ret |= mcu_sdio_read_reg(card, card->regs->wr_bitmap_1l, &reg[2]);
 		ret |= mcu_sdio_read_reg(card, card->regs->wr_bitmap_1u, &reg[3]);
 		if (ret) {
-			PRINT_ERR("DNLD_DATA DONE: mcu_sdio_read_reg ret=0x%x\n", ret);
+			PRINT_ERR("%s: DNLD_DATA DONE: mcu_sdio_read_reg ret=0x%x\n", __FUNCTION__, ret);
 			goto done;
 		}
 
@@ -746,7 +783,7 @@ done_UPLD_CMD:
 		card->mp_wr_bitmap |= (reg[2] << 16);
 		card->mp_wr_bitmap |= (reg[3] << 24);
 		if (card->data_sent && (card->mp_wr_bitmap & (1 << card->curr_wr_port))) {
-			PRINT_DEBUG("data_sent=%d\n", card->data_sent);
+			PRINTM_DEBUG("%s: data_sent=%d\n", __FUNCTION__, card->data_sent);
 			card->data_sent = false;
 		}
 	}
@@ -762,13 +799,13 @@ done_UPLD_CMD:
 		u8 port = 0;
 		u32 rx_data_ok = 0;
 
-		PRINT_DEBUG("UPLD_DATA ---\n");
+		PRINTM_DEBUG("%s: UPLD_DATA ---\n", __FUNCTION__);
 		ret = mcu_sdio_read_reg(card, card->regs->rd_bitmap_l, &reg[0]);
 		ret |= mcu_sdio_read_reg(card, card->regs->rd_bitmap_u, &reg[1]);
 		ret |= mcu_sdio_read_reg(card, card->regs->rd_bitmap_1l, &reg[2]);
 		ret |= mcu_sdio_read_reg(card, card->regs->rd_bitmap_1u, &reg[3]);
 		if (ret) {
-			PRINT_ERR("UPLD_DATA: mcu_sdio_read_reg rd_bitmap ret=0x%x\n", ret);
+			PRINT_ERR("%s: UPLD_DATA: mcu_sdio_read_reg rd_bitmap ret=0x%x\n", __FUNCTION__, ret);
 			goto done;
 		}
 
@@ -790,21 +827,21 @@ done_UPLD_CMD:
 			ret = mcu_sdio_read_reg(card, len_reg_l, &reg[0]);
 			ret |= mcu_sdio_read_reg(card, len_reg_u, &reg[1]);
 			if (ret) {
-				PRINT_ERR("UPLD_DATA: mcu_sdio_read_reg en_reg ret=0x%x\n", ret);
+				PRINT_ERR("%s: UPLD_DATA: mcu_sdio_read_reg en_reg ret=0x%x\n", __FUNCTION__, ret);
 				goto done_UPLD_DATA;
 			}
 
 			rx_len = (((u32) reg[1]) << 8);
 			rx_len |= (u32) reg[0];
-			PRINT_DEBUG("UPLD_DATA: port=%d rx_len=%u\n", port, rx_len);
+			PRINTM_DEBUG("%s: UPLD_DATA: port=%d rx_len=%u\n", __FUNCTION__, port, rx_len);
 			if ((rx_len <= SDIO_INTF_HEADER_LEN) || (rx_len > MAX_DATA_PAYLOAD_SIZE)) {
-				PRINT_ERR("UPLD_DATA: invalid rx_len=%d\n", rx_len);
+				PRINT_ERR("%s: UPLD_DATA: invalid rx_len=%d\n", __FUNCTION__, rx_len);
 				goto done_UPLD_DATA;
 			}
 
 			//spin_lock_irqsave(&card->rx_ring.rx_lock, flags);
 			if (! rxq_has_space(&card->rx_ring)) {
-				PRINT_ERR("No space in rx_ring\n");
+				PRINT_ERR("%s: No space in rx_ring\n", __FUNCTION__);
 				//spin_unlock_irqrestore(&card->rx_ring.rx_lock, flags);
 				goto done_UPLD_DATA;
 			}
@@ -814,14 +851,14 @@ done_UPLD_CMD:
 			ret = mcu_sdio_read_data_sync(card, rx_buf->buf_align, rx_len,
 							card->ioport | port);
 			if (ret) {
-				PRINT_ERR("UPLD_DATA: mcu_sdio_read_data_sync ret=0x%x\n", ret);
+				PRINT_ERR("%s: UPLD_DATA: mcu_sdio_read_data_sync ret=0x%x\n", __FUNCTION__, ret);
 				//spin_unlock_irqrestore(&card->rx_ring.rx_lock, flags);
 				goto done_UPLD_DATA;
 			}
 			sdio_hdr = (sdio_header *)(rx_buf->buf_align);
 			if ((sdio_hdr->type != MLAN_TYPE_DATA) ||
 			((sdio_hdr->len < SDIO_INTF_HEADER_LEN) || (sdio_hdr->len > MAX_DATA_PAYLOAD_SIZE))) {
-				PRINT_ERR("UPLD_DATA: receive a wrong packet from DATA PORT: type=%d len=%d\n", sdio_hdr->type, sdio_hdr->len);
+				PRINT_ERR("%s: UPLD_DATA: receive a wrong packet from DATA PORT: type=%d len=%d\n", __FUNCTION__, sdio_hdr->type, sdio_hdr->len);
 				//spin_unlock_irqrestore(&card->rx_ring.rx_lock, flags);
 				goto done_UPLD_DATA;
 			}
@@ -831,11 +868,11 @@ done_UPLD_CMD:
 			//spin_unlock_irqrestore(&card->rx_ring.rx_lock, flags);
 			rx_data_ok = 1;
 			card->data_received = true;
-			//PRINT_DUMP(KERN_DEBUG, "UPLD_DATA rx data: ", DUMP_PREFIX_OFFSET, 16, 1, &(rx_buf->buf_align), rx_buf->size, 1);
+			PRINTM_HEXDUMP("UPLD_DATA rx data: ", DUMP_PREFIX_OFFSET, 16, 1, &(rx_buf->buf_align), rx_buf->size, 1);
 done_UPLD_DATA:
 			if (!g_dev_noblock && rx_data_ok) {
 				if (priv) {
-					PRINT_DEBUG("UPLD_DATA: wake_up_all wq\n");
+					PRINTM_DEBUG("%s: UPLD_DATA: wake_up_all wq\n", __FUNCTION__);
 					priv->wq_wkcond = true;
 					wake_up_all(&priv->wq);
 				}
@@ -844,7 +881,7 @@ done_UPLD_DATA:
 	}
 
 done:
-	PRINT_DEBUG("%s: Leave\n", __FUNCTION__);
+	PRINTM_DEBUG("%s: Leave\n", __FUNCTION__);
 	return;
 }
 
@@ -856,9 +893,9 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 	u32 ireg_old = 0;
 	unsigned long flags;
 
-	PRINT_DEBUG("%s: Enter\n", __FUNCTION__);
+	//PRINTM_DEBUG("%s: Enter\n", __FUNCTION__);
 	if (! func) {
-		PRINT_DEBUG("%s: func = %p\n", __FUNCTION__, func);
+		PRINTM_DEBUG("%s: func = %p\n", __FUNCTION__, func);
 		return;
 	}
 	card = sdio_get_drvdata(func);
@@ -874,16 +911,16 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 		return;
 	}
 
-	PRINT_DEBUG("%s: ireg=0x%x\n", __FUNCTION__, ireg);
+	PRINTM_DEBUG("%s: ireg=0x%x\n", __FUNCTION__, ireg);
 	if (!ireg) {
-		PRINT_DEBUG("%s: ireg 0 return\n", __FUNCTION__);
+		PRINTM_DEBUG("%s: ireg 0 return\n", __FUNCTION__);
 		return;
 	}
 
 	spin_lock_irqsave(&card->int_lock, flags);
 	ireg_old = card->ireg;
 	card->ireg |= ireg;
-	PRINT_DEBUG("%s: ireg = 0x%x -> 0x%x\n", __FUNCTION__, ireg_old, card->ireg);
+	PRINTM_DEBUG("%s: ireg = 0x%x -> 0x%x\n", __FUNCTION__, ireg_old, card->ireg);
 	spin_unlock_irqrestore(&card->int_lock, flags);
 	if (card->misc_priv)
 		queue_delayed_work(card->misc_priv->rx_workqueue, &card->misc_priv->rx_dwork, 1);
@@ -894,13 +931,13 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 	if (ret)
 		return;
 
-	PRINT_DEBUG("mcu_sdio_interrupt: sdio_ireg = 0x%x\n", ireg);
+	PRINTM_DEBUG("mcu_sdio_interrupt: sdio_ireg = 0x%x\n", ireg);
 	if (! ireg)
 		goto done;
 
 	/* check the command port */
 	if (ireg & DN_LD_CMD_PORT_HOST_INT_STATUS) {
-		PRINT_DEBUG("cmd_sent\n");
+		PRINTM_DEBUG("cmd_sent\n");
 		card->cmd_sent = false;
 	}
 
@@ -910,7 +947,7 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 		sdio_header *sdio_hdr = NULL;
 		struct mcu_sdio_misc_priv *priv = card->misc_priv;
 
-		PRINT_DEBUG("cmd_recv\n");
+		PRINTM_DEBUG("cmd_recv\n");
 
 		ret = mcu_sdio_read_reg(card, card->regs->cmd_rd_len_0, &reg[0]);
 		ret |= mcu_sdio_read_reg(card, card->regs->cmd_rd_len_1, &reg[1]);
@@ -921,7 +958,7 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 
 		rx_len = ((u32)reg[0]);
 		rx_len |= ((u32)reg[1]) << 8;
-		PRINT_DEBUG("UPLD_CMD: cmd port rx_len=%u\n", rx_len);
+		PRINTM_DEBUG("UPLD_CMD: cmd port rx_len=%u\n", rx_len);
 		if (rx_len <= SDIO_INTF_HEADER_LEN || rx_len > MAX_CMD_EVENT_PAYLOAD_SIZE) {
 			PRINT_ERR("UPLD_CMD: invalid rx_len=%d\n", rx_len);
 			goto done;
@@ -953,7 +990,7 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 
 		rx_buf->size = SDIO_INTF_HEADER_LEN + sdio_hdr->len;
 		card->cmd_resp_received = true;
-		PRINT_DUMP(KERN_DEBUG, "UPLD_CMD rx cmdrsp: ", DUMP_PREFIX_OFFSET, 16, 1, &(rx_buf->buf_align), rx_buf->size, 1);
+		PRINTM_HEXDUMP("UPLD_CMD rx cmdrsp: ", DUMP_PREFIX_OFFSET, 16, 1, &(rx_buf->buf_align), rx_buf->size, 1);
 		wake_up_all(&priv->wq);
 	}
 
@@ -972,7 +1009,7 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 		card->mp_wr_bitmap |= (reg[2] << 16);
 		card->mp_wr_bitmap |= (reg[3] << 24);
 		if (card->data_sent && (card->mp_wr_bitmap & (1 << card->curr_wr_port))) {
-			PRINT_DEBUG(" <--- Tx DONE Interrupt --->\n");
+			PRINTM_DEBUG(" <--- Tx DONE Interrupt --->\n");
 			card->data_sent = false;
 		}
 	}
@@ -1011,7 +1048,7 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 
 		rx_len = (((u32) reg[1]) << 8);
 		rx_len |= (u32) reg[0];
-		PRINT_DEBUG("UPLD_DATA: port=%d rx_len=%u\n", card->curr_rd_port, rx_len);
+		PRINTM_DEBUG("UPLD_DATA: port=%d rx_len=%u\n", card->curr_rd_port, rx_len);
 		if ((rx_len <= SDIO_INTF_HEADER_LEN) || (rx_len > MAX_DATA_PAYLOAD_SIZE)) {
 			PRINT_ERR("UPLD_DATA: invalid rx_len=%d\n", rx_len);
 			return;
@@ -1044,7 +1081,7 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 
 		rx_buf->size = SDIO_INTF_HEADER_LEN + sdio_hdr->len;
 		card->data_received = true;
-		PRINT_DUMP(KERN_DEBUG, "UPLD_DATA rx data: ", DUMP_PREFIX_OFFSET, 16, 1, &(rx_buf->buf_align), rx_buf->size, 1);
+		PRINTM_HEXDUMP("UPLD_DATA rx data: ", DUMP_PREFIX_OFFSET, 16, 1, &(rx_buf->buf_align), rx_buf->size, 1);
 		wake_up_all(&priv->wq);
 	}
 
@@ -1167,7 +1204,7 @@ int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 	spin_lock_init(&card->tx_cmd_ring.lock);
 	for (i = 0; i < CMD_RING_SIZE; i ++) {
 		card->tx_cmd_ring.buffers[i].buf_align = (char *)ALIGN_ADDR(card->tx_cmd_ring.buffers[i].buf, SDIO_BUFF_ALIGN);
-		PRINT_DEBUG("tx_cmd_ring.buffers[%u]: buf=%p buf_align=%p\n", i,
+		PRINTM_DEBUG("tx_cmd_ring.buffers[%u]: buf=%p buf_align=%p\n", i,
 			card->tx_cmd_ring.buffers[i].buf, card->tx_cmd_ring.buffers[i].buf_align);
 	}
 
@@ -1176,7 +1213,7 @@ int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 	spin_lock_init(&card->rx_cmd_event_ring.lock);
 	for (i = 0; i < CMDRSP_EVENT_RING_SIZE; i ++) {
 		card->rx_cmd_event_ring.buffers[i].buf_align = (char *)ALIGN_ADDR(card->rx_cmd_event_ring.buffers[i].buf, SDIO_BUFF_ALIGN);
-		PRINT_DEBUG("rx_cmd_event_ring.buffers[%u]: buf=%p buf_align=%p\n", i,
+		PRINTM_DEBUG("rx_cmd_event_ring.buffers[%u]: buf=%p buf_align=%p\n", i,
 			card->rx_cmd_event_ring.buffers[i].buf, card->rx_cmd_event_ring.buffers[i].buf_align);
 	}
 
@@ -1185,7 +1222,7 @@ int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 	spin_lock_init(&card->rx_ring.rx_lock);
 	for (i = 0; i < RX_DEVICE_RING_SIZE; i ++) {
 		card->rx_ring.buffers[i].buf_align = (char *)ALIGN_ADDR(card->rx_ring.buffers[i].buf, SDIO_BUFF_ALIGN);
-		PRINT_DEBUG("rx_ring.buffers[%u]: buf=%p buf_align=%p\n", i,
+		PRINTM_DEBUG("rx_ring.buffers[%u]: buf=%p buf_align=%p\n", i,
 			card->rx_ring.buffers[i].buf, card->rx_ring.buffers[i].buf_align);
 	}
 
@@ -1194,7 +1231,7 @@ int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 	spin_lock_init(&card->tx_ring.tx_lock);
 	for (i = 0; i < TX_DEVICE_RING_SIZE; i ++) {
 		card->tx_ring.buffers[i].buf_align = (char *)ALIGN_ADDR(card->tx_ring.buffers[i].buf, SDIO_BUFF_ALIGN);
-		PRINT_DEBUG("tx_ring.buffers[%u]: buf=%p buf_align=%p\n", i,
+		PRINTM_DEBUG("tx_ring.buffers[%u]: buf=%p buf_align=%p\n", i,
 			card->tx_ring.buffers[i].buf, card->tx_ring.buffers[i].buf_align);
 	}
 
@@ -1336,7 +1373,7 @@ static int wlan_get_wr_port_data(struct mcu_sdio_mmc_card *card, u8 *pport)
 	mcu_sdio_update_wr_bitmap(card);
 
 	wr_bitmap = card->mp_wr_bitmap;
-	PRINT_DEBUG("%s: mp_wr_bitmap=0x%08x\n", __FUNCTION__, wr_bitmap);
+	PRINTM_DEBUG("%s: mp_wr_bitmap=0x%08x\n", __FUNCTION__, wr_bitmap);
 	if (!wr_bitmap) {
 		card->data_sent = true;
 		return -EBUSY;
@@ -1350,7 +1387,7 @@ static int wlan_get_wr_port_data(struct mcu_sdio_mmc_card *card, u8 *pport)
 		card->data_sent = true;
 		return -EBUSY;
 	}
-	PRINT_DEBUG("port=%d mp_wr_bitmap=0x%08x -> 0x%08x\n", *pport,
+	PRINTM_DEBUG("port=%d mp_wr_bitmap=0x%08x -> 0x%08x\n", *pport,
 	       wr_bitmap, card->mp_wr_bitmap);
 	return 0;
 }
@@ -1363,10 +1400,9 @@ static void mcu_sdio_tx_function(struct work_struct *work)
 						    struct mcu_sdio_misc_priv,
 						    tx_dwork.work);
 	//unsigned long flags;
-	u8 port = 0;
 	int ret;
 
-	PRINT_DEBUG("%s: Enter\n", __FUNCTION__);
+	PRINTM_DEBUG("%s: Enter\n", __FUNCTION__);
 	func = dev_to_sdio_func(priv->sdio_dev);
 	card = sdio_get_drvdata(func);
 
@@ -1376,8 +1412,8 @@ start:
 	if (cmdq_count(&card->tx_cmd_ring)) {
 		struct sdio_cmd_event_buffer *cmd_buf = NULL;
 		cmd_buf = &card->tx_cmd_ring.buffers[card->tx_cmd_ring.qtail];
-		PRINT_DEBUG("%s: CMD write_data_sync %p %p %lu\n", __FUNCTION__, cmd_buf, cmd_buf->buf_align, cmd_buf->size);
-		//PRINT_DUMP(KERN_DEBUG, "TXFUNC cmd buf: ", DUMP_PREFIX_OFFSET, 16, 1, cmd_buf->buf_align, cmd_buf->size, 1);
+		PRINTM_DEBUG("%s: CMD write_data_sync %p %p %lu\n", __FUNCTION__, cmd_buf, cmd_buf->buf_align, cmd_buf->size);
+		PRINTM_HEXDUMP("TXFUNC cmd buf: ", DUMP_PREFIX_OFFSET, 16, 1, cmd_buf->buf_align, cmd_buf->size, 1);
 		//sdio_claim_host(card->func);
 		ret = mcu_sdio_write_data_sync(card, (u8 *)(cmd_buf->buf_align),
 				cmd_buf->size, card->ioport | CMD_PORT_SLCT);
@@ -1386,17 +1422,17 @@ start:
 	}
 	//spin_unlock_irqrestore(&card->tx_cmd_ring.lock, flags);
 
-	ret = wlan_get_wr_port_data(card, &port);
-	if (ret)
-		goto done;
-
 	/* Write data from the data queue */
 	//spin_lock_irqsave(&card->tx_ring.tx_lock, flags);
 	if (txq_count(&card->tx_ring)) {
+		u8 port = 0;
 		struct sdio_buffer *tx_buf = NULL;
+		ret = wlan_get_wr_port_data(card, &port);
+		if (ret)
+			goto done;
 		tx_buf = &card->tx_ring.buffers[card->tx_ring.qtail];
-		PRINT_DEBUG("%s: DATA write_data_sync %p %p %lu port=%u\n", __FUNCTION__, tx_buf, tx_buf->buf_align, tx_buf->size, port);
-		//PRINT_DUMP(KERN_DEBUG, "TXFUNC data buf: ", DUMP_PREFIX_OFFSET, 16, 1, tx_buf->buf_align, tx_buf->size, 1);
+		PRINTM_DEBUG("%s: DATA write_data_sync %p %p %lu port=%u\n", __FUNCTION__, tx_buf, tx_buf->buf_align, tx_buf->size, port);
+		PRINTM_HEXDUMP("TXFUNC data buf: ", DUMP_PREFIX_OFFSET, 16, 1, tx_buf->buf_align, tx_buf->size, 1);
 		//sdio_claim_host(card->func);
 		ret = mcu_sdio_write_data_sync(card, (u8 *)(tx_buf->buf_align),
 				tx_buf->size, card->ioport | port);
@@ -1406,14 +1442,14 @@ start:
 	//spin_unlock_irqrestore(&card->tx_ring.tx_lock, flags);
 
 done:
-	PRINT_DEBUG("%s: cmdq_count=%u txq_count=%u\n", __FUNCTION__,
+	PRINTM_DEBUG("%s: cmdq_count=%u txq_count=%u\n", __FUNCTION__,
 		cmdq_count(&card->tx_cmd_ring), txq_count(&card->tx_ring));
 	if (cmdq_count(&card->tx_cmd_ring) || txq_count(&card->tx_ring)) {
 		//queue_delayed_work(priv->tx_workqueue, &priv->tx_dwork, 1);
 		goto start;
 	}
 
-	PRINT_DEBUG("%s: Leave\n", __FUNCTION__);
+	PRINTM_DEBUG("%s: Leave\n", __FUNCTION__);
 }
 
 /*
@@ -1435,7 +1471,7 @@ static ssize_t mcu_sdio_misc_read(struct file *file, char __user *buf,
 	struct sdio_buffer *rx_buf = NULL;
 	unsigned long flags;
 
-	PRINT_DEBUG("%s: Enter file=%p buf=%p count=%lu ppos=%p noblock=%d\n", __FUNCTION__, file, buf, count, ppos, noblock);
+	PRINTM_DEBUG("%s: Enter file=%p buf=%p count=%lu ppos=%p noblock=%d\n", __FUNCTION__, file, buf, count, ppos, noblock);
 	if (! priv->sdio_dev)
 		return -EIO;
 
@@ -1451,10 +1487,10 @@ static ssize_t mcu_sdio_misc_read(struct file *file, char __user *buf,
 #endif
 		if (!noblock) {
 			if (priv) {
-				PRINT_DEBUG("%s: wait_event before: %d\n\r ", __FUNCTION__, priv->wq_wkcond);
+				PRINTM_DEBUG("%s: wait_event before: %d\n", __FUNCTION__, priv->wq_wkcond);
 				//prepare_to_wait(&priv->wq, &wait, TASK_INTERRUPTIBLE);
 				wait_event_interruptible_timeout(priv->wq, priv->wq_wkcond, 60 * HZ);
-				PRINT_DEBUG("%s: wait_event after: %d\n\r ", __FUNCTION__, priv->wq_wkcond);
+				PRINTM_DEBUG("%s: wait_event after: %d\n", __FUNCTION__, priv->wq_wkcond);
 				priv->wq_wkcond = false;
 			}
 		}
@@ -1463,15 +1499,15 @@ static ssize_t mcu_sdio_misc_read(struct file *file, char __user *buf,
 
 		/* Read data from the queue */
 		//spin_lock_irqsave(&card->rx_cmd_event_ring.lock, flags);
-		//PRINT_DEBUG("%s: cmdeventq: qhead=%u qtail=%u count=%d\n\r ", __FUNCTION__,
+		//PRINTM_DEBUG("%s: cmdeventq: qhead=%u qtail=%u count=%d\n", __FUNCTION__,
 		//	card->rx_cmd_event_ring.qhead, card->rx_cmd_event_ring.qtail,
 		//	cmdeventq_count(&card->rx_cmd_event_ring));
 		if (cmdeventq_count(&card->rx_cmd_event_ring)) {
 			cmdevent_buf = &card->rx_cmd_event_ring.buffers[card->rx_cmd_event_ring.qtail];
 			rx_len = cmdevent_buf->size - SDIO_INTF_HEADER_LEN;
-			PRINT_DEBUG("%s: cmdevent rx_len: %d \n\r ", __FUNCTION__, rx_len);
+			PRINTM_DEBUG("%s: cmdevent rx_len: %d \n", __FUNCTION__, rx_len);
 			if (copy_to_user(buf, (cmdevent_buf->buf_align + SDIO_INTF_HEADER_LEN), rx_len)) {
-				PRINT_ERR("%s: cmdevent rx_len: %d \n\r ", __FUNCTION__, rx_len);
+				PRINT_ERR("%s: cmdevent rx_len: %d \n", __FUNCTION__, rx_len);
 				ret = -EFAULT;
 			} else {
 				ret = rx_len;
@@ -1482,19 +1518,19 @@ static ssize_t mcu_sdio_misc_read(struct file *file, char __user *buf,
 		//spin_unlock_irqrestore(&card->rx_cmd_event_ring.lock, flags);
 
 		if (cmdevent_buf) {
-			//PRINT_DUMP(KERN_DEBUG, "READ rx cmdevent buf: ", DUMP_PREFIX_OFFSET, 16, 1, cmdevent_buf->buf_align, cmdevent_buf->size, 1);
+			PRINTM_HEXDUMP("READ rx cmdevent buf: ", DUMP_PREFIX_OFFSET, 16, 1, cmdevent_buf->buf_align, cmdevent_buf->size, 1);
 			goto out;
 		}
 
 		/* Read data from the queue */
 		//spin_lock_irqsave(&card->rx_ring.rx_lock, flags);
-		//PRINT_DEBUG("%s: rxq_count: %d \n\r ", __FUNCTION__, rxq_count(&card->rx_ring));
+		//PRINTM_DEBUG("%s: rxq_count: %d \n", __FUNCTION__, rxq_count(&card->rx_ring));
 		if (rxq_count(&card->rx_ring)) {
 			rx_buf = &card->rx_ring.buffers[card->rx_ring.qtail];
 			rx_len = rx_buf->size - SDIO_INTF_HEADER_LEN;
-			PRINT_DEBUG("%s: data rx_len: %d \n\r ", __FUNCTION__, rx_len);
+			PRINTM_DEBUG("%s: data rx_len: %d \n", __FUNCTION__, rx_len);
 			if (copy_to_user(buf, (rx_buf->buf_align + SDIO_INTF_HEADER_LEN), rx_len)) {
-				PRINT_ERR("%s: data rx_len: %d \n\r ", __FUNCTION__, rx_len);
+				PRINT_ERR("%s: data rx_len: %d \n", __FUNCTION__, rx_len);
 				ret = -EFAULT;
 			} else {
 				ret = rx_len;
@@ -1505,7 +1541,7 @@ static ssize_t mcu_sdio_misc_read(struct file *file, char __user *buf,
 		//spin_unlock_irqrestore(&card->rx_ring.rx_lock, flags);
 
 		if (rx_buf) {
-			//PRINT_DUMP(KERN_DEBUG, "READ rx data buf: ", DUMP_PREFIX_OFFSET, 16, 1, rx_buf->buf_align, rx_buf->size, 1);
+			PRINTM_HEXDUMP("READ rx data buf: ", DUMP_PREFIX_OFFSET, 16, 1, rx_buf->buf_align, rx_buf->size, 1);
 			goto out;
 		}
 
@@ -1537,15 +1573,15 @@ out:
 #if 0
 	if (!noblock) {
 		if (priv) {
-			PRINT_DEBUG("%s: noblock=%d finish_wait AAA\n\r ", __FUNCTION__, noblock);
+			PRINTM_DEBUG("%s: noblock=%d finish_wait AAA\n", __FUNCTION__, noblock);
 			finish_wait(&priv->wq, &wait);
-			PRINT_DEBUG("%s: noblock=%d finish_wait BBB\n\r ", __FUNCTION__, noblock);
+			PRINTM_DEBUG("%s: noblock=%d finish_wait BBB\n", __FUNCTION__, noblock);
 		}
 	}
 #endif
 
 	spin_unlock_irqrestore(&priv->state_lock, flags);
-	//PRINT_DEBUG("%s: Leave ret=%ld\n", __FUNCTION__, ret);
+	//PRINTM_DEBUG("%s: Leave ret=%ld\n", __FUNCTION__, ret);
 	return ret;
 }
 
@@ -1583,7 +1619,7 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 	sdio_header *sdio_hdr = NULL;
 	unsigned long flags;
 
-	PRINT_DEBUG("%s: Enter file=%p buf=%p count=%lu ppos=%p\n", __FUNCTION__, file, buf, count, ppos);
+	PRINTM_DEBUG("%s: Enter file=%p buf=%p count=%lu ppos=%p\n", __FUNCTION__, file, buf, count, ppos);
 
 	if (!priv->sdio_dev)
 		return -EIO;
@@ -1601,16 +1637,16 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 		ret = -EFAULT;
 		goto out_w1;
 	}
-	//PRINT_DUMP(KERN_DEBUG, "WRITE input buf: ", DUMP_PREFIX_OFFSET, 16, 1, buf, count, 1);
-	//PRINT_DUMP(KERN_DEBUG, "WRITE ncp_cmd: ", DUMP_PREFIX_OFFSET, 16, 1, (void *)&ncp_cmd, sizeof(NCP_COMMAND), 1);
+	PRINTM_HEXDUMP("WRITE input buf: ", DUMP_PREFIX_OFFSET, 16, 1, buf, count, 1);
+	PRINTM_HEXDUMP("WRITE ncp_cmd: ", DUMP_PREFIX_OFFSET, 16, 1, (void *)&ncp_cmd, sizeof(NCP_COMMAND), 1);
 
-    if ((ncp_cmd.cmd == 0) && (ncp_cmd.size == sizeof(NCP_COMMAND) - 1) &&
-         (ncp_cmd.seqnum == 0) && (ncp_cmd.result == 0) && (GET_MSG_TYPE(ncp_cmd.cmd) == 0)) {
-        PRINT_DEBUG("%s: Special cmd to wakeup card!\n", __FUNCTION__);
-        mcu_sdio_wakeup_card(priv, card);
-        ret = count;
-        goto out_w;
-    }
+	if ((ncp_cmd.cmd == 0) && (ncp_cmd.size == sizeof(NCP_COMMAND) - 1) &&
+		(ncp_cmd.seqnum == 0) && (ncp_cmd.result == 0) && (GET_MSG_TYPE(ncp_cmd.cmd) == 0)) {
+		PRINTM_DEBUG("%s: Special cmd to wakeup card!\n", __FUNCTION__);
+		mcu_sdio_wakeup_card(priv, card);
+		ret = count;
+		goto out_w1;
+	}
 
 	if (ncp_cmd.size < sizeof(NCP_COMMAND)) {
 		PRINT_ERR("%s: invalid ncp_cmd.size=%d!\n", __FUNCTION__, ncp_cmd.size);
@@ -1618,53 +1654,117 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 		goto out_w1;
 	}
 
+	g_last_cmd_all = ncp_cmd.cmd;
+	PRINTM_DEBUG("%s: g_last_cmd_all=0x%x\n", __FUNCTION__, g_last_cmd_all);
+
 	if (ncp_cmd.cmd == NCP_CMD_SYSTEM_CONFIG_SDIO_SET) {
 		int val = 0;
+		int ret1 = 0;
 		if (count >= (sizeof(NCP_COMMAND) + sizeof(int))) {
 			if (copy_from_user((char *)(&val), buf + sizeof(NCP_COMMAND), sizeof(int)) != 0) {
 				PRINT_ERR("%s: copy_from_user fail for SYSTEM_CONFIG_SDIO_SET!\n", __FUNCTION__);
 				ret = -EFAULT;
 				goto out_w1;
 			}
-			PRINT_DEBUG("%s: val=%d\n", __FUNCTION__, val);
-			if (val == 1) {
-				int ret;
+			PRINTM_DEBUG("%s: SDIO_SET val=%d\n", __FUNCTION__, val);
+			if (val == SDIO_SET_RE_ENUM) {
+				int retry_cnt = 0;
 				func->card->quirks |= MMC_QUIRK_LENIENT_FN0;
 				/* wait for chip fully wake up */
 				if (!func->enable_timeout)
 					func->enable_timeout = 200;
+				PRINTM_DEBUG("%s: sdio_claim_host ===\n", __FUNCTION__);
 				sdio_claim_host(func);
-				sdio_release_irq(func);
-				ret = mmc_hw_reset(func->card);
-				if (ret) {
-					PRINT_ERR("mmc_hw_reset() failed: ret=%d\n", ret);
-					//goto err;
+				retry_cnt = 100;
+				PRINTM_DEBUG("%s: try mmc_hw_reset retry_cnt=%d\n", __FUNCTION__, retry_cnt);
+				do {
+					ret1 = mmc_hw_reset(func->card);
+					mdelay(100);
+					PRINTM_DEBUG("try hw reset %d time\n", retry_cnt);
+					retry_cnt--;
+				} while (ret1 && retry_cnt > 0);
+				if (ret1) {
+					PRINT_ERR("%s: mmc_hw_reset %d time ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+					//goto out_w1;
 				}
-				ret = sdio_enable_func(func);
-				if (ret) {
-					PRINT_ERR("sdio_enable_func() failed: ret=%d\n", ret);
-					//goto err;
+				retry_cnt = RETRY_CNT;
+				PRINTM_DEBUG("%s: try sdio_enable_func retry_cnt=%d\n", __FUNCTION__, retry_cnt);
+				do {
+					ret1 = sdio_enable_func(func);
+					retry_cnt--;
+				} while (ret1 && retry_cnt > 0);
+				if (ret1) {
+					PRINT_ERR("%s: sdio_enable_func() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+					//goto out_w1;
 				}
-				ret = mcu_sdio_init(card);
-				if (ret) {
-					PRINT_ERR("mcu_sdio_init() failed: ret=%d\n", ret);
-					//goto err;
+
+				retry_cnt = RETRY_CNT;
+				PRINTM_DEBUG("%s: try mcu_sdio_init retry_cnt=%d\n", __FUNCTION__, retry_cnt);
+				do {
+					ret1 = mcu_sdio_init(card);
+					retry_cnt--;
+				} while (ret1 && retry_cnt > 0);
+				if (ret1) {
+					PRINT_ERR("%s: mcu_sdio_init() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+					//goto out_w1;
 				}
+
 				/* Request the SDIO IRQ */
-				ret = sdio_claim_irq(func, mcu_sdio_interrupt);
-				if (ret) {
-					PRINT_ERR("sdio_claim_irq failed: ret=%d\n", ret);
-					//goto err;
+				retry_cnt = RETRY_CNT;
+				PRINTM_DEBUG("%s: try sdio_claim_irq retry_cnt=%d\n", __FUNCTION__, retry_cnt);
+				do {
+					ret1 = sdio_claim_irq(func, mcu_sdio_interrupt);
+					retry_cnt--;
+				} while (ret1 && retry_cnt > 0);
+				if (ret1) {
+					PRINT_ERR("%s: sdio_claim_irq() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+					//goto out_w1;
 				}
+
 				/* Set block size */
-				ret = sdio_set_block_size(func, MLAN_SDIO_BLOCK_SIZE);
-				if (ret) {
-					PRINT_ERR("sdio_set_block_seize(): cannot set SDIO block size\n");
+				retry_cnt = RETRY_CNT;
+				PRINTM_DEBUG("%s: try sdio_set_block_size retry_cnt=%d\n", __FUNCTION__, retry_cnt);
+				do {
+					ret1 = sdio_set_block_size(func, MLAN_SDIO_BLOCK_SIZE);
+					retry_cnt--;
+				} while (ret1 && retry_cnt > 0);
+				if (ret1) {
 					//sdio_release_irq(func);
-					//goto err;
+					PRINT_ERR("%s: sdio_set_block_size() %d %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, MLAN_SDIO_BLOCK_SIZE, ret1);
+					//goto out_w1;
 				}
+
 				/* re-enable host interrupt */
-				ret = mcu_enable_sdio_host_int(card, card->regs->host_int_enable);
+				retry_cnt = RETRY_CNT;
+				PRINTM_DEBUG("%s: try mcu_enable_sdio_host_int retry_cnt=%d\n", __FUNCTION__, retry_cnt);
+				do {
+					ret1 = mcu_enable_sdio_host_int(card, card->regs->host_int_enable);
+					retry_cnt--;
+				} while (ret1 && retry_cnt > 0);
+				if (ret1) {
+					PRINT_ERR("%s: mcu_enable_sdio_host_int() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+					//goto out_w1;
+				}
+				PRINTM_DEBUG("%s: sdio_release_host ===\n", __FUNCTION__);
+				sdio_release_host(func);
+			} else if ((val == SDIO_SET_DIS_INT_IRQ) || (val == SDIO_SET_DIS_INT_IRQ_TEST)) {
+				while (card->cmd_sent) {
+					//PRINTM_DEBUG("%s: mdelay(1) for cmd_sent=%d\n", __FUNCTION__, card->cmd_sent);
+					mdelay(1);
+				}
+				while (card->data_sent) {
+					//PRINTM_DEBUG("%s: mdelay(1) for data_sent=%d\n", __FUNCTION__, card->data_sent);
+					mdelay(1);
+				}
+				sdio_claim_host(func);
+				ret1 = mcu_disable_sdio_host_int(card, HIM_DISABLE);
+				PRINTM_DEBUG("%s: mcu_disable_sdio_host_int ret1=%d\n", __FUNCTION__, ret1);
+				ret1 = sdio_release_irq(func);
+				PRINTM_DEBUG("%s: sdio_release_irq ret1=%d\n", __FUNCTION__, ret1);
+				if (val == SDIO_SET_DIS_INT_IRQ_TEST) {
+					ret1 = sdio_disable_func(func);
+					PRINTM_DEBUG("%s: sdio_disable_func ret1=%d\n", __FUNCTION__, ret1);
+				}
 				sdio_release_host(func);
 			}
 		}
@@ -1673,6 +1773,9 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 	}
 
 	spin_lock_irqsave(&priv->state_lock, flags);
+
+	g_last_cmd_app = ncp_cmd.cmd;
+	PRINTM_DEBUG("%s: g_last_cmd_app=0x%x\n", __FUNCTION__, g_last_cmd_app);
 
 	if ((ncp_cmd.cmd == NCP_CMD_WLAN_SOCKET_SEND) ||
 		(ncp_cmd.cmd == NCP_CMD_WLAN_SOCKET_SENDTO)) {
@@ -1698,7 +1801,7 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 		struct sdio_buffer *tx_buf = NULL;
 		//spin_lock_irqsave(&card->tx_ring.tx_lock, flags);
 		if (! txq_has_space(&card->tx_ring)) {
-			PRINT_DEBUG("TX ring full!\n");
+			PRINTM_DEBUG("TX ring full!\n");
 			//spin_unlock_irqrestore(&card->tx_ring.tx_lock, flags);
 			ret = count;
 			goto out_w;
@@ -1716,13 +1819,14 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 		tx_buf->size = tx_len + SDIO_INTF_HEADER_LEN;
 		inc_txqhead(&card->tx_ring);
 		//spin_unlock_irqrestore(&card->tx_ring.tx_lock, flags);
-		PRINT_DEBUG("%s: WRITE tx data buf %p %p %lu\n", __FUNCTION__, tx_buf, tx_buf->buf_align, tx_buf->size);
-		//PRINT_DUMP(KERN_DEBUG, "WRITE tx data buf: ", DUMP_PREFIX_OFFSET, 16, 1, tx_buf->buf_align, tx_buf->size, 1);
+		card->data_sent = true;
+		PRINTM_DEBUG("%s: WRITE tx data buf %p %p %lu\n", __FUNCTION__, tx_buf, tx_buf->buf_align, tx_buf->size);
+		PRINTM_HEXDUMP("WRITE tx data buf: ", DUMP_PREFIX_OFFSET, 16, 1, tx_buf->buf_align, tx_buf->size, 1);
 	} else {
 		struct sdio_cmd_event_buffer *cmd_buf = NULL;
 		//spin_lock_irqsave(&card->tx_cmd_ring.lock, flags);
 		if (! cmdq_has_space(&card->tx_cmd_ring)) {
-			PRINT_DEBUG("CMD ring full!\n");
+			PRINTM_DEBUG("CMD ring full!\n");
 			//spin_unlock_irqrestore(&card->tx_cmd_ring.lock, flags);
 			ret = count;
 			goto out_w;
@@ -1740,18 +1844,18 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 		cmd_buf->size = tx_len + SDIO_INTF_HEADER_LEN;
 		inc_cmdqhead(&card->tx_cmd_ring);
 		//spin_unlock_irqrestore(&card->tx_cmd_ring.lock, flags);
-		PRINT_DEBUG("%s: WRITE tx cmd buf %p %p %lu\n", __FUNCTION__, cmd_buf, cmd_buf->buf_align, cmd_buf->size);
-		//PRINT_DUMP(KERN_DEBUG, "WRITE tx cmd buf: ", DUMP_PREFIX_OFFSET, 16, 1, cmd_buf->buf_align, cmd_buf->size, 1);
+		card->cmd_sent = true;
+		PRINTM_DEBUG("%s: WRITE tx cmd buf %p %p %lu\n", __FUNCTION__, cmd_buf, cmd_buf->buf_align, cmd_buf->size);
+		PRINTM_HEXDUMP("WRITE tx cmd buf: ", DUMP_PREFIX_OFFSET, 16, 1, cmd_buf->buf_align, cmd_buf->size, 1);
 	}
 
 	queue_delayed_work(priv->tx_workqueue, &priv->tx_dwork, 1);
-	card->data_sent = true;
 	ret = tx_len;
 
 out_w:
 	spin_unlock_irqrestore(&priv->state_lock, flags);
 out_w1:
-	PRINT_DEBUG("%s: Leave count=%lu\n", __FUNCTION__, count);
+	PRINTM_DEBUG("%s: Leave count=%lu ret=%ld\n", __FUNCTION__, count, ret);
 	return ret;
 }
 
@@ -1788,7 +1892,7 @@ static int mcu_sdio_misc_open(struct inode *inode, struct file *file)
 	int ret;
 	g_dev_noblock = file->f_flags & O_NONBLOCK;
 
-	PRINT_DEBUG("%s: Enter inode=%p file=%p priv=%p open_cnt=%d g_dev_noblock=%d\n", __FUNCTION__, inode, file, priv, priv->open_cnt, g_dev_noblock);
+	PRINTM_DEBUG("%s: Enter inode=%p file=%p priv=%p open_cnt=%d g_dev_noblock=%d\n", __FUNCTION__, inode, file, priv, priv->open_cnt, g_dev_noblock);
 	if (! priv->sdio_dev) {
 		struct bus_type *sdio_bus_type;
 		struct device *mcu_sdio_dev;
@@ -1822,7 +1926,7 @@ static int mcu_sdio_misc_open(struct inode *inode, struct file *file)
 
 	spin_unlock_irqrestore(&priv->state_lock, flags);
 
-	PRINT_DEBUG("%s: Leave priv=%p open_cnt=%d\n", __FUNCTION__, priv, priv->open_cnt);
+	PRINTM_DEBUG("%s: Leave priv=%p open_cnt=%d\n", __FUNCTION__, priv, priv->open_cnt);
 	return ret;
 }
 
@@ -1832,7 +1936,7 @@ static int mcu_sdio_misc_release(struct inode *inode, struct file *file)
 	struct mcu_sdio_misc_priv *priv = dev_get_drvdata(miscdev->this_device);
 	unsigned long flags;
 
-	PRINT_DEBUG("%s: Enter inode=%p file=%p priv=%p open_cnt=%d\n", __FUNCTION__, inode, file, priv, priv->open_cnt);
+	PRINTM_DEBUG("%s: Enter inode=%p file=%p priv=%p open_cnt=%d\n", __FUNCTION__, inode, file, priv, priv->open_cnt);
 	spin_lock_irqsave(&priv->state_lock, flags);
 
 	if (priv->open_cnt)
@@ -1840,7 +1944,7 @@ static int mcu_sdio_misc_release(struct inode *inode, struct file *file)
 
 	spin_unlock_irqrestore(&priv->state_lock, flags);
 
-	PRINT_DEBUG("%s: Leave priv=%p open_cnt=%d\n", __FUNCTION__, priv, priv->open_cnt);
+	PRINTM_DEBUG("%s: Leave priv=%p open_cnt=%d\n", __FUNCTION__, priv, priv->open_cnt);
 	return 0;
 }
 
@@ -1920,6 +2024,9 @@ static void __exit mcu_sdio_module_exit(void)
 
 	misc_deregister(&mcu_sdio_misc);
 }
+
+module_param(drvdbg, uint, 0);
+MODULE_PARM_DESC(drvdbg, "BIT0:HEXDUMP BIT1:DEBUG");
 
 module_init(mcu_sdio_module_init);
 module_exit(mcu_sdio_module_exit);

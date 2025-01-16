@@ -55,8 +55,8 @@ static int wifi_ncp_tlv_rx_queue_len = 0;
 
 pthread_t ping_sock_thread, iperf_tx_thread, iperf_rx_thread;
 
-extern uint32_t last_resp_rcvd;
-extern uint32_t last_cmd_sent;
+extern uint32_t last_resp_rcvd, last_cmd_sent;
+extern uint16_t last_seqno_rcvd, last_seqno_sent;
 
 void bzero(void *s, size_t n);
 int usleep();
@@ -119,10 +119,9 @@ static void ping_sock_task(void *arg)
     ping_time_t ping_stop, temp_time;
 
     while (1)
-    {
+    {   
         ping_res.recvd  = 0;
         ping_res.seq_no = -1;
-
         /* demo ping task wait for user input ping command from console */
         (void)memset(&ping_msg, 0, sizeof(ping_msg_t));
         if (msgrcv(ping_qid, (void *)&ping_msg, sizeof(ping_msg_t), 0, 0) < 0)
@@ -132,7 +131,7 @@ static void ping_sock_task(void *arg)
         }
 
         printf("PING %s (%s) %u(%lu) bytes of data\r\n", ping_msg.ip_addr, ping_msg.ip_addr, ping_msg.size,
-               ping_msg.size + sizeof(struct ip_hdr) + sizeof(struct icmp_echo_hdr));
+        ping_msg.size + sizeof(struct ip_hdr) + sizeof(struct icmp_echo_hdr));
 
         int i = 1;
         /* Ping size is: size of ICMP header + size of payload */
@@ -501,7 +500,7 @@ void iperf_tcp_rx(void *arg)
             (NCP_CMD_SOCKET_RECVFROM_CFG *)&ncp_iperf_command->params.wlan_socket_recvfrom;
         ncp_iperf_res_sock_tlv->handle  = iperf_msg.handle;
         ncp_iperf_res_sock_tlv->size    = iperf_msg.per_size;
-        ncp_iperf_res_sock_tlv->timeout = IPERF_UDP_RECV_TIMEOUT;
+        ncp_iperf_res_sock_tlv->timeout = g_udp_recv_timeout;
 
         /*cmd size*/
         ncp_iperf_command->header.size += sizeof(NCP_CMD_SOCKET_RECVFROM_CFG);
@@ -737,7 +736,8 @@ static int wifi_ncp_handle_rx_cmd_event(uint8_t *cmd)
     {
         wlan_process_response(cmd);
 
-        last_resp_rcvd = ((NCPCmd_DS_COMMAND *)cmd)->header.cmd;
+        last_resp_rcvd = ((NCP_COMMAND *)cmd)->cmd;
+        last_seqno_rcvd = ((NCP_COMMAND *)cmd)->seqnum;
         if (last_resp_rcvd == (last_cmd_sent | NCP_MSG_TYPE_RESP))
         {
             sem_post(&cmd_sem);
@@ -750,9 +750,11 @@ static int wifi_ncp_handle_rx_cmd_event(uint8_t *cmd)
             printf("Previous command is invalid\r\n");
             sem_post(&cmd_sem);
             last_resp_rcvd = 0;
+            last_seqno_rcvd = 0;
         }
 #ifdef CONFIG_MPU_IO_DUMP
-        printf("last_resp_rcvd = 0x%08x, last_cmd_sent = 0x%08x \r\n", last_resp_rcvd, last_cmd_sent);
+        printf("last_resp_rcvd = 0x%08x, last_cmd_sent = 0x%08x, last_seqno_rcvd = 0x%08x, last_seqno_sent = 0x%08x\r\n",
+            last_resp_rcvd, last_cmd_sent, last_seqno_rcvd, last_seqno_sent);
 #endif
     }
     return 0;

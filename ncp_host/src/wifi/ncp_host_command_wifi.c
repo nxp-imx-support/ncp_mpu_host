@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <sys/msg.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -18,6 +19,7 @@
 #include "ncp_host_app.h"
 #include "ncp_host_command.h"
 #include "ncp_host_command_wifi.h"
+#include "ncp_wifi_api.h"
 #include "ncp_tlv_adapter.h"
 
 static uint8_t broadcast_mac[NCP_WLAN_MAC_ADDR_LENGTH] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
@@ -28,7 +30,7 @@ static bool socket_recvfrom_res = false;
 
 int cli_optind   = 0;
 char *cli_optarg = NULL;
-
+uint32_t g_udp_recv_timeout = IPERF_UDP_RECV_TIMEOUT;
 extern int ping_qid;
 extern ping_msg_t ping_msg;
 extern sem_t ping_res_sem;
@@ -48,6 +50,23 @@ wlan_csi_config_params_t g_csi_params;
 NCP_WLAN_NET_MONITOR_PARA g_net_monitor_param;
 
 int inet_aton(const char *cp, struct in_addr *inp);
+int wlan_process_wlan_uap_prov_set_uapcfg_response(uint8_t *res);
+
+#if CONFIG_NCP_SUPP_WPS
+/** Enum that indicates type of WPS session
+ *   either a push button or a PIN based session is
+ *   determined by value fo this enum
+ */
+enum wps_session_types
+{
+    /** WPS session is not active */
+    WPS_SESSION_INACTIVE = 0xffff,
+    /** WPS Push Button session active */
+    WPS_SESSION_PBC = 0x0004,
+    /** WPS PIN session active */
+    WPS_SESSION_PIN = 0x0000,
+};
+#endif
 
 NCPCmd_DS_COMMAND *mpu_host_get_wifi_command_buffer()
 {
@@ -366,6 +385,65 @@ int wlan_uap_prov_reset_command(int argc, char **argv)
     return TRUE;
 }
 
+static void dump_uap_prov_set_uapcfg_usage(void)
+{
+    (void)printf("Usage: wlan-uap-prov-set-uapcfg <ssid> <security> <password>\r\n");
+    (void)printf("Value for <security>: \r\n");
+    (void)printf("    %d - WLAN_SECURITY_NONE\r\n", WLAN_SECURITY_NONE);
+    (void)printf("    %d - WLAN_SECURITY_WPA\r\n", WLAN_SECURITY_WPA);
+    (void)printf("    %d - WLAN_SECURITY_WPA2\r\n", WLAN_SECURITY_WPA2);
+    (void)printf("    %d - WLAN_SECURITY_WPA_WPA2_MIXED\r\n", WLAN_SECURITY_WPA_WPA2_MIXED);
+    (void)printf("    %d - WLAN_SECURITY_WPA3_SAE\r\n", WLAN_SECURITY_WPA3_SAE);
+    (void)printf("    %d - WLAN_SECURITY_WPA2_WPA3_SAE_MIXED\r\n", WLAN_SECURITY_WPA2_WPA3_SAE_MIXED);
+    (void)printf("Usage example : \r\n");
+    (void)printf("wlan-uap-prov-set-uapcfg nxp_uap\r\n");
+    (void)printf("wlan-uap-prov-set-uapcfg nxp_uap 0\r\n");
+    (void)printf("wlan-uap-prov-set-uapcfg nxp_uap 4 12345678\r\n");
+}
+
+int wlan_uap_prov_set_uapcfg(int argc, char **argv)
+{
+    int ret      = -WM_E_INVAL;
+
+    if ((argc < 2) || (argc > 4))
+    {
+        (void)printf("wlan_uap_prov_reset_command: invalid number of arguments!\r\n");
+		dump_uap_prov_set_uapcfg_usage();
+        return ret;
+    }
+
+	if(argc >= 2 && strlen(argv[1]) > WLAN_SSID_MAX_LENGTH)
+    {
+       (void)printf("wlan_uap_prov_reset_command: invalid ssid length!\r\n");
+	   return ret;
+    }
+	
+	if(argc >= 4 && strlen(argv[3]) > WLAN_PASSWORD_MAX_LENGTH)
+	{       
+	   (void)printf("wlan_uap_prov_reset_command: invalid password length!\r\n");
+	   return ret;
+	}
+	
+	NCPCmd_DS_COMMAND *uap_prov_set_uap_cfg_command = mpu_host_get_wifi_command_buffer();
+	(void)memset(uap_prov_set_uap_cfg_command, 0, sizeof(NCPCmd_DS_COMMAND));
+    uap_prov_set_uap_cfg_command->header.cmd        = NCP_CMD_WLAN_BASIC_WLAN_UAP_PROV_SET_UAPCFG;
+    uap_prov_set_uap_cfg_command->header.size       = NCP_CMD_HEADER_LEN;
+    uap_prov_set_uap_cfg_command->header.result     = NCP_CMD_RESULT_OK;
+
+	NCP_CMD_UAP_PROV_SET_UAPCFG *set_uap_cfg = (NCP_CMD_UAP_PROV_SET_UAPCFG *)&uap_prov_set_uap_cfg_command->params.prov_set_uap_cfg;
+    if(argc >= 2)
+        strncpy(set_uap_cfg->ssid, argv[1], strlen(argv[1]));
+	if(argc >= 4)
+	    strncpy(set_uap_cfg->uapPass, argv[3], strlen(argv[3]));
+	if (argc >= 3)
+        set_uap_cfg->security_type = atoi(argv[2]);
+		
+    /*cmd size*/
+    uap_prov_set_uap_cfg_command->header.size += sizeof(NCP_CMD_UAP_PROV_SET_UAPCFG);
+
+    return WM_SUCCESS;
+}
+
 static void dump_wlan_add_usage()
 {
     printf("Usage:\r\n");
@@ -375,6 +453,12 @@ static void dump_wlan_add_usage()
         "    wlan-add <profile_name> ssid <ssid> [wpa2 <psk> <secret>]"
         "\r\n");
     printf("      If using WPA2 security, set the PMF configuration if required.\r\n");
+#ifdef CONFIG_EAP_TLS
+    printf(
+        "    wlan-add <profile_name> ssid <ssid> [eap-tls aid <aid> key_passwd <key_passwd>]"
+        "\r\n");
+    printf("      For WPA2 enterprise eap-tls security, only station is supported.\r\n");
+#endif
     printf(
         "    wlan-add <profile_name> ssid <ssid> [wpa3 sae <secret> mfpc <1> mfpr <0/1>]"
         "\r\n");
@@ -399,10 +483,6 @@ static void dump_wlan_add_usage()
     printf(
         "    [wpa2 <psk> <secret>]/[wpa <secret> wpa2 <psk> <secret>]/[wpa3 sae <secret> [pwe <0/1/2>] [tr <0/1>]]/[wpa2 <secret> wpa3 sae "
         "<secret>]");
-#ifdef CONFIG_EAP_TLS
-    printf(
-        "/[eap-tls aid <aid> key_passwd <key_passwd>]");
-#endif
 #ifdef CONFIG_WIFI_CAPA
     printf("\r\n");
     printf("    [capa <11ax/11ac/11n/legacy>]");
@@ -999,7 +1079,8 @@ int wlan_add_command(int argc, char **argv)
             info.acs_band = 1;
         }
 #ifdef CONFIG_WIFI_CAPA
-        else if (!info.wlan_capa && role_tlv->role == WLAN_BSS_ROLE_UAP && string_equal("capa", argv[arg]))
+        else if (!info.wlan_capa && (role_tlv != NULL) && (role_tlv->role == WLAN_BSS_ROLE_UAP)
+                 && string_equal("capa", argv[arg]))
         {
             capa_tlv = (CAPA_ParamSet_t *)ptlv_pos;
             if (arg + 1 >= argc)
@@ -1073,6 +1154,16 @@ int wlan_add_command(int argc, char **argv)
         (void)printf("Error: tr is only configurable for wpa3, tr= %d\r\n", info.tr);
         return -WM_FAIL;
     }
+
+#ifdef CONFIG_EAP_TLS
+    if ((info.security2 != 0) && (security_wpa2_tlv->type == WLAN_SECURITY_EAP_TLS)
+        && (role_tlv != NULL) && (role_tlv->role == WLAN_BSS_ROLE_UAP))
+    {
+        dump_wlan_add_usage();
+        (void)printf("Error: not support uap for WPA2 enterprise eap-tls security, only support station.\r\n");
+        return FALSE;
+    }
+#endif
 	
     network_add_command->header.cmd = NCP_CMD_WLAN_NETWORK_ADD;
     network_add_command->header.size =
@@ -1458,6 +1549,10 @@ int wlan_ncp_iperf_command(int argc, char **argv)
     unsigned int handle      = 0;
     unsigned int type        = -1;
     unsigned int direction   = -1;
+	
+	unsigned int udp_rx_pkt_count   = 0;
+	unsigned int udp_rx_rate   = 0;
+	unsigned int time_per_pkt = 0;
     enum ncp_iperf_item item = FALSE_ITEM;
     memset((char *)&iperf_msg, 0, sizeof(iperf_msg));
     if (argc < 4)
@@ -1513,6 +1608,7 @@ int wlan_ncp_iperf_command(int argc, char **argv)
                 printf("tcp packet number format is error\r\n");
                 return -WM_FAIL;
             }
+			udp_rx_pkt_count = iperf_msg.iperf_set.iperf_count;
         }
         else
             iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
@@ -1524,6 +1620,7 @@ int wlan_ncp_iperf_command(int argc, char **argv)
                 printf("udp rate format is error\r\n");
                 return -WM_FAIL;
             }
+			udp_rx_rate = iperf_msg.iperf_set.iperf_udp_rate;
         }
         else
             iperf_msg.iperf_set.iperf_udp_rate = NCP_IPERF_UDP_RATE;
@@ -1596,6 +1693,15 @@ int wlan_ncp_iperf_command(int argc, char **argv)
         default:
             return -WM_FAIL;
     }
+	g_udp_recv_timeout = IPERF_UDP_RECV_TIMEOUT;
+	
+	if (item == NCP_IPERF_UDP_RX && udp_rx_pkt_count !=0 && udp_rx_rate)
+	{   
+        /* calculate time for each receive packet, unit: milliseconds. */	   
+        time_per_pkt = (1472 * 8 * udp_rx_pkt_count) / (udp_rx_rate * 1000) * 1000 / udp_rx_pkt_count; 
+        g_udp_recv_timeout = IPERF_UDP_RECV_TIMEOUT + time_per_pkt;
+	}
+		
     return WM_SUCCESS;
 }
 
@@ -1643,6 +1749,9 @@ int wlan_process_response(uint8_t *res)
             break;
         case NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_RESET:
             ret = wlan_process_wlan_uap_prov_reset_result_response(res);
+            break;
+        case NCP_RSP_WLAN_BASIC_WLAN_UAP_PROV_SET_UAPCFG:
+            ret = wlan_process_wlan_uap_prov_set_uapcfg_response(res);
             break;
         case NCP_RSP_WLAN_NETWORK_INFO:
             ret = wlan_process_info(res);
@@ -1753,9 +1862,11 @@ int wlan_process_response(uint8_t *res)
         case NCP_RSP_WLAN_POWERMGMT_WOWLAN_CFG:
             ret = wlan_process_wakeup_condition_response(res);
             break;
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
         case NCP_RSP_WLAN_POWERMGMT_SUSPEND:
             ret = wlan_process_suspend_response(res);
             break;
+#endif
         case NCP_RSP_11AX_CFG:
             ret = wlan_process_11axcfg_response(res);
             break;
@@ -1890,6 +2001,9 @@ int wlan_process_response(uint8_t *res)
             printf("Invaild response cmd!\r\n");
             break;
     }
+
+    ncp_cmd_node_wakeup_pending_tasks(cmd_res);
+
     return ret;
 }
 
@@ -2196,18 +2310,68 @@ int wlan_process_scan_response(uint8_t *res)
                         printf("WPA ");
                     if (scan_result->res[i].wpa2 != 0U)
                         printf("WPA2 ");
+                    if (scan_result->res[i].wpa2_sha256 != 0U)
+                        (void)printf("WPA2-SHA256 ");
                     if (scan_result->res[i].wpa3_sae != 0U)
                         printf("WPA3 SAE ");
                     if (scan_result->res[i].wpa2_entp != 0U)
                         printf("WPA2 Enterprise");
+                    if (scan_result->res[i].wpa3_entp != 0U)
+                        (void)printf("WPA3 Enterprise");
                 }
                 if (!(scan_result->res[i].wep || scan_result->res[i].wpa || scan_result->res[i].wpa2 ||
-                      scan_result->res[i].wpa3_sae || scan_result->res[i].wpa2_entp))
+                      scan_result->res[i].wpa2_sha256 || scan_result->res[i].wpa3_sae || scan_result->res[i].wpa3_entp ||
+                      scan_result->res[i].wpa2_entp))
                 {
                     printf("OPEN ");
                 }
                 printf("\r\n");
                 printf("WMM: %s\r\n", scan_result->res[i].wmm ? "YES" : "NO");
+#if CONFIG_NCP_11K
+                if (scan_result->res[i].neighbor_report_supported == true)
+                {
+                    (void)printf("802.11K: YES\r\n");
+                }
+#endif
+#if CONFIG_NCP_11V
+                if (scan_result->res[i].bss_transition_supported == true)
+                {
+                    (void)printf("802.11V: YES\r\n");
+                }
+#endif
+                if ((scan_result->res[i].ap_mfpc == true) && (scan_result->res[i].ap_mfpr == true))
+                {
+                    (void)printf("802.11W: Capable, Required\r\n");
+                }
+                if ((scan_result->res[i].ap_mfpc == true) && (scan_result->res[i].ap_mfpr == false))
+                {
+                    (void)printf("802.11W: Capable\r\n");
+                }
+                if ((scan_result->res[i].ap_mfpc == false) && (scan_result->res[i].ap_mfpr == false))
+                {
+                    (void)printf("802.11W: NA\r\n");
+                }
+#if CONFIG_NCP_SUPP_WPS
+               if (scan_result->res[i].wps)
+                {
+                    if (scan_result->res[i].wps_session == WPS_SESSION_PBC)
+                    {
+                        (void)printf("WPS: %s, Session: %s\r\n", "YES", "Push Button");
+                    }
+                    else if (scan_result->res[i].wps_session == WPS_SESSION_PIN)
+                    {
+                        (void)printf("WPS: %s, Session: %s\r\n", "YES", "PIN");
+                    }
+                    else
+                    {
+                        (void)printf("WPS: %s, Session: %s\r\n", "YES", "Not active");
+                    }
+                }
+                else
+                {
+                    (void)printf("WPS: %s \r\n", "NO");
+                }
+#endif
             }
         }
     }
@@ -2272,6 +2436,24 @@ int wlan_process_wlan_uap_prov_reset_result_response(uint8_t *res)
     }
     else
         printf("wlan-uap-prov-reset is fail!\r\n");
+    return TRUE;
+}
+
+/**
+ * @brief      This function processes wlan_uap_prov_set_uapcfg response from ncp device
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int wlan_process_wlan_uap_prov_set_uapcfg_response(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        printf("wlan_uap_prov_set_uapcfg success!\r\n");
+    }
+    else
+        printf("wlan_uap_prov_set_uapcfg fail!\r\n");
     return TRUE;
 }
 
@@ -2359,6 +2541,19 @@ static void print_network(NCP_WLAN_NETWORK *network)
     {
         sec_tag = "\tsecurity [Wildcard]";
     }
+    else
+    {
+#ifdef CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
+        if (
+#ifdef CONFIG_EAP_TLS
+            (network->security_type == WLAN_SECURITY_EAP_TLS) ||
+#endif
+            FALSE)
+        {
+            sec_tag = "\tsecurity: WPA2";
+        }
+#endif
+    }
     switch (network->security_type)
     {
         case WLAN_SECURITY_NONE:
@@ -2387,6 +2582,13 @@ static void print_network(NCP_WLAN_NETWORK *network)
         case WLAN_SECURITY_WPA3_SAE:
             printf("%s: WPA3 SAE\r\n", sec_tag);
             break;
+#ifdef CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
+#ifdef CONFIG_EAP_TLS
+        case WLAN_SECURITY_EAP_TLS:
+            printf("%s Enterprise EAP-TLS\r\n", sec_tag);
+            break;
+#endif
+#endif
         case WLAN_SECURITY_WPA2_WPA3_SAE_MIXED:
             printf("%s: WPA2/WPA3 SAE Mixed\r\n", sec_tag);
             break;
@@ -3747,7 +3949,7 @@ int wlan_process_wlan_socket_recvfrom_response(uint8_t *res)
         }
         else if (ping_res.seq_no < 0)
         {
-            printf("%s: failed to receive data ping_res.seq_no=%d!\r\n", __FUNCTION__, ping_res.seq_no);
+            printf("%s: failed to receive data!\r\n", __FUNCTION__);
         }
         else
         {
@@ -4383,7 +4585,7 @@ int wlan_process_rssi_response(uint8_t *res)
     return TRUE;
 }
 
-uint8_t mpu_device_status = MPU_DEVICE_STATUS_ACTIVE;
+uint8_t ncp_device_status = NCP_DEVICE_STATUS_ACTIVE;
 
 static void dump_wlan_multi_mef_command(const char *str)
 {
@@ -4579,6 +4781,7 @@ int wlan_process_mcu_sleep_response(uint8_t *res)
     return WM_SUCCESS;
 }
 
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
 int wlan_suspend_command(int argc, char **argv)
 {
     NCPCmd_DS_COMMAND *suspend_command = mpu_host_get_wifi_command_buffer();
@@ -4637,6 +4840,7 @@ int wlan_process_suspend_response(uint8_t *res)
 
     return WM_SUCCESS;
 }
+#endif
 
 int wlan_set_wmm_uapsd_command(int argc, char **argv)
 {
@@ -7105,6 +7309,45 @@ int wlan_process_eu_crypto_gcmp128_response(uint8_t *res)
     return TRUE;
 }
 
+static bool is_timestr_valid(int argc, char **argv)
+{
+    char *str = NULL;
+
+    if (argv == NULL)
+        return false;
+    
+    for (int i = 1; i < argc; i++)
+    {
+        str = argv[i];
+        while (*str != '\0')
+        {
+            if (!isdigit((unsigned char)*str))
+            {
+                return false; 
+            }
+            str++;
+        }
+    }
+    
+    return true; 
+}
+
+/* Display the usage of ping */
+static void display_set_time_usage(void)
+{
+    (void)printf("Usage:\r\n");
+    (void)printf(
+        "\twlan-set-time <year><month><day><hour><minute><second>\r\n");
+    (void)printf("\r\n");
+    (void)printf("\tyear: range from 1970 to 2099\r\n");
+    (void)printf("\tmonth: range from 1 to 12\r\n");
+    (void)printf("\tday: range from 1 to 31\r\n");
+    (void)printf("\thour: range from 0 to 23\r\n");
+    (void)printf("\tminute: range from 0 to 59\r\n");
+    (void)printf("\tsecond: range from 0 to 59\r\n");
+    (void)printf("\r\n");
+}
+
 int wlan_set_time_command(int argc, char **argv)
 {
     NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
@@ -7113,6 +7356,13 @@ int wlan_set_time_command(int argc, char **argv)
     if (argc != 7)
     {
         (void)printf("set time invalid argument, please input <year> <month> <day> <hour> <minute> <second>\r\n");
+        return FALSE;
+    }
+	
+    if (!is_timestr_valid(argc, argv))
+    {
+        (void)printf("set time invalid argument, please enter an integer string\r\n");
+        display_set_time_usage();
         return FALSE;
     }
 
@@ -7471,7 +7721,7 @@ int ncp_ping_command(int argc, char **argv)
     uint16_t size    = PING_DEFAULT_SIZE;
     uint32_t count   = PING_DEFAULT_COUNT, temp;
     uint32_t timeout = PING_DEFAULT_TIMEOUT_SEC;
-
+	
     /* If number of arguments is not even then print error */
     if ((argc % 2) != 0)
     {
@@ -7539,13 +7789,13 @@ end:
 
 int wlan_process_csi_data_event(uint8_t *res)
 {
-    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
-    NCP_EVT_CSI_DATA *p_csi_data = (NCP_EVT_CSI_DATA *)&evt_res->params.csi_data;
-    printf("CSI user callback: Event CSI data\r\n");
+    // NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+    // NCP_EVT_CSI_DATA *p_csi_data = (NCP_EVT_CSI_DATA *)&evt_res->params.csi_data;
+    // printf("CSI user callback: Event CSI data\r\n");
     // The real CSI data length is p_csi_data->Len*4 bytes,
     // print 1/4 to avoid USB rx buffer overflow.
     // dump_hex((void *)p_csi_data, p_csi_data->Len*4);
-    dump_hex((void *)p_csi_data, p_csi_data->Len);
+    // dump_hex((void *)p_csi_data, p_csi_data->Len);
     return WM_SUCCESS;
 }
 
@@ -7738,6 +7988,7 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
      wlan_set_monitor_param_command},
     {"wlan-uap-prov-start", NULL, wlan_uap_prov_start_command},
     {"wlan-uap-prov-reset", NULL, wlan_uap_prov_reset_command},
+    {"wlan-uap-prov-set-uapcfg", "<ssid> [<sec> <password>]", wlan_uap_prov_set_uapcfg},
     {"wlan-add", NULL, wlan_add_command},
     {"wlan-start-network", "<profile_name>", wlan_start_network_command},
     {"wlan-stop-network", NULL, wlan_stop_network_command},
@@ -7755,7 +8006,9 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
     {"wlan-uapsd-qosinfo", NULL, wlan_wmm_uapsd_qosinfo_command},
     {"wlan-uapsd-sleep-period", NULL, wlan_uapsd_sleep_period_command},
     {"wlan-wakeup-condition", NULL, wlan_wakeup_condition_command},
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
     {"wlan-suspend", NULL, wlan_suspend_command},
+#endif
     {"wlan-set-11axcfg", NULL, wlan_set_11axcfg_command},
     {"wlan-set-btwt-cfg", NULL, wlan_set_btwt_command},
     {"wlan-twt-setup", NULL, wlan_twt_setup_command},

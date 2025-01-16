@@ -23,7 +23,8 @@
 #undef CONFIG_NCP_MPU_HOST_DEBUG
 
 #define CONFIG_MEM_MONITOR_DEBUG
-
+#define CONFIG_NCP_11K 1
+#define CONFIG_NCP_11V 1
 #define CONFIG_5GHz_SUPPORT
 #define CONFIG_11AC
 #define CONFIG_NCP_RF_TEST_MODE
@@ -54,7 +55,7 @@
 #endif
 #endif
 
-#define CONFIG_NCP_SUPP_WPS
+#define CONFIG_NCP_SUPP_WPS 1
 #define CONFIG_NCP_11AC 1
 #define CONFIG_NCP_11AX 1
 #else

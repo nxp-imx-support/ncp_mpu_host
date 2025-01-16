@@ -112,8 +112,9 @@ typedef struct TLVTypeHeader_t
     uint16_t size;
 } TypeHeader_t, NCP_TLV_HEADER;
 
-#define MPU_DEVICE_STATUS_ACTIVE 1
-#define MPU_DEVICE_STATUS_SLEEP  2
+#define NCP_DEVICE_STATUS_ACTIVE    1
+#define NCP_DEVICE_STATUS_PRE_SLEEP 2
+#define NCP_DEVICE_STATUS_SLEEP     3
 
 typedef struct _power_cfg_t
 {

@@ -12,6 +12,7 @@
 #include <pthread.h>
 
 #include "ncp_host_command.h"
+#include "ncp_system_command.h"
 #include "lpm.h"
 #include "ncp_tlv_adapter.h"
 
@@ -26,7 +27,7 @@ static ncp_status_t device_notify_gpio_init_fd();
 static ncp_status_t ncp_device_notify_gpio_deinit_fd();
 
 extern power_cfg_t global_power_config;
-extern uint8_t mpu_device_status;
+extern uint8_t ncp_device_status;
 
 #define GPIO_DEV_PATH          "/dev/gpiochip4"
 static int lpm_gpio_fd = 0;
@@ -104,13 +105,25 @@ static void *device_notify_gpio_input_task(void *pvParameters)
 #ifdef CONFIG_MPU_IO_DUMP
             ncp_dump_hex(buf, rd_size);
 #endif
-
-            if (mpu_device_status == MPU_DEVICE_STATUS_SLEEP)
+            if (ncp_device_status == NCP_DEVICE_STATUS_PRE_SLEEP)
+            {
+                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
+                {
+                     usleep(1);
+                     ncp_adap_d("%s: usleep(1) ncp_device_status=%u", __FUNCTION__, ncp_device_status);
+                }
+            }
+            ncp_adap_d("%s: ncp_device_status=%u wake_mode=%u\n", __FUNCTION__,
+                    ncp_device_status, global_power_config.wake_mode);
+            if (ncp_device_status == NCP_DEVICE_STATUS_SLEEP)
             {
                 if(global_power_config.wake_mode == WAKE_MODE_GPIO)
                 {
                     if (NULL != ncp_tlv_adapter.intf_ops->lpm_exit)
+                    {
                         ncp_tlv_adapter.intf_ops->lpm_exit(NCP_PM_STATE_PM3);
+                        ncp_adap_d("%s: lpm_exit PM3 done", __FUNCTION__);
+                    }
                 }
             }
         }
@@ -218,6 +231,32 @@ ncp_status_t device_notify_gpio_deinit()
     pthread_mutex_destroy(&device_notify_gpio_thread_mutex);
 
     device_notify_gpio_deinit_fd();
+
+    return NCP_STATUS_SUCCESS;
+}
+
+ncp_status_t device_pm_enter(void *arg)
+{
+    NCP_COMMAND *cmd = (NCP_COMMAND *)arg;
+    if (!cmd)
+    {
+        ncp_adap_d("%s: cmd is NULL", __FUNCTION__);
+        return NCP_STATUS_SUCCESS;
+    }
+
+    ncp_adap_d("%s: cmd=0x%x wake_mode=%u", __FUNCTION__,
+        NCP_CMD_SYSTEM_POWERMGMT_MCU_SLEEP_CFM, global_power_config.wake_mode);
+    if (cmd->cmd == NCP_CMD_SYSTEM_POWERMGMT_MCU_SLEEP_CFM)
+    {
+        if (global_power_config.wake_mode == WAKE_MODE_GPIO)
+        {
+            if (NULL != ncp_tlv_adapter.intf_ops->lpm_enter)
+            {
+                ncp_tlv_adapter.intf_ops->lpm_enter(NCP_PM_STATE_PM3);
+                ncp_adap_d("%s: lpm_enter PM3 done", __FUNCTION__);
+            }
+        }
+    }
 
     return NCP_STATUS_SUCCESS;
 }

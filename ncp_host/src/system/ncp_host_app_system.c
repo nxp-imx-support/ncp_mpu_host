@@ -22,8 +22,8 @@ static pthread_mutex_t system_ncp_tlv_rx_thread_mutex;
 static int system_ncp_tlv_rx_queue_len = 0;
 
 typedef ncp_tlv_qelem_t system_ncp_tlv_qelem_t;
-extern uint32_t last_resp_rcvd;
-extern uint32_t last_cmd_sent;
+extern uint32_t last_resp_rcvd, last_cmd_sent;
+extern uint16_t last_seqno_rcvd, last_seqno_sent;
 
 int system_process_response(uint8_t *res);
 int system_process_event(uint8_t *res);
@@ -98,6 +98,7 @@ static int system_ncp_handle_cmd_input(uint8_t *cmd)
 		system_process_response(cmd);
 
 		last_resp_rcvd = ((NCP_COMMAND *)cmd)->cmd;
+		last_seqno_rcvd = ((NCP_COMMAND *)cmd)->seqnum;
 		if (last_resp_rcvd == (last_cmd_sent | NCP_MSG_TYPE_RESP))
 		{
 			sem_post(&cmd_sem);
@@ -110,9 +111,11 @@ static int system_ncp_handle_cmd_input(uint8_t *cmd)
 			printf("Previous command is invalid\r\n");
 			sem_post(&cmd_sem);
 			last_resp_rcvd = 0;
+			last_seqno_rcvd = 0;
 		}
 #ifdef CONFIG_MPU_IO_DUMP
-		printf("last_resp_rcvd = 0x%08x, last_cmd_sent = 0x%08x \r\n", last_resp_rcvd, last_cmd_sent);
+		printf("last_resp_rcvd = 0x%08x, last_cmd_sent = 0x%08x, last_seqno_rcvd = 0x%08x, last_seqno_sent = 0x%08x\r\n",
+		    last_resp_rcvd, last_cmd_sent, last_seqno_rcvd, last_seqno_sent);
 #endif
 	}
 	return 0;

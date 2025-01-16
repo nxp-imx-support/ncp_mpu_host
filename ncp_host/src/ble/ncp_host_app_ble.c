@@ -43,6 +43,7 @@
 /** command semaphore*/
 extern sem_t cmd_sem;
 extern uint32_t last_resp_rcvd, last_cmd_sent;
+extern uint16_t last_seqno_rcvd, last_seqno_sent;
 
 /* ble service variables */
 #if defined(CONFIG_NCP_HTS) || defined(CONFIG_NCP_HTC) || defined(CONFIG_NCP_HRS) || defined(CONFIG_NCP_HRC) || defined(CONFIG_NCP_BAS)
@@ -212,7 +213,8 @@ static int ble_ncp_handle_rx_cmd_event(uint8_t *cmd)
     {
         ble_process_response(cmd);
 
-        last_resp_rcvd = ((NCPCmd_DS_COMMAND *)cmd)->header.cmd;
+        last_resp_rcvd = ((NCP_COMMAND *)cmd)->cmd;
+        last_seqno_rcvd = ((NCP_COMMAND *)cmd)->seqnum;
         if (last_resp_rcvd == (last_cmd_sent | NCP_MSG_TYPE_RESP))
         {
             sem_post(&cmd_sem);
@@ -225,9 +227,11 @@ static int ble_ncp_handle_rx_cmd_event(uint8_t *cmd)
             printf("Previous command is invalid\r\n");
             sem_post(&cmd_sem);
             last_resp_rcvd = 0;
+            last_seqno_rcvd = 0;
         }
 #ifdef CONFIG_MPU_IO_DUMP
-        printf("last_resp_rcvd = 0x%08x, last_cmd_sent = 0x%08x \r\n", last_resp_rcvd, last_cmd_sent);
+        printf("last_resp_rcvd = 0x%08x, last_cmd_sent = 0x%08x, last_seqno_rcvd = 0x%08x, last_seqno_sent = 0x%08x\r\n",
+            last_resp_rcvd, last_cmd_sent, last_seqno_rcvd, last_seqno_sent);
 #endif
     }
     return 0;

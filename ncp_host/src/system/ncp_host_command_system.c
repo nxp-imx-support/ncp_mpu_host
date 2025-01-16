@@ -16,8 +16,9 @@
 #include "ncp_tlv_adapter.h"
 
 extern power_cfg_t global_power_config;
-extern uint8_t mpu_device_status;
+extern uint8_t ncp_device_status;
 extern pthread_mutex_t gpio_wakeup_mutex;
+extern pthread_mutex_t ncp_device_status_mutex;
 extern uint8_t cmd_buf[NCP_COMMAND_LEN];
 
 extern int mpu_host_register_commands(const struct mpu_host_cli_command *commands, int num_commands);
@@ -173,7 +174,7 @@ int ncp_mcu_sleep_command(int argc, char **argv)
 {
     SYSTEM_NCPCmd_DS_COMMAND *mcu_sleep_command = ncp_host_get_cmd_buffer_sys();
     uint8_t enable                               = 0;
-#if CONFIG_NCP_WIFI
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
     uint8_t is_manual                            = 0;
 #endif
     int rtc_timeout_s                            = 0;
@@ -187,7 +188,7 @@ int ncp_mcu_sleep_command(int argc, char **argv)
         (void)printf("                 0 - disable mcu sleep\r\n");
         (void)printf("                 1 - enable mcu sleep\r\n");
         (void)printf("    mode       : Mode of how host enter low power.\r\n");
-#if CONFIG_NCP_WIFI
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
         (void)printf("                 manual - Manual mode. Need to use wlan-suspend command to enter low power.\r\n");
 #endif
         (void)printf("                 pm     - Power Manager.\r\n");
@@ -197,7 +198,7 @@ int ncp_mcu_sleep_command(int argc, char **argv)
 #endif
         (void)printf("Examples:\r\n");
         (void)printf("    ncp-mcu-sleep 1 pm 5\r\n");
-#if CONFIG_NCP_WIFI
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
         (void)printf("    ncp-mcu-sleep 1 manual\r\n");
 #endif
         (void)printf("    ncp-mcu-sleep 0\r\n");
@@ -218,7 +219,7 @@ int ncp_mcu_sleep_command(int argc, char **argv)
             (void)printf("    ncp-mcu-sleep <enable> <mode> <rtc_timer>\r\n");
             return -NCP_FAIL;
         }
-#if CONFIG_NCP_WIFI
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
         if (!strncmp(argv[2], "manual", 6))
             is_manual = 1;
         else
@@ -230,6 +231,17 @@ int ncp_mcu_sleep_command(int argc, char **argv)
                 (void)printf("Error!Invalid number of inputs! Need to specify both <rtc_timeout> and <periodic>\r\n");
                 return -NCP_FAIL;
             }
+#if CONFIG_NCP_WIFI
+#if CONFIG_NCP_USB
+            if (global_power_config.wake_mode == WAKE_MODE_INTF)
+            {
+                (void)printf("Error! For USB interface with INTF mode, pm mode is not allowed\r\n");
+                (void)printf("USB device enter/exit PM2 depends on signal from USB host");
+                (void)printf("Please use manual mode");
+                return -NCP_FAIL;
+            }
+#endif
+#endif
             rtc_timeout_s = atoi(argv[3]);
             if (rtc_timeout_s == 0)
             {
@@ -252,14 +264,14 @@ int ncp_mcu_sleep_command(int argc, char **argv)
     NCP_CMD_POWERMGMT_MCU_SLEEP *mcu_sleep_config =
         (NCP_CMD_POWERMGMT_MCU_SLEEP *)&mcu_sleep_command->params.mcu_sleep_config;
     mcu_sleep_config->enable       = enable;
-#if CONFIG_NCP_WIFI
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
     mcu_sleep_config->is_manual    = is_manual;
 #endif
     mcu_sleep_config->rtc_timeout  = rtc_timeout_s;
     mcu_sleep_command->header.size += sizeof(NCP_CMD_POWERMGMT_MCU_SLEEP);
 
     global_power_config.enable      = enable;
-#if CONFIG_NCP_WIFI
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
     global_power_config.is_manual   = is_manual;
 #endif
     global_power_config.rtc_timeout = rtc_timeout_s;
@@ -319,7 +331,7 @@ int ncp_wakeup_host_command(int argc, char **argv)
         (void)printf("Usage:\r\n");
         (void)printf("    %s <0/1>\r\n", argv[0]);
         (void)printf("    0-disable  1-enable\r\n");
-#if CONFIG_NCP_WIFI
+#ifdef CONFIG_NCP_WIFI
         (void)printf("Make sure to configure wowlan conditions before enabling host wakeup\r\n");
         (void)printf("Once enabled, MCU only wakes up host if MCU is wokenup by WLAN\r\n");
 #endif
@@ -328,7 +340,7 @@ int ncp_wakeup_host_command(int argc, char **argv)
     enable = (uint8_t)atoi(argv[1]);
     if (enable == 1)
     {
-#if CONFIG_NCP_WIFI
+#ifdef CONFIG_NCP_WIFI
         if (!global_power_config.is_mef && !global_power_config.wake_up_conds)
         {
             (void)printf("Not configure wowlan conditions yet\r\n");
@@ -378,7 +390,7 @@ int ncp_get_mcu_sleep_conf_command(int argc, char **argv)
         printf("Wake mode: %s\r\n", global_power_config.wake_mode == WAKE_MODE_GPIO ? "GPIO" : "UART");
     printf("Subscribe event: %s\r\n", global_power_config.subscribe_evt ? "enabled" : "disabled");
     printf("Wake duration: %ds\r\n", global_power_config.wake_duration);
-#if CONFIG_NCP_WIFI
+#ifdef CONFIG_NCP_WIFI
     printf("Wake up method: %s\r\n", global_power_config.is_mef ? "MEF" : "wowlan");
     if (!global_power_config.is_mef)
         printf("Wakeup bitmap: 0x%x\r\n", global_power_config.wake_up_conds);
@@ -453,23 +465,36 @@ int system_process_sleep_status(uint8_t *res)
     {
         NCP_COMMAND sleep_cfm;
         int status = 0;
-
+#if !CONFIG_NCP_BLE
         if(global_power_config.subscribe_evt)
-            ncp_d("NCP device enters sleep mode");
+            printf("NCP device enters sleep mode!\r\n");
+#endif
+
+        /* Wait for command response semaphore. */
+        sem_wait(&cmd_sem);
+
         memset(&sleep_cfm, 0x0, sizeof(sleep_cfm));
         ncp_mpu_sleep_cfm(&sleep_cfm);
         status = (int)ncp_tlv_send((void *)&sleep_cfm, sleep_cfm.size);
         if(status != WM_SUCCESS)
             printf("Failed to send mpu sleep cfm\r\n");
+
+        ncp_device_status = NCP_DEVICE_STATUS_PRE_SLEEP;
+        sem_post(&cmd_sem);
         usleep(100000); // Wait 100ms to make sure NCP device enters low power.
-        mpu_device_status = MPU_DEVICE_STATUS_SLEEP;
+        ncp_device_status = NCP_DEVICE_STATUS_SLEEP;
         pthread_mutex_lock(&gpio_wakeup_mutex);
+
+        pthread_mutex_lock(&ncp_device_status_mutex);
+        pthread_mutex_unlock(&ncp_device_status_mutex);
     }
     else
     {
+#if !CONFIG_NCP_BLE
         if(global_power_config.subscribe_evt)
-            ncp_d("NCP device exits sleep mode");
-        mpu_device_status = MPU_DEVICE_STATUS_ACTIVE;
+            printf("NCP device exits sleep mode!\r\n");
+#endif
+        ncp_device_status = NCP_DEVICE_STATUS_ACTIVE;
         pthread_mutex_unlock(&gpio_wakeup_mutex);
     }
     return WM_SUCCESS;

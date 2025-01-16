@@ -82,6 +82,10 @@ static uint8_t *otcommands[] = {"ba",
                                 "mode",
                                 "multiradio",
                                 "nat64",
+#ifdef CONFIG_NCP_USB
+                                "ncp-usb-pm2",
+#endif
+                                "ncp-wake-cfg",
                                 "neighbor",
                                 "netdata",
                                 "netstat",

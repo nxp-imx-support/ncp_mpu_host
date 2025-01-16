@@ -18,9 +18,9 @@
 
 #define FALSE             -1
 #define TRUE              0
-#define MAX_SEND_RECV_LEN 200
+#define MAX_SEND_RECV_LEN 400
 
-#define MPU_HOST_INBUF_SIZE   200
+#define MPU_HOST_INBUF_SIZE   400
 #define MPU_HOST_MAX_COMMANDS 500
 
 #define NCP_COMMAND_LEN             4096 // The max number bytes which UART can receive.
@@ -90,7 +90,6 @@ typedef struct serial_data_recv
     ring_buffer_t *data_buf;
     int serial_fd;
 } recv_data_t;
-
 
 void send_tlv_command(send_data_t *S_D);
 

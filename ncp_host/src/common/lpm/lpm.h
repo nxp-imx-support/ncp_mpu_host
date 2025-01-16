@@ -23,6 +23,7 @@ ncp_status_t device_notify_gpio_init();
 ncp_status_t device_notify_gpio_deinit();
 void set_lpm_gpio_value(uint8_t aValue);
 void ncp_lpm_gpio_init(void);
+ncp_status_t device_pm_enter(void *arg);
 
 #endif /* __NCP_LPM_H__ */
 

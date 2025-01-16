@@ -24,6 +24,10 @@
  * Variables
  ******************************************************************************/
 
+#define SDIO_SET_RE_ENUM 1
+#define SDIO_SET_DIS_INT_IRQ 2
+#define SDIO_SET_DIS_INT_IRQ_TEST 3
+
 #define SDIO_DEV_NAME_LEN 64
 static uint8_t ncp_sdio_tlvbuf[TLV_CMD_BUF_SIZE];
 
@@ -38,6 +42,7 @@ ncp_intf_ops_t ncp_sdio_ops = {
     .deinit = ncp_sdio_deinit,
     .send   = ncp_sdio_send,
     .recv   = ncp_sdio_receive,
+    .lpm_enter = ncp_sdio_lpm_enter,
     .lpm_exit = ncp_sdio_lpm_exit,
 };
 
@@ -166,6 +171,9 @@ ncp_status_t ncp_sdio_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t 
 
     NCP_SDIO_STATS_INC(tx2);
 
+    if (cb)
+        cb((void *)tlv_buf);
+
     return NCP_STATUS_SUCCESS;
 }
 
@@ -173,10 +181,24 @@ ncp_status_t ncp_sdio_lpm_exit(int32_t pm_state)
 {
     uint8_t sdio_cmd_buf[sizeof(NCP_COMMAND) + sizeof(NCP_CMD_SYSTEM_SDIO_SET)] = {0};
 
-    if(NCP_PM_STATE_PM3 == pm_state)
+    if (NCP_PM_STATE_PM3 == pm_state)
     {
         memset(sdio_cmd_buf, 0x00, sizeof(sdio_cmd_buf));
-        ncp_set_sdio(sdio_cmd_buf, sizeof(sdio_cmd_buf), 1);
+        ncp_set_sdio(sdio_cmd_buf, sizeof(sdio_cmd_buf), SDIO_SET_RE_ENUM);
+        ncp_sdio_send(sdio_cmd_buf, sizeof(sdio_cmd_buf), NULL);
+    }
+    return NCP_STATUS_SUCCESS;
+}
+
+ncp_status_t ncp_sdio_lpm_enter(int32_t pm_state)
+{
+    uint8_t sdio_cmd_buf[sizeof(NCP_COMMAND) + sizeof(NCP_CMD_SYSTEM_SDIO_SET)] = {0};
+
+    if (NCP_PM_STATE_PM3 == pm_state)
+    {
+        memset(sdio_cmd_buf, 0x00, sizeof(sdio_cmd_buf));
+        /* Send cmd to SDIO driver to release irq. */
+        ncp_set_sdio(sdio_cmd_buf, sizeof(sdio_cmd_buf), SDIO_SET_DIS_INT_IRQ);
         ncp_sdio_send(sdio_cmd_buf, sizeof(sdio_cmd_buf), NULL);
     }
     return NCP_STATUS_SUCCESS;

@@ -56,7 +56,9 @@ static int ncp_tlv_queue_len = 0;
 
 static void ncp_tlv_cb(void *arg)
 {
-    /* todo */
+#ifdef CONFIG_NCP_SDIO
+    device_pm_enter(arg);
+#endif
 }
 
 static void* ncp_tlv_process(void *arg)

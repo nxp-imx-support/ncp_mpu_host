@@ -97,21 +97,12 @@ static int spi_master_tx(int fd, const uint8_t *tx, size_t len)
 static int spi_master_rx(int fd, uint8_t const *rx, size_t len)
 {
     int ret = 0;
-    struct spi_ioc_transfer tr = {
-        .tx_buf = 0,
-        .rx_buf = (unsigned long)rx,
-        .len = len,
-        .delay_usecs = spi_delay,
-        .speed_hz = spi_speed,
-        .bits_per_word = spi_bits,
-    };
-    
-    ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
+	ret = read(fd, rx, len);
     if (ret < 0)
-	{
-		perror("can't ioctrl spi device: ");
-		return -1;
-	}
+    {
+        perror("can't read spi device data: ");
+        return -1;
+    }
 	return 0;
 }
 
