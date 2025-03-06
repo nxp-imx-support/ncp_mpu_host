@@ -453,17 +453,49 @@ static void dump_wlan_add_usage()
         "    wlan-add <profile_name> ssid <ssid> [wpa2 <psk> <secret>]"
         "\r\n");
     printf("      If using WPA2 security, set the PMF configuration if required.\r\n");
+#if CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
 #ifdef CONFIG_EAP_TLS
     printf(
-        "    wlan-add <profile_name> ssid <ssid> [eap-tls aid <aid> key_passwd <key_passwd>]"
+        "    wlan-add <profile_name> ssid <ssid> eap-tls aid <aid> key_passwd <key_passwd>"
         "\r\n");
     printf("      For WPA2 enterprise eap-tls security, only station is supported.\r\n");
+#endif
+#ifdef CONFIG_EAP_PEAP
+#ifdef CONFIG_EAP_MSCHAPV2
+    printf(
+        "    wlan-add <profile_name> ssid <ssid> eap-peap-mschapv2 [verify_peer_cert <0/1>] ver <0/1> aid <aid> id <id>"
+        " pass <pass> key_passwd <key_passwd>"
+        "\r\n");
+    printf("      For WPA2 enterprise eap-peap-mschapv2 security, only station is supported.\r\n");
+#endif
+#endif
 #endif
     printf(
         "    wlan-add <profile_name> ssid <ssid> [wpa3 sae <secret> mfpc <1> mfpr <0/1>]"
         "\r\n");
     printf("      If using WPA3 SAE security, always set the PMF configuration.\r\n");
-
+#if CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
+#ifdef CONFIG_EAP_TLS
+    printf(
+        "    wlan-add <profile_name> ssid <ssid> wpa3-ent/wpa3-sb/wpa3-sb-192"
+        " eap-tls aid <aid> key_passwd <key_passwd> mfpc <1> mfpr <0/1>"
+        "\r\n");
+    printf(
+        "   wlan-add <profile_name> ssid <ssid> wpa3-sb-192 eap-tls [tls_cipher <ECC_P384/RSA_3K>]"
+        " aid <aid> key_passwd <key_passwd> mfpc <1> mfpr <0/1>"
+        "\r\n");
+    printf("      For WPA3 enterprise eap-tls security, only station is supported.\r\n");
+#endif
+#ifdef CONFIG_EAP_PEAP
+#ifdef CONFIG_EAP_MSCHAPV2
+    printf(
+        "    wlan-add <profile_name> ssid <ssid> wpa3-ent/wpa3-sb/wpa3-sb-192 eap-peap-mschapv2 [verify_peer_cert <0/1>] ver <0/1>"
+        " aid <aid> id <id> pass <pass> key_passwd <key_passwd> mfpc <1> mfpr <0/1>"
+        "\r\n");
+    printf("      For WPA3 enterprise eap-peap-mschapv2 security, only station is supported.\r\n");
+#endif
+#endif
+#endif
     printf("  For static IP address assignment:\r\n");
     printf(
         "    wlan-add <profile_name> ssid <ssid>\r\n"
@@ -593,12 +625,29 @@ int wlan_add_command(int argc, char **argv)
         unsigned security : 1;
         unsigned security2 : 1;
         unsigned security3 : 1;
+#if defined(CONFIG_EAP_TLS) || defined(CONFIG_EAP_PEAP)
+        unsigned security_eap : 1;
+#endif
         unsigned role : 1;
         unsigned mfpc : 1;
         unsigned mfpr : 1;
+#if CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
+        unsigned wpa3_ent : 1;
+        unsigned wpa3_sb : 1;
+        unsigned wpa3_sb_192 : 1;
 #ifdef CONFIG_EAP_TLS
+        unsigned tls_cipher : 1;
+#endif
+#if defined(CONFIG_EAP_TLS) || defined(CONFIG_EAP_PEAP)
         unsigned aid : 1;
         unsigned key_passwd : 1;
+        unsigned eap_ver : 1;
+#ifdef CONFIG_EAP_MSCHAPV2
+        unsigned verify_peer_cert : 1;
+#endif
+        unsigned id : 1;
+        unsigned pass : 1;
+#endif
 #endif
         unsigned pwe: 1;
         unsigned tr : 1;
@@ -622,8 +671,11 @@ int wlan_add_command(int argc, char **argv)
     Tr_Disable_ParamSet_t *tr_tlv          = NULL;	 
     IP_ParamSet_t *ip_tlv                  = NULL;
     Security_ParamSet_t *security_wpa_tlv = NULL, *security_wpa2_tlv = NULL, *security_wpa3_tlv = NULL;
+#if defined(CONFIG_EAP_TLS) || defined(CONFIG_EAP_PEAP)
+    Security_ParamSet_t *security_eap_tlv = NULL;
+#endif
     PMF_ParamSet_t *pmf_tlv          = NULL;
-#ifdef CONFIG_EAP_TLS
+#if defined(CONFIG_EAP_TLS) || defined(CONFIG_EAP_PEAP)
     EAP_ParamSet_t *eap_tlv          = NULL;
 #endif
     BSSRole_ParamSet_t *role_tlv     = NULL;
@@ -752,6 +804,7 @@ int wlan_add_command(int argc, char **argv)
         else if (!info.security && string_equal("wpa", argv[arg]))
         {
             security_wpa_tlv = (Security_ParamSet_t *)ptlv_pos;
+            (void)memset(security_wpa_tlv, 0, sizeof(Security_ParamSet_t));
             ret              = get_security(argc - arg - 1, argv + arg + 1, WLAN_SECURITY_WPA, security_wpa_tlv);
             if (ret != 0)
             {
@@ -761,8 +814,8 @@ int wlan_add_command(int argc, char **argv)
                 return FALSE;
             }
             security_wpa_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
-            security_wpa_tlv->header.size = sizeof(security_wpa_tlv->type) + sizeof(security_wpa_tlv->password_len) +
-                                            security_wpa_tlv->password_len;
+            security_wpa_tlv->header.size = sizeof(Security_ParamSet_t) - NCP_TLV_HEADER_LEN
+                                            - sizeof(security_wpa_tlv->password) + security_wpa_tlv->password_len;
             ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa_tlv->header.size;
             tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa_tlv->header.size;
             arg += 2;
@@ -776,6 +829,7 @@ int wlan_add_command(int argc, char **argv)
                 return -WM_FAIL;
             }
             security_wpa2_tlv = (Security_ParamSet_t *)ptlv_pos;
+            (void)memset(security_wpa2_tlv, 0, sizeof(Security_ParamSet_t));
             security_wpa2_tlv->type = WLAN_SECURITY_WPA2;
             security_wpa2_tlv->password_len = strlen(argv[arg + 2]);
             /* copy the PSK phrase */            
@@ -790,8 +844,8 @@ int wlan_add_command(int argc, char **argv)
             }
 			
             security_wpa2_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
-            security_wpa2_tlv->header.size = sizeof(security_wpa2_tlv->type) + sizeof(security_wpa2_tlv->password_len) +
-                                             security_wpa2_tlv->password_len;
+            security_wpa2_tlv->header.size = sizeof(Security_ParamSet_t) - NCP_TLV_HEADER_LEN
+                                             - sizeof(security_wpa2_tlv->password) + security_wpa2_tlv->password_len;
             ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
             tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
             arg += 3;
@@ -802,7 +856,7 @@ int wlan_add_command(int argc, char **argv)
             if (string_equal(argv[arg + 1], "sae") != 0)
             {
                 security_wpa3_tlv = (Security_ParamSet_t *)ptlv_pos;
-
+                (void)memset(security_wpa3_tlv, 0, sizeof(Security_ParamSet_t));
                 security_wpa3_tlv->type = WLAN_SECURITY_WPA3_SAE;
                 /* copy the PSK phrase */
                 security_wpa3_tlv->password_len = strlen(argv[arg + 2]);
@@ -827,6 +881,8 @@ int wlan_add_command(int argc, char **argv)
                 security_wpa3_tlv->header.size = sizeof(security_wpa3_tlv->type) +
                                                  sizeof(security_wpa3_tlv->password_len) +
                                                  security_wpa3_tlv->password_len;
+                security_wpa3_tlv->header.size = sizeof(Security_ParamSet_t) - NCP_TLV_HEADER_LEN
+                                                 - sizeof(security_wpa3_tlv->password) + security_wpa3_tlv->password_len;
                 ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa3_tlv->header.size;
                 tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa3_tlv->header.size;
                 arg += 3;
@@ -840,25 +896,115 @@ int wlan_add_command(int argc, char **argv)
             }
             info.security3++;
         }
-#ifdef CONFIG_EAP_TLS
-        else if ((info.security2 == 0U) && (string_equal("eap-tls", argv[arg])))
+#if CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
+        else if ((info.wpa3_ent == 0U) && string_equal("wpa3-ent", argv[arg]))
         {
-            security_wpa2_tlv = (Security_ParamSet_t *)ptlv_pos;
-            security_wpa2_tlv->type = WLAN_SECURITY_EAP_TLS;
-            security_wpa2_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
-            security_wpa2_tlv->header.size = sizeof(security_wpa2_tlv->type);
-            ptlv_pos += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
-            tlv_buf_len += NCP_TLV_HEADER_LEN + security_wpa2_tlv->header.size;
             arg += 1;
-            info.security2++;
+            info.wpa3_ent++;
         }
+        else if ((info.wpa3_sb == 0U) && string_equal("wpa3-sb", argv[arg]))
+        {
+            arg += 1;
+            info.wpa3_sb++;
+        }
+        else if ((info.wpa3_sb_192 == 0U) && string_equal("wpa3-sb-192", argv[arg]))
+        {
+            arg += 1;
+            info.wpa3_sb_192++;
+        }
+#if defined(CONFIG_EAP_TLS) || defined(CONFIG_EAP_PEAP)
+        else if ((info.security_eap == 0U) && (
+#ifdef CONFIG_EAP_TLS
+                                            string_equal("eap-tls", argv[arg]) ||
+#endif
+#ifdef CONFIG_EAP_PEAP
+#ifdef CONFIG_EAP_MSCHAPV2
+                                            string_equal("eap-peap-mschapv2", argv[arg]) ||
+#endif
+#endif
+                                            false))
+        {
+            security_eap_tlv = (Security_ParamSet_t *)ptlv_pos;
+            (void)memset(security_eap_tlv, 0, sizeof(Security_ParamSet_t));
+#ifdef CONFIG_EAP_TLS
+            if (string_equal("eap-tls", argv[arg]))
+            {
+                security_eap_tlv->type = WLAN_SECURITY_EAP_TLS;
+            }
+#endif
+#ifdef CONFIG_EAP_PEAP
+#ifdef CONFIG_EAP_MSCHAPV2
+            if (string_equal("eap-peap-mschapv2", argv[arg]))
+            {
+                security_eap_tlv->type = WLAN_SECURITY_EAP_PEAP_MSCHAPV2;
+            }
+#endif
+#endif
+            if (info.wpa3_ent == 1U)
+            {
+                security_eap_tlv->wpa3_ent = 1;
+            }
+            if (info.wpa3_sb == 1U)
+            {
+                security_eap_tlv->wpa3_sb = 1;
+            }
+            if (info.wpa3_sb_192 == 1U)
+            {
+                security_eap_tlv->wpa3_sb_192 = 1;
+            }
+            security_eap_tlv->header.type = NCP_CMD_NETWORK_SECURITY_TLV;
+            security_eap_tlv->header.size = sizeof(Security_ParamSet_t) - NCP_TLV_HEADER_LEN
+                                            - sizeof(security_eap_tlv->password_len) - sizeof(security_eap_tlv->password);
+            ptlv_pos += NCP_TLV_HEADER_LEN + security_eap_tlv->header.size;
+            tlv_buf_len += NCP_TLV_HEADER_LEN + security_eap_tlv->header.size;
+            arg += 1;
+            info.security_eap++;
+        }
+#endif
+#ifdef CONFIG_EAP_TLS
+        else if ((info.tls_cipher == 0U) && (string_equal("tls_cipher", argv[arg]))
+                 && info.security_eap && (security_eap_tlv->type == WLAN_SECURITY_EAP_TLS)
+                 && (security_eap_tlv->wpa3_sb_192 == 1))
+        {
+            if (eap_tlv == NULL)
+            {
+                eap_tlv = (EAP_ParamSet_t *)ptlv_pos;
+                (void)memset(eap_tlv, 0, sizeof(EAP_ParamSet_t));
+                eap_tlv->eap_ver = 1;
+                eap_tlv->header.type = NCP_CMD_NETWORK_EAP_TLV;
+                eap_tlv->header.size = sizeof(EAP_ParamSet_t) - NCP_TLV_HEADER_LEN;
+                ptlv_pos += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+                tlv_buf_len += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+            }
+            if (arg + 1 >= argc)
+            {
+                printf(
+                    "Error: invalid tls_cipher"
+                    " argument\r\n");
+                return FALSE;
+            }
+            if (string_equal(argv[arg + 1], "ECC_P384") != false)
+            {
+                eap_tlv->tls_cipher = EAP_TLS_ECC_P384;
+            }
+            else if (string_equal(argv[arg + 2], "RSA_3K") != false)
+            {
+                eap_tlv->tls_cipher = EAP_TLS_RSA_3K;
+            }
+            arg += 2;
+            info.tls_cipher++;
+        }
+#endif
+#if defined(CONFIG_EAP_TLS) || defined(CONFIG_EAP_PEAP)
         else if ((info.aid == 0U) && (string_equal("aid", argv[arg])))
         {
             if (eap_tlv == NULL)
             {
                 eap_tlv = (EAP_ParamSet_t *)ptlv_pos;
+                (void)memset(eap_tlv, 0, sizeof(EAP_ParamSet_t));
+				eap_tlv->eap_ver = 1;
                 eap_tlv->header.type = NCP_CMD_NETWORK_EAP_TLV;
-                eap_tlv->header.size = sizeof(eap_tlv->anonymous_identity) + sizeof(eap_tlv->client_key_passwd);
+                eap_tlv->header.size = sizeof(EAP_ParamSet_t) - NCP_TLV_HEADER_LEN;
                 ptlv_pos += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
                 tlv_buf_len += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
             }
@@ -879,8 +1025,10 @@ int wlan_add_command(int argc, char **argv)
             if (eap_tlv == NULL)
             {
                 eap_tlv = (EAP_ParamSet_t *)ptlv_pos;
+                (void)memset(eap_tlv, 0, sizeof(EAP_ParamSet_t));
+				eap_tlv->eap_ver = 1;
                 eap_tlv->header.type = NCP_CMD_NETWORK_EAP_TLV;
-                eap_tlv->header.size = sizeof(eap_tlv->anonymous_identity) + sizeof(eap_tlv->client_key_passwd);
+                eap_tlv->header.size = sizeof(EAP_ParamSet_t) - NCP_TLV_HEADER_LEN;
                 ptlv_pos += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
                 tlv_buf_len += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
             }
@@ -896,6 +1044,96 @@ int wlan_add_command(int argc, char **argv)
             arg += 2;
             info.key_passwd++;
         }
+#ifdef CONFIG_EAP_MSCHAPV2
+        else if ((info.verify_peer_cert == 0U) && (string_equal("verify_peer_cert", argv[arg])))
+        {
+            uint8_t verify_peer_cert = 0;
+            if (eap_tlv == NULL)
+            {
+                eap_tlv = (EAP_ParamSet_t *)ptlv_pos;
+                (void)memset(eap_tlv, 0, sizeof(EAP_ParamSet_t));
+                eap_tlv->eap_ver = 1;
+                eap_tlv->header.type = NCP_CMD_NETWORK_EAP_TLV;
+                eap_tlv->header.size = sizeof(EAP_ParamSet_t) - NCP_TLV_HEADER_LEN;
+                ptlv_pos += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+                tlv_buf_len += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+            }
+            verify_peer_cert = atoi(argv[arg + 1]);
+            if (arg + 1 >= argc || (verify_peer_cert != 0 && verify_peer_cert != 1))
+            {
+                printf(
+                    "Error: invalid verify_peer_cert"
+                    " argument\r\n");
+                return FALSE;
+            }
+            eap_tlv->verify_peer_cert = !!verify_peer_cert;
+            arg += 2;
+            info.verify_peer_cert++;
+        }
+#endif
+        else if ((info.eap_ver == 0U) && (string_equal("ver", argv[arg])))
+        {
+            if (eap_tlv == NULL)
+            {
+                eap_tlv = (EAP_ParamSet_t *)ptlv_pos;
+                (void)memset(eap_tlv, 0, sizeof(EAP_ParamSet_t));
+				eap_tlv->eap_ver = 1;
+                eap_tlv->header.type = NCP_CMD_NETWORK_EAP_TLV;
+                eap_tlv->header.size = sizeof(EAP_ParamSet_t) - NCP_TLV_HEADER_LEN;
+                ptlv_pos += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+                tlv_buf_len += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+            }
+            eap_tlv->eap_ver = atoi(argv[arg + 1]);
+            if (arg + 1 >= argc || (eap_tlv->eap_ver != 0 && eap_tlv->eap_ver != 1))
+            {
+                printf(
+                    "Error: invalid ver"
+                    " argument\r\n");
+                return FALSE;
+            }
+            arg += 2;
+            info.eap_ver++;
+        }
+        else if ((info.id == 0U) && (string_equal("id", argv[arg])))
+        {
+            if (eap_tlv == NULL)
+            {
+                eap_tlv = (EAP_ParamSet_t *)ptlv_pos;
+                (void)memset(eap_tlv, 0, sizeof(EAP_ParamSet_t));
+				eap_tlv->eap_ver = 1;
+                eap_tlv->header.type = NCP_CMD_NETWORK_EAP_TLV;
+                eap_tlv->header.size = sizeof(EAP_ParamSet_t) - NCP_TLV_HEADER_LEN;
+                ptlv_pos += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+                tlv_buf_len += NCP_TLV_HEADER_LEN + eap_tlv->header.size;
+            }
+            if (arg + 1 >= argc)
+            {
+                printf(
+                    "Error: invalid id"
+                    " argument\r\n");
+                return FALSE;
+            }
+            /* Set Client Identity */
+            strcpy(eap_tlv->identity, argv[arg + 1]);
+            arg += 2;
+            info.id++;
+
+            if ((info.pass == 0U) && (string_equal("pass", argv[arg])))
+            {
+                if (arg + 1 >= argc)
+                {
+                    printf(
+                        "Error: invalid pass"
+                        " argument\r\n");
+                    return FALSE;
+                }
+                /* Set Client Password */
+                strcpy(eap_tlv->eap_password, argv[arg + 1]);
+                arg += 2;
+                info.pass++;
+            }
+        }
+#endif
 #endif
 #ifdef CONFIG_WPA2_ENTP
         else if (!info.security2 && string_equal("eap-tls", argv[arg]))
@@ -1155,14 +1393,19 @@ int wlan_add_command(int argc, char **argv)
         return -WM_FAIL;
     }
 
-#ifdef CONFIG_EAP_TLS
-    if ((info.security2 != 0) && (security_wpa2_tlv->type == WLAN_SECURITY_EAP_TLS)
-        && (role_tlv != NULL) && (role_tlv->role == WLAN_BSS_ROLE_UAP))
-    {
-        dump_wlan_add_usage();
-        (void)printf("Error: not support uap for WPA2 enterprise eap-tls security, only support station.\r\n");
-        return FALSE;
-    }
+#if defined(CONFIG_EAP_TLS) || defined(CONFIG_EAP_PEAP)
+		if (((info.security == 1) || (info.security2 == 1) || (info.security3 == 1)) && (info.security_eap == 1))
+		{
+			dump_wlan_add_usage();
+			(void)printf("Error: not support WPA/WPA2/WPA3 and WPA2/WPA3 enterprise mixed.\r\n");
+			return -WM_FAIL;
+		}
+		if ((info.security_eap == 1) && (role_tlv != NULL) && (role_tlv->role == WLAN_BSS_ROLE_UAP))
+		{
+			dump_wlan_add_usage();
+			(void)printf("Error: not support uap for WPA2/WPA3 enterprise eap-tls/eap-peap-mschapv2 security, only support station.\r\n");
+			return -WM_FAIL;
+		}
 #endif
 	
     network_add_command->header.cmd = NCP_CMD_WLAN_NETWORK_ADD;
@@ -2318,10 +2561,14 @@ int wlan_process_scan_response(uint8_t *res)
                         printf("WPA2 Enterprise");
                     if (scan_result->res[i].wpa3_entp != 0U)
                         (void)printf("WPA3 Enterprise");
+                    if (scan_result->res[i].wpa3_1x_sha256 != 0U)
+                        (void)printf("WPA3-SHA256 Enterprise");
+                    if (scan_result->res[i].wpa3_1x_sha384 != 0U)
+                        (void)printf("WPA3-SHA384 Enterprise");
                 }
                 if (!(scan_result->res[i].wep || scan_result->res[i].wpa || scan_result->res[i].wpa2 ||
                       scan_result->res[i].wpa2_sha256 || scan_result->res[i].wpa3_sae || scan_result->res[i].wpa3_entp ||
-                      scan_result->res[i].wpa2_entp))
+                      scan_result->res[i].wpa2_entp || scan_result->res[i].wpa3_1x_sha256 || scan_result->res[i].wpa3_1x_sha384))
                 {
                     printf("OPEN ");
                 }
@@ -2543,15 +2790,35 @@ static void print_network(NCP_WLAN_NETWORK *network)
     }
     else
     {
-#ifdef CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
+#if CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
         if (
 #ifdef CONFIG_EAP_TLS
             (network->security_type == WLAN_SECURITY_EAP_TLS) ||
 #endif
-            FALSE)
-        {
-            sec_tag = "\tsecurity: WPA2";
-        }
+#ifdef CONFIG_EAP_PEAP
+#ifdef CONFIG_EAP_MSCHAPV2
+				(network->security_type == WLAN_SECURITY_EAP_PEAP_MSCHAPV2) ||
+#endif
+#endif
+				false)
+			{
+				if (network->wpa3_sb_192)
+				{
+					sec_tag = "\tsecurity: WPA3 SuiteB(192)";
+				}
+				else if (network->wpa3_sb)
+				{
+					sec_tag = "\tsecurity: WPA3 SuiteB";
+				}
+				else if (network->wpa3_ent)
+				{
+					sec_tag = "\tsecurity: WPA3";
+				}
+				else
+				{
+					sec_tag = "\tsecurity: WPA2";
+				}
+			}
 #endif
     }
     switch (network->security_type)
@@ -2582,11 +2849,18 @@ static void print_network(NCP_WLAN_NETWORK *network)
         case WLAN_SECURITY_WPA3_SAE:
             printf("%s: WPA3 SAE\r\n", sec_tag);
             break;
-#ifdef CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
+#if CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
 #ifdef CONFIG_EAP_TLS
         case WLAN_SECURITY_EAP_TLS:
             printf("%s Enterprise EAP-TLS\r\n", sec_tag);
             break;
+#endif
+#ifdef CONFIG_EAP_PEAP
+#ifdef CONFIG_EAP_MSCHAPV2
+        case WLAN_SECURITY_EAP_PEAP_MSCHAPV2:
+            printf("%s Enterprise EAP-PEAPv%d-MSCHAPV2\r\n", sec_tag, network->eap_ver);
+            break;
+#endif
 #endif
 #endif
         case WLAN_SECURITY_WPA2_WPA3_SAE_MIXED:

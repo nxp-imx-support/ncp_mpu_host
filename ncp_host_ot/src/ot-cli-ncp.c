@@ -8,13 +8,16 @@
 /* -------------------------------------------------------------------------- */
 /*                                  Includes                                  */
 /* -------------------------------------------------------------------------- */
+#include <semaphore.h>
 #include "ncp_adapter.h"
 #include "ncp_intf_uart.h"
 #include "ncp_tlv_adapter.h"
 #include "otopcode.h"
 #include "uart.h"
 #include "lpm.h"
-#include "ncp_host_command.h"
+#include "mbedtls_host.h"
+#include "ncp_system_command.h"
+#include "ot_redefined_cmds.h"
 
 /* -------------------------------------------------------------------------- */
 /*                              Constants                                     */
@@ -33,16 +36,10 @@
 #define INBAND_WAKEUP_PARAM  '0'
 #define OUTBAND_WAKEUP_PARAM '1'
 
-/* OT NCP power/event subclass */
-#define NCP_CMD_OT_POWERMGMT 0x00200000
-#define NCP_CMD_OT_ASYNC_EVENT 0x00300000
-
-/* OT power configure commands/events */
-#define NCP_CMD_OT_POWERMGMT_MCU_SLEEP_CFM (NCP_CMD_15D4 | NCP_CMD_OT_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000004)
-#define NCP_RSP_OT_POWERMGMT_MCU_SLEEP_CFM (NCP_CMD_15D4 | NCP_CMD_OT_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000004)
-
-#define NCP_EVENT_OT_MCU_SLEEP_ENTER (NCP_CMD_15D4 | NCP_CMD_OT_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000001)
-#define NCP_EVENT_OT_MCU_SLEEP_EXIT (NCP_CMD_15D4 | NCP_CMD_OT_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000002)
+#if defined(CONFIG_NCP_UART)
+#define UART_WAKEUP_MAGIC (0xABCDEF8987FEDCBAU)
+uint64_t uart_wakeup_magic = UART_WAKEUP_MAGIC;
+#endif
 
 /* -------------------------------------------------------------------------- */
 /*                               Types                                        */
@@ -76,6 +73,8 @@ static uint8_t          command_is_pending;
 extern uint8_t ncp_device_status;
 extern power_cfg_t global_power_config;
 extern pthread_mutex_t gpio_wakeup_mutex;
+extern pthread_mutex_t ncp_device_status_mutex;
+extern sem_t cmd_sem;
 
 /* -------------------------------------------------------------------------- */
 /*                           Function prototypes                              */
@@ -107,7 +106,7 @@ static void ot_ncp_callback(void *tlv, size_t tlv_sz, int status)
 
 static void ot_ncp_mpu_sleep_cfm(NCP_TLV_COMMAND *header)
 {
-    header->cmd      = NCP_CMD_OT_POWERMGMT_MCU_SLEEP_CFM;
+    header->cmd      = NCP_CMD_SYSTEM_POWERMGMT_MCU_SLEEP_CFM;
     header->size     = NCP_TLV_HDR_LEN;
     header->result   = NCP_CMD_RESULT_OK;
 }
@@ -117,7 +116,7 @@ static int ot_ncp_process_sleep_status(uint8_t *res)
     NCP_TLV_COMMAND *event  = (NCP_TLV_COMMAND *)res;
     int          status = 0;
 
-    if (event->cmd == NCP_EVENT_OT_MCU_SLEEP_ENTER)
+    if (event->cmd == NCP_EVENT_MCU_SLEEP_ENTER)
     {
         NCP_TLV_COMMAND sleep_cfm;
 
@@ -129,14 +128,15 @@ static int ot_ncp_process_sleep_status(uint8_t *res)
             printf("Failed to send mpu sleep cfm\r\n");
         usleep(100000); // Wait 100ms to make sure NCP device enters low power.
         ncp_device_status = NCP_DEVICE_STATUS_SLEEP;
-        printf("lock the gpio wake up mutex in sleep confirm\r\n");
         pthread_mutex_lock(&gpio_wakeup_mutex);
+
+        pthread_mutex_lock(&ncp_device_status_mutex);
+        pthread_mutex_unlock(&ncp_device_status_mutex);
     }
     else
     {
         printf("NCP device exits sleep mode\r\n");
         ncp_device_status = NCP_DEVICE_STATUS_ACTIVE;
-        printf("unlock the gpio wake up mutex in exit sleep event\r\n");
         pthread_mutex_unlock(&gpio_wakeup_mutex);
     }
 
@@ -150,10 +150,18 @@ static int ot_system_process_event(uint8_t *res)
 
     switch (evt->cmd)
     {
-        case NCP_EVENT_OT_MCU_SLEEP_ENTER:
-        case NCP_EVENT_OT_MCU_SLEEP_EXIT:
+        case NCP_EVENT_MCU_SLEEP_ENTER:
+        case NCP_EVENT_MCU_SLEEP_EXIT:
             ret = ot_ncp_process_sleep_status(res);
             break;
+#if CONFIG_NCP_USE_ENCRYPT
+        case NCP_EVENT_SYSTEM_ENCRYPT:
+            ret = ncp_process_encrypt_event(res);
+            break;
+        case NCP_EVENT_SYSTEM_ENCRYPT_STOP:
+            ret = ncp_process_encrypt_stop_event(res);
+            break;
+#endif
         default:
             printf("Invaild event!\r\n");
             break;
@@ -177,10 +185,25 @@ static void ot_ncp_handle_cmd_input(uint8_t *cmd, uint32_t len)
     }
     else
     {
-        /* it is not the sleep handshake, just need to output to console */
-        cmd[len] = '\0';
-        printf("%s\r\n", cmd + NCP_TLV_HDR_LEN);
+        switch (((NCP_TLV_COMMAND *)cmd)->cmd)
+        {
+#if CONFIG_NCP_USE_ENCRYPT
+            case NCP_RSP_SYSTEM_CONFIG_ENCRYPT:
+                ret = ncp_process_encrypt_response(cmd);
+                break;
+#endif
+            default:
+                /* output cmd response */
+                cmd[len] = '\0';
+                printf("%s\r\n", cmd + NCP_TLV_HDR_LEN);
+                break;
+
+
+
+        }
     }
+    /* TODO: release semaphore */
+    sem_post(&cmd_sem);
 }
 
 /*Main loop function*/
@@ -202,11 +225,13 @@ static void ot_ncp_mainloop(void)
 
         if (tempcharc == '\n')
         {
+            /* Wait for command response semaphore. */
+            sem_wait(&cmd_sem);
+
             /*User pressed enter*/
             if (input_cmd_length != 0)
             {
                 /*Structure the command into tlv format and then send over ncp_tlv_send function*/
-
                 *(user_cmd + input_cmd_length) = '\r'; /* NCP device will check this to start processing command*/
                 input_cmd_length++;
                 ot_ncp_send_command(user_cmd, input_cmd_length);
@@ -217,6 +242,7 @@ static void ot_ncp_mainloop(void)
             {
                 /*No command entered*/
                 printf("> ");
+                sem_post(&cmd_sem);
                 continue;
             }
         }
@@ -262,6 +288,7 @@ static void ot_ncp_send_command(uint8_t *userinputcmd, uint8_t userinputcmd_len)
     if (cmd_buf == NULL)
     {
         ncp_adap_e("failed to allocate memory for command");
+        sem_post(&cmd_sem);
         return;
     }
 
@@ -283,18 +310,36 @@ static void ot_ncp_send_command(uint8_t *userinputcmd, uint8_t userinputcmd_len)
     /* Before sending ot ncp tlv command to device side, we should wake up device first */
     if (ncp_device_status == NCP_DEVICE_STATUS_SLEEP)
     {
-#ifdef CONFIG_NCP_SDIO
         if (global_power_config.wake_mode == WAKE_MODE_INTF)
         {
+            pthread_mutex_lock(&ncp_device_status_mutex);
+            while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
+            {
+                usleep(10000); // Wait 10ms to make sure NCP device enters low power.
+            }
+            pthread_mutex_unlock(&ncp_device_status_mutex);
+#if defined(CONFIG_NCP_SDIO)
             memset(&wakeup_buf, 0x0, sizeof(NCP_TLV_COMMAND));
             wakeup_buf.size = NCP_TLV_HDR_LEN - 1;
             printf("%s: send wakeup_buf", __FUNCTION__);
             ncp_tlv_send(&wakeup_buf, NCP_TLV_HDR_LEN);
-        }
-        else
+#elif defined(CONFIG_NCP_UART)
+            /* Send the magic pattern to wakeup the NCP device */
+            ncp_tlv_send(&uart_wakeup_magic, sizeof(uart_wakeup_magic));
+            /* Block here to wait for NCP device complete the PM2 exit process */
+            pthread_mutex_lock(&gpio_wakeup_mutex);
+            /* Release semaphore here to make sure software can get it successfully when receiving sleep enter event for next sleep loop. */
+            pthread_mutex_unlock(&gpio_wakeup_mutex);
 #endif
-        if (global_power_config.wake_mode == WAKE_MODE_GPIO)
+        }
+        else if (global_power_config.wake_mode == WAKE_MODE_GPIO)
         {
+            pthread_mutex_lock(&ncp_device_status_mutex);
+            while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
+            {
+                usleep(10000); // Wait 10ms to make sure NCP device enters low power.
+            }
+            pthread_mutex_unlock(&ncp_device_status_mutex);
             set_lpm_gpio_value(0);
             pthread_mutex_lock(&gpio_wakeup_mutex);
             set_lpm_gpio_value(1);
@@ -345,6 +390,7 @@ void main(int argc, char *argv[])
     if (ret != 0)
     {
         printf("ERROR: ncp_adapter_init \n");
+        goto err_adapter_init;
     }
 
     /*Thread/Mutex initialization*/
@@ -353,10 +399,22 @@ void main(int argc, char *argv[])
     /*Install tlv handler fo ot*/
     ncp_tlv_install_handler(NCP_TLV_CMD_CLASS, (void *)ot_ncp_callback);
 
+    if (sem_init(&cmd_sem, 0, 1) == -1)
+    {
+        printf("Failed to init semaphore!\r\n");
+        goto err_sem_init;
+    }
+
     printf("> ");
 
     /*Call main task*/
     ot_ncp_mainloop();
+
+    sem_destroy(&cmd_sem);
+err_sem_init:
+    ncp_adapter_deinit();
+err_adapter_init:
+    exit(EXIT_FAILURE);
 
     return;
 }

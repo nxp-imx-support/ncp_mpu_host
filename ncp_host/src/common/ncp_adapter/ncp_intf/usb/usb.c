@@ -217,8 +217,8 @@ ncp_status_t usb_send(usb_device_t *dev, int8_t *buf, uint32_t len)
  */
 void usb_deinit(usb_device_t *dev)
 {
-    libusb_hotplug_deregister_callback(dev->context, usb_cb_Handle);
     pthread_mutex_unlock(&usb_event_thread_mutex);
+    libusb_hotplug_deregister_callback(dev->context, usb_cb_Handle);
     pthread_join(usb_event_thread, NULL);
     
 	if (dev->handle)

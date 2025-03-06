@@ -602,6 +602,8 @@ static void iperf_tx_task(void *arg)
         gettimeofday(&iperf_timer_end, NULL);
         ncp_iperf_report(send_total_size);
         sleep(1);
+        /* Wait for command response semaphore. */
+        sem_wait(&cmd_sem);
         /*End token*/
         iperf_send_finish(S_D);
     }

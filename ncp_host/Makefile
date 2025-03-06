@@ -46,6 +46,7 @@ INC_DIR		= $(shell find $(SRC_DIR) -type d)
 OBJ_DIR		= ./obj
 BIN_NAME 	= MPU_NCP_HOST
 BIN_DIR 	= ./bin
+encrypt     = 1
 
 SRC_FILES	= $(shell find src -name *.c)
 OBJ_FILES 	= $(SRC_FILES:.c=.o)
@@ -82,7 +83,9 @@ ifeq ($(func), OT)
 CFLAGS += -DCONFIG_NCP_OT
 endif
 
-
+ifeq ($(encrypt), 1)
+CFLAGS += -DCONFIG_NCP_USE_ENCRYPT=1
+endif
 
 #When use USB interface
 #******For NCP MPU Host side(i.mx8mini)*****

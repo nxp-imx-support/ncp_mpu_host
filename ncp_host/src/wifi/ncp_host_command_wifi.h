@@ -85,6 +85,8 @@
 #define PING_ID 0xAFAF
 #define IP_ADDR_LEN 16
 
+#pragma pack(1)
+
 struct icmp_echo_hdr {
     uint8_t type;
     uint8_t code;
@@ -502,6 +504,10 @@ typedef struct _ncp_wlan_scan_result
     unsigned wpa3_sae : 1;
     /** The network uses WPA3 Enterprise security */
     unsigned wpa3_entp: 1;
+    /** The network uses WPA3 Enterprise SHA256 security */
+    unsigned wpa3_1x_sha256 : 1;
+    /** The network uses WPA3 Enterprise SHA384 security */
+    unsigned wpa3_1x_sha384 : 1;
 
     /** The signal strength of the beacon */
     unsigned char rssi;
@@ -821,6 +827,27 @@ typedef struct _ncp_wlan_network
      * wlan_security_type. */
     uint8_t security_type;
 
+    /** WPA3 Enterprise mode \n
+     *  1: enable; \n
+     *  0: disable.
+     */
+    uint8_t wpa3_ent : 1;
+
+    /** WPA3 Enterprise Suite B mode \n
+     *  1: enable; \n
+     *  0: disable.
+     */
+    uint8_t wpa3_sb : 1;
+
+    /** WPA3 Enterprise Suite B 192 mode \n
+     *  1: enable; \n
+     *  0: disable.
+     */
+    uint8_t wpa3_sb_192 : 1;
+
+    /** EAP (Extensible Authentication Protocol) version */
+    uint8_t eap_ver : 1;
+
     uint8_t enable_11ax : 1;
     uint8_t enable_11ac : 1;
     uint8_t enable_11n : 1;
@@ -965,6 +992,12 @@ typedef struct _Security_ParamSet_t
 {
     TypeHeader_t header;
     uint8_t type;
+    /** WPA3 Enterprise mode */
+    uint8_t wpa3_ent;
+    /** WPA3 Enterprise Suite B mode */
+    uint8_t wpa3_sb;
+    /** WPA3 Enterprise Suite B 192 mode */
+    uint8_t wpa3_sb_192;
     uint8_t password_len;
     char password[1];
 } Security_ParamSet_t;
@@ -980,11 +1013,24 @@ typedef struct _PMF_ParamSet_t
 /*NCP eap-tls tlv*/
 typedef struct _EAP_ParamSet_t
 {
+    /** Header type and size information. */
     TypeHeader_t header;
+    /** Cipher for EAP TLS (Extensible Authentication Protocol Transport Layer Security) */
+    unsigned char tls_cipher;
+    /** Identity string for EAP */
+    char identity[IDENTITY_MAX_LENGTH];
+    /** Password string for EAP. */
+    char eap_password[PASSWORD_MAX_LENGTH];
     /** Anonymous identity string for EAP */
     char anonymous_identity[IDENTITY_MAX_LENGTH];
     /** Client key password */
     char client_key_passwd[PASSWORD_MAX_LENGTH];
+    /** EAP (Extensible Authentication Protocol) version */
+    uint8_t eap_ver;
+    /** whether verify peer with CA or not
+     *  false: not verify,
+     *  true: verify. */
+    bool verify_peer_cert;
 } EAP_ParamSet_t;
 
 #ifdef CONFIG_WIFI_DTIM_PERIOD
@@ -1658,6 +1704,20 @@ enum wlan_connection_state
      * is in progress. */
     WLAN_ASSOCIATING,
 };
+
+#if CONFIG_WPA_SUPP_CRYPTO_ENTERPRISE
+#ifdef CONFIG_EAP_TLS
+/** EAP TLS Cipher types*/
+enum eap_tls_cipher_type
+{
+    EAP_TLS_NONE,
+    /** EAP TLS with ECDH & ECDSA with p384 */
+    EAP_TLS_ECC_P384,
+    /** EAP TLS with ECDH & RSA with > 3K */
+    EAP_TLS_RSA_3K,
+};
+#endif
+#endif
 
 typedef struct _NCP_CMD_POWERMGMT_WOWLAN_CFG
 {
