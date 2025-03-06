@@ -69,6 +69,10 @@ extern int mpu_host_init_cli_commands_ble();
 extern int mpu_host_deinit_cli_commands_ble();
 #endif
 
+#if CONFIG_NCP_USE_ENCRYPT
+extern int ncp_trigger_encrypted_communication(void);
+#endif
+
 void bzero(void *s, size_t n);
 int usleep();
 
@@ -372,6 +376,69 @@ uint8_t hexc2bin(char chr)
     return chr;
 }
 
+static int lpm_check_device_status(void)
+{
+    int ret = TRUE;
+#ifdef CONFIG_NCP_SDIO
+    NCP_COMMAND wakeup_buf;
+#endif
+
+    if (ncp_device_status != NCP_DEVICE_STATUS_ACTIVE)
+    {
+        switch(global_power_config.wake_mode) {
+            case WAKE_MODE_WIFI_NB:
+                ncp_e("Command is not allowed when wake mode is WIFI-NB and device is sleeping.");
+                ncp_e("With WIFI-NB mode, host is not able to wakeup device.");
+                ncp_e("Please send command after device wakes up.");
+                ret = FALSE;
+                break;
+            case WAKE_MODE_INTF:
+                pthread_mutex_lock(&ncp_device_status_mutex);
+                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
+                {
+                    usleep(10000); // Wait 10ms to make sure NCP device enters low power.
+                }
+                pthread_mutex_unlock(&ncp_device_status_mutex);
+#if defined(CONFIG_NCP_SDIO)
+                memset(&wakeup_buf, 0x0, sizeof(NCP_COMMAND));
+                wakeup_buf.size = NCP_CMD_HEADER_LEN - 1;
+                //write(S_D->serial_fd, &wakeup_buf, NCP_CMD_HEADER_LEN);
+                ncp_d("%s: send wakeup_buf", __FUNCTION__);
+                ncp_tlv_send(&wakeup_buf, NCP_CMD_HEADER_LEN);
+#elif defined(CONFIG_NCP_UART)
+                /* Send the magic pattern to wakeup the NCP device */
+                ncp_tlv_send(&magic_pattern, sizeof(magic_pattern));
+                /* Block here to wait for NCP device complete the PM2 exit process */
+                pthread_mutex_lock(&gpio_wakeup_mutex);
+                /* Release semaphore here to make sure software can get it successfully when receiving sleep enter event for next sleep loop. */
+                pthread_mutex_unlock(&gpio_wakeup_mutex);
+#endif
+                ret = TRUE;
+                break;
+            case WAKE_MODE_GPIO:
+                pthread_mutex_lock(&ncp_device_status_mutex);
+                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
+                {
+                    usleep(10000); // Wait 10ms to make sure NCP device enters low power.
+                }
+                pthread_mutex_unlock(&ncp_device_status_mutex);
+
+                set_lpm_gpio_value(0);
+                pthread_mutex_lock(&gpio_wakeup_mutex);
+                set_lpm_gpio_value(1);
+                pthread_mutex_unlock(&gpio_wakeup_mutex);
+                ret = TRUE;
+                break;
+            default:
+                ncp_d("%s: invalid wakeup mode", __FUNCTION__);
+                ret = FALSE;
+                break;
+        }
+    }
+
+    return ret;
+}
+
 void send_tlv_command(send_data_t *S_D)
 {
 #if 0
@@ -405,6 +472,11 @@ void send_tlv_command(send_data_t *S_D)
         ret = FALSE;
         goto out_clear;
     }
+
+    /* Wake up ncp_device if it is in low power mode */
+    ret = lpm_check_device_status();
+    if (ret == FALSE)
+        goto out_clear;
 
 #ifdef CONFIG_MPU_IO_DUMP
     printf("Send command:\r\n");
@@ -480,9 +552,6 @@ static void ncp_handle_input_task(void *arg)
     int ret;
     char nul[2];
     nul[0] = '\n'; // only input enter
-#ifdef CONFIG_NCP_SDIO
-    NCP_COMMAND wakeup_buf;
-#endif
 
     while (1)
     {
@@ -524,70 +593,8 @@ static void ncp_handle_input_task(void *arg)
                 }
                 else
                 {
-                    if (ncp_device_status != NCP_DEVICE_STATUS_ACTIVE)
-                    {
-                        switch(global_power_config.wake_mode) {
-                            case WAKE_MODE_WIFI_NB:
-                                ncp_e("Command is not allowed when wake mode is WIFI-NB and device is sleeping.");
-                                ncp_e("With WIFI-NB mode, host is not able to wakeup device.");
-                                ncp_e("Please send command after device wakes up.");
-                                ret = FALSE;
-                                break;
-                            case WAKE_MODE_INTF:
-                                pthread_mutex_lock(&ncp_device_status_mutex);
-                                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
-                                {
-                                    usleep(10000); // Wait 10ms to make sure NCP device enters low power.
-                                }
-                                pthread_mutex_unlock(&ncp_device_status_mutex);
-#if defined(CONFIG_NCP_SDIO)
-                                memset(&wakeup_buf, 0x0, sizeof(NCP_COMMAND));
-                                wakeup_buf.size = NCP_CMD_HEADER_LEN - 1;
-                                //write(S_D->serial_fd, &wakeup_buf, NCP_CMD_HEADER_LEN);
-                                ncp_d("%s: send wakeup_buf", __FUNCTION__);
-                                ncp_tlv_send(&wakeup_buf, NCP_CMD_HEADER_LEN);
-#elif defined(CONFIG_NCP_UART)
-                                /* Send the magic pattern to wakeup the NCP device */
-                                ncp_tlv_send(&magic_pattern, sizeof(magic_pattern));
-                                /* Block here to wait for NCP device complete the PM2 exit process */
-                                pthread_mutex_lock(&gpio_wakeup_mutex);
-                                /* Release semaphore here to make sure software can get it successfully when receiving sleep enter event for next sleep loop. */
-                                pthread_mutex_unlock(&gpio_wakeup_mutex);
-#endif
-                                ret = TRUE;
-                                break;
-                            case WAKE_MODE_GPIO:
-                                pthread_mutex_lock(&ncp_device_status_mutex);
-                                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
-                                {
-                                    usleep(10000); // Wait 10ms to make sure NCP device enters low power.
-                                }
-                                pthread_mutex_unlock(&ncp_device_status_mutex);
-
-                                set_lpm_gpio_value(0);
-                                pthread_mutex_unlock(&mutex);
-                                pthread_mutex_lock(&gpio_wakeup_mutex);
-                                set_lpm_gpio_value(1);
-                                pthread_mutex_unlock(&gpio_wakeup_mutex);
-                                pthread_mutex_lock(&mutex);
-                                ret = TRUE;
-                                break;
-                            default:
-                                ncp_d("%s: invalid wakeup mode", __FUNCTION__);
-                                ret = FALSE;
-                                break;
-                        }
-                    }
-                    if (ret == TRUE)
-                    {
-                        ncp_d("%s: input cmd send", __FUNCTION__);
-                        send_tlv_command(S_D);
-                    }
-                    else
-                    {
-                        clear_mpu_host_command_buffer();
-                        sem_post(&cmd_sem);
-                    }
+                    ncp_d("%s: input cmd send", __FUNCTION__);
+                    send_tlv_command(S_D);
                 }
             }
             pthread_mutex_unlock(&mutex);
@@ -750,6 +757,10 @@ int main(int argc, char **argv)
         printf("Failed to register MPU ncp host app ot cli commands!\r\n");
         goto err_init_cli_ot;
     }
+#endif
+
+#if CONFIG_NCP_USE_ENCRYPT && CONFIG_NCP_HOST_AUTO_TRIG_ENCRYPT
+    (void) ncp_trigger_encrypted_communication();
 #endif
 
     printf("You can input these commands:\r\n");

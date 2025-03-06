@@ -45,6 +45,15 @@
 #endif /* PRAGMA_PACK */
 #endif /* __GNUC__ */
 
+#ifndef CONFIG_NCP_USE_ENCRYPT
+#define CONFIG_NCP_USE_ENCRYPT         0
+#endif
+#if CONFIG_NCP_USE_ENCRYPT
+#define CONFIG_NCP_MBEDTLS_DBG_LEVEL              1   /* 0-4, higher means more log output */
+#define CONFIG_NCP_IS_PVTKEY_ENCRYPTED            1
+#define CONFIG_NCP_HOST_AUTO_TRIG_ENCRYPT         0
+#endif
+
 #define TLV_CMD_HEADER_LEN      12
 #define TLV_CMD_SIZE_LOW_BYTES  4
 #define TLV_CMD_SIZE_HIGH_BYTES 5
@@ -56,6 +65,36 @@
 #define NCP_GET_CLASS(tlv) ((*((uint32_t *)(tlv)) & 0xf0000000) >> 28)
 
 #define ARG_UNUSED(x) (void)(x)
+
+#if CONFIG_NCP_USE_ENCRYPT
+
+#define NCP_ENDECRYPT_KEY_LEN          16
+#define NCP_ENDECRYPT_IV_LEN           16
+
+typedef struct _crypt_param_t {
+    uint8_t  flag;
+    uint8_t  rsv[3];
+    void    *gcm_ctx_enc;
+    void    *gcm_ctx_dec;
+    uint8_t *dec_buf;
+    uint32_t dec_buf_len;
+    uint8_t  key_len;
+    uint8_t  iv_len;
+    uint8_t  key_enc[NCP_ENDECRYPT_KEY_LEN];
+    uint8_t  key_dec[NCP_ENDECRYPT_KEY_LEN];
+    uint8_t  iv_enc[NCP_ENDECRYPT_IV_LEN];
+    uint8_t  iv_dec[NCP_ENDECRYPT_IV_LEN];
+} crypt_param_t;
+
+void dbg_print_hex(const uint8_t *buf, uint16_t len, const char *title);
+int ncp_tlv_adapter_encrypt_init(const uint8_t *key_enc, const uint8_t *key_dec, 
+                                 const uint8_t *iv_enc, const uint8_t *iv_dec,
+                                 uint16_t key_len, uint16_t iv_len);
+int ncp_tlv_adapter_encrypt_deinit(void);
+int ncp_tlv_adapter_encrypt_enable(void);
+int ncp_tlv_adapter_encrypt_disable(void);
+
+#endif /* CONFIG_NCP_USE_ENCRYPT */
 
 typedef void (*tlv_callback_t)(void *tlv, size_t tlv_sz, int status);
 
@@ -73,6 +112,9 @@ typedef struct _ncp_tlv_adapter
 {
     ncp_intf_ops_t *intf_ops;
     tlv_callback_t  tlv_handler[NCP_MAX_CLASS];
+#if CONFIG_NCP_USE_ENCRYPT
+    crypt_param_t *crypt;
+#endif
 } ncp_tlv_adapter_t;
 
 /* NCP Debug options */
@@ -164,7 +206,7 @@ extern ncp_stats_t ncp_stats;
    The buffer size = sizeof(ncp_tlv_qelem_t) + tlv_sz
    max tlv_sz is NCP_TLV_QUEUE_MSGPLD_SIZE */
 #define NCP_TLV_QUEUE_MSG_SIZE      (sizeof(void *))
-#endif /* __NCP_TLV_ADAPTER_H__ */
+
 
 void ncp_tlv_dispatch(void *tlv, size_t tlv_sz);
 
@@ -186,3 +228,4 @@ typedef NCP_TLV_PACK_START struct
 #define NCP_DUMP_WRAPAROUND 16
 void ncp_dump_hex(const void *data, unsigned int len);
 
+#endif /* __NCP_TLV_ADAPTER_H__ */

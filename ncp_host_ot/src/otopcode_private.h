@@ -82,6 +82,9 @@ static uint8_t *otcommands[] = {"ba",
                                 "mode",
                                 "multiradio",
                                 "nat64",
+#if CONFIG_NCP_USE_ENCRYPT
+                                "ncp-sys-encrypt",
+#endif
 #ifdef CONFIG_NCP_USB
                                 "ncp-usb-pm2",
 #endif

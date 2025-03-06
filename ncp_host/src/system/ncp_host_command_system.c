@@ -14,6 +14,9 @@
 #include <string.h>
 #include "unistd.h"
 #include "ncp_tlv_adapter.h"
+#if CONFIG_NCP_USE_ENCRYPT
+#include "mbedtls_host.h"
+#endif
 
 extern power_cfg_t global_power_config;
 extern uint8_t ncp_device_status;
@@ -90,11 +93,11 @@ int ncp_wake_cfg_command(int argc, char **argv)
     SYSTEM_NCPCmd_DS_COMMAND *wake_cfg_cmd = (SYSTEM_NCPCmd_DS_COMMAND *)ncp_host_get_cmd_buffer_sys();
     uint8_t wake_mode               = 0;
     uint8_t subscribe_evt           = 0;
-#if !CONFIG_NCP_BLE
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
     uint32_t wake_duration          = 0;
 #endif
 
-#if CONFIG_NCP_BLE
+#if (defined CONFIG_NCP_BLE) || (defined CONFIG_NCP_OT)
     if (argc != 3)
 #else
     if (argc != 4)
@@ -102,7 +105,7 @@ int ncp_wake_cfg_command(int argc, char **argv)
     {
         printf("Error: invalid number of arguments\r\n");
         printf("Usage:\r\n");
-#if CONFIG_NCP_BLE
+#if (defined CONFIG_NCP_BLE) || (defined CONFIG_NCP_OT)
         printf("    %s <wake_mode> <subscribe_evt>\r\n", argv[0]);
 #else
         printf("    %s <wake_mode> <subscribe_evt> <wake_duration>\r\n", argv[0]);
@@ -112,7 +115,7 @@ int ncp_wake_cfg_command(int argc, char **argv)
         printf("                   WIFI-NB -- WIFI/BLE wakeup. For FRDM board only\r\n");
         printf("    subscribe_evt: 1 -- subscribe MPU device sleep status events\r\n");
         printf("                   0 -- no MPU device sleep status events\r\n");
-#if !CONFIG_NCP_BLE
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
         printf("    wake_duration: Within the wake_duration, MCU device will keep active mode\r\n");
         printf("                   Unit is second\r\n");
         printf("Example:\r\n");
@@ -155,7 +158,7 @@ int ncp_wake_cfg_command(int argc, char **argv)
     NCP_CMD_POWERMGMT_WAKE_CFG *wake_config = (NCP_CMD_POWERMGMT_WAKE_CFG *)&wake_cfg_cmd->params.wake_config;
     wake_config->wake_mode                  = wake_mode;
     wake_config->subscribe_evt              = subscribe_evt;
-#if !CONFIG_NCP_BLE
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
     wake_duration                           = atoi(argv[3]);
     wake_config->wake_duration              = wake_duration;
 #endif
@@ -163,7 +166,7 @@ int ncp_wake_cfg_command(int argc, char **argv)
 
     global_power_config.wake_mode     = wake_mode;
     global_power_config.subscribe_evt = subscribe_evt;
-#if !CONFIG_NCP_BLE
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
     global_power_config.wake_duration = wake_duration;
 #endif
 
@@ -193,7 +196,7 @@ int ncp_mcu_sleep_command(int argc, char **argv)
 #endif
         (void)printf("                 pm     - Power Manager.\r\n");
         (void)printf("    rtc_timeout: RTC timer value. Unit is second. For Power Manager only!\r\n");
-#if (CONFIG_NCP_BLE && CONFIG_NCP_USB)
+#if (((defined CONFIG_NCP_BLE) || (defined CONFIG_NCP_OT)) && (defined CONFIG_NCP_USB))
         (void)printf("                 Note: Will be ignored when using USB interface wakeup!\r\n");
 #endif
         (void)printf("Examples:\r\n");
@@ -465,7 +468,7 @@ int system_process_sleep_status(uint8_t *res)
     {
         NCP_COMMAND sleep_cfm;
         int status = 0;
-#if !CONFIG_NCP_BLE
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
         if(global_power_config.subscribe_evt)
             printf("NCP device enters sleep mode!\r\n");
 #endif
@@ -490,7 +493,7 @@ int system_process_sleep_status(uint8_t *res)
     }
     else
     {
-#if !CONFIG_NCP_BLE
+#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
         if(global_power_config.subscribe_evt)
             printf("NCP device exits sleep mode!\r\n");
 #endif
@@ -511,6 +514,14 @@ int system_process_event(uint8_t *res)
         case NCP_EVENT_MCU_SLEEP_EXIT:
             ret = system_process_sleep_status(res);
             break;
+#if CONFIG_NCP_USE_ENCRYPT
+        case NCP_EVENT_SYSTEM_ENCRYPT:
+            ret = ncp_process_encrypt_event(res);
+            break;
+        case NCP_EVENT_SYSTEM_ENCRYPT_STOP:
+            ret = ncp_process_encrypt_stop_event(res);
+            break;
+#endif
         default:
             printf("Invaild event!\r\n");
             break;
@@ -548,6 +559,11 @@ int system_process_response(uint8_t *res)
         case NCP_RSP_SYSTEM_POWERMGMT_WAKEUP_HOST:
             ret = ncp_process_wakeup_host_response(res);
             break;
+#if CONFIG_NCP_USE_ENCRYPT
+        case NCP_RSP_SYSTEM_CONFIG_ENCRYPT:
+            ret = ncp_process_encrypt_response(res);
+            break;
+#endif
         default:
             ncp_e("Invaild response cmd!");
             break;
@@ -726,6 +742,10 @@ static struct mpu_host_cli_command ncp_host_app_cli_commands_system[] = {
     {"ncp-mcu-sleep", NULL, ncp_mcu_sleep_command},
     {"ncp-wakeup-host", NULL, ncp_wakeup_host_command},
     {"ncp-get-mcu-sleep-config", NULL, ncp_get_mcu_sleep_conf_command},
+#if CONFIG_NCP_USE_ENCRYPT
+    {"ncp-encrypt", NULL, ncp_encrypt_command},
+    {"ncp-dbg-encrypt-stop", NULL, ncp_dbg_encrypt_stop_command},
+#endif
 };
 
 /**

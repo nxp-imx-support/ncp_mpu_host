@@ -157,6 +157,8 @@
 #define MAX_SUPPORT_SERVICE 10
 #define SERVER_MAX_UUID_LEN 16
 
+#pragma pack(1)
+
 typedef struct _MCP_CMD_ADV_START
 {
     uint8_t data[256];

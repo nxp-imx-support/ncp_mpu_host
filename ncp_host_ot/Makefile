@@ -17,8 +17,14 @@ OBJ_FILES 	= $(SRC_FILES:.c=.o)
 
 _INC_DIR 	= $(foreach dir,$(INC_DIR),$(addprefix -I, $(dir)))
 
+encrypt     = 1
+
 CFLAGS		= -DCONFIG_NCP_${COM_INTERFACE} -DNCP_OT_STANDALONE
 LDFLAGS 	= -lpthread -lc -lrt -lusb-1.0
+
+ifeq ($(encrypt), 1)
+CFLAGS += -DCONFIG_NCP_USE_ENCRYPT=1
+endif
 
 $(BIN_DIR)/$(BIN_NAME): $(OBJ_FILES)
 	$(CC) -o $@ $^ $(_INC_DIR) $(LDFLAGS)

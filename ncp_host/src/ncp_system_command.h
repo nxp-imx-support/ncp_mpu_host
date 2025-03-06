@@ -20,12 +20,14 @@
 #define NCP_CMD_SYSTEM_ASYNC_EVENT 0x00300000
 
 /* System Configure command */
+#define NCP_CMD_SYSTEM_CONFIG_SDIO_SET         (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_CMD | 0x00000000) /* set-sdio-cfg */
+#define NCP_RSP_SYSTEM_CONFIG_SDIO_SET         (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_RESP | 0x00000000)
 #define NCP_CMD_SYSTEM_CONFIG_SET              (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_CMD | 0x00000001) /* set-device-cfg */
 #define NCP_RSP_SYSTEM_CONFIG_SET              (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_RESP | 0x00000001)
 #define NCP_CMD_SYSTEM_CONFIG_GET              (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_CMD | 0x00000002) /* get-device-cfg */
 #define NCP_RSP_SYSTEM_CONFIG_GET              (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_RESP | 0x00000002) 
-#define NCP_CMD_SYSTEM_CONFIG_SDIO_SET         (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_CMD | 0x00000003) /* set-sdio-cfg */
-#define NCP_RSP_SYSTEM_CONFIG_SDIO_SET         (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_RESP | 0x00000003) 
+#define NCP_CMD_SYSTEM_CONFIG_ENCRYPT          (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_CMD | 0x00000003) /* ncp_encrypt */
+#define NCP_RSP_SYSTEM_CONFIG_ENCRYPT          (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_RESP | 0x00000003) 
 
 #define NCP_CMD_SYSTEM_POWERMGMT_WAKE_CFG      (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000001) /* ncp-wake-cfg */
 #define NCP_RSP_SYSTEM_POWERMGMT_WAKE_CFG      (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000001) 
@@ -38,6 +40,9 @@
 
 #define NCP_EVENT_MCU_SLEEP_ENTER     (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000001)
 #define NCP_EVENT_MCU_SLEEP_EXIT      (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000002)
+
+#define NCP_EVENT_SYSTEM_ENCRYPT      (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_EVENT | 0x00000003) /* for NCP device sending TLS handshaking data actively */
+#define NCP_EVENT_SYSTEM_ENCRYPT_STOP (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_EVENT | 0x00000004) /* for NCP device informing host that device stopped ecnrypted communication */
 
 #define NCP_CMD_SYSTEM_TEST_LOOPBACK  (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_TEST | NCP_MSG_TYPE_CMD | 0x00000001) /* test-loopback */
 #define NCP_RSP_SYSTEM_TEST_LOOPBACK  (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_TEST | NCP_MSG_TYPE_RESP | 0x00000001)
@@ -55,6 +60,14 @@
 
 #define NCP_COMMAND_LEN             4096 // The max number bytes which UART can receive.
 
+#if CONFIG_NCP_USE_ENCRYPT
+#define NCP_CMD_ENCRYPT_ACTION_INIT                 0
+#define NCP_CMD_ENCRYPT_ACTION_DATA                 1
+#define NCP_CMD_ENCRYPT_ACTION_VERIFY               2
+#define NCP_CMD_ENCRYPT_ACTION_STOP                 3
+#endif
+
+#pragma pack(1) 
 
 typedef struct _NCP_CMD_SYSTEM_SDIO_SET
 {
@@ -92,6 +105,21 @@ typedef struct _NCP_CMD_POWERMGMT_WAKEUP_HOST
     uint8_t enable;
 } NCP_CMD_POWERMGMT_WAKEUP_HOST;
 
+/** NCP host device encrypted communication . */
+typedef struct _NCP_CMD_ENCRYPT
+{   
+    /** 
+    0: trigger encrypted communication flow
+    1: send handshake data to NCP device
+    2: verify the encryption communication
+    */
+    uint8_t action;
+    /**
+    checksum of keys and IVs when action is 2
+    */
+    uint32_t arg;
+} NCP_CMD_ENCRYPT;
+
 typedef struct _SYSTEM_NCPCmd_DS_COMMAND
 {
     /** Command Header : Command */
@@ -106,9 +134,13 @@ typedef struct _SYSTEM_NCPCmd_DS_COMMAND
 		NCP_CMD_SYSTEM_SDIO_SET sdio_set;
         /** wlan host wakeup */
         NCP_CMD_POWERMGMT_WAKEUP_HOST host_wakeup_ctrl;
+        /** NCP host and device encrypted communication. */
+        NCP_CMD_ENCRYPT encrypt;
     } params;
 
 } SYSTEM_NCPCmd_DS_COMMAND;
+
+#pragma pack()
 
 int ncp_set_command(int argc, char **argv);
 

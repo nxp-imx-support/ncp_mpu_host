@@ -24,6 +24,7 @@
 
 #define GET_MSG_TYPE(cmd)     ((cmd) & 0x000f0000)
 #define GET_CMD_CLASS(cmd)    (((cmd)&0xf0000000) >> 28)
+#define GET_CMD_SUBCLASS(cmd) (((cmd)&0x0ff00000) >> 20)
 
 #define NCP_CMD_RESULT_OK 0x0000
 
@@ -94,7 +95,7 @@ enum wm_errno
     WM_E_OUTBIG,  /* 41: Data output exceeds the size provided */
 };
 
-#pragma pack(1) // unalign
+#pragma pack(1)
 
 typedef struct _NCP_COMMAND
 {
@@ -145,6 +146,8 @@ struct mpu_host_cli_command
     /** The function that should be invoked for this command. */
     int (*function)(int argc, char **argv);
 };
+
+#pragma pack()
 
 void clear_mpu_host_command_buffer();
 
