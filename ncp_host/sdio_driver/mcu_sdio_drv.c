@@ -31,6 +31,7 @@
 #include <linux/mmc/core.h>
 #include <linux/sched/signal.h>
 #include <linux/delay.h>
+#include <linux/cdev.h>
 
 #include "mcu_sdio.h"
 
@@ -64,6 +65,13 @@
 #define DEVICE_PM_STATE_PM1			1
 #define DEVICE_PM_STATE_PM2			2
 #define DEVICE_PM_STATE_PM3			3
+
+#define SDIO_SLEEP_HS_DONE 1U
+#define SDIO_RESET_DONE 2U
+
+#define SDIO_FW_READY0 0xDC
+#define SDIO_FW_READY1 0xFE
+
 
 static u32 drvdbg = 0;
 
@@ -1625,20 +1633,58 @@ static void mcu_sdio_wakeup_card(struct mcu_sdio_misc_priv *priv, struct mcu_sdi
         PRINT_ERR("%s: mcu_sdio_write_reg %x fail stat=0x%x\n", __FUNCTION__, HOST_TO_CARD_EVENT_REG, ret);
 }
 
+
 static int mcu_sdio_disable_irq(struct sdio_func *func, struct mcu_sdio_mmc_card *card, int val)
 {
 	int ret1 = 0;
+	int retry_cnt = 0;
+	int retry_cnt_start = 1;
 
 	sdio_claim_host(func);
-	ret1 = mcu_disable_sdio_host_int(card, HIM_DISABLE);
-	PRINTM_DEBUG("%s: mcu_disable_sdio_host_int ret1=%d\n", __FUNCTION__, ret1);
-	ret1 = sdio_release_irq(func);
-	PRINTM_DEBUG("%s: sdio_release_irq ret1=%d\n", __FUNCTION__, ret1);
+	retry_cnt = retry_cnt_start;
+	do {
+		ret1 = mcu_disable_sdio_host_int(card, HIM_DISABLE);
+		PRINTM_DEBUG("%s: mcu_disable_sdio_host_int %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+		retry_cnt--;
+	} while (ret1 && retry_cnt > 0);
+	if (ret1)
+		PRINT_ERR("%s: mcu_disable_sdio_host_int done %d ret1=%d\n", __FUNCTION__, retry_cnt_start, ret1);
+	else
+		PRINTM_DEBUG("%s: mcu_disable_sdio_host_int done %d ret1=%d\n", __FUNCTION__, retry_cnt_start, ret1);
+
+	retry_cnt = retry_cnt_start;
+	do {
+		ret1 = sdio_release_irq(func);
+		PRINTM_DEBUG("%s: sdio_release_irq %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+		retry_cnt--;
+	} while (ret1 && retry_cnt > 0);
+	if (ret1)
+		PRINT_ERR("%s: sdio_release_irq done %d ret1=%d\n", __FUNCTION__, retry_cnt_start, ret1);
+	else
+		PRINTM_DEBUG("%s: sdio_release_irq done %d ret1=%d\n", __FUNCTION__, retry_cnt_start, ret1);
+
 	if (val == SDIO_SET_DIS_INT_IRQ_TEST) {
-		ret1 = sdio_disable_func(func);
-		PRINTM_DEBUG("%s: sdio_disable_func ret1=%d\n", __FUNCTION__, ret1);
+		retry_cnt = retry_cnt_start;
+		do {
+			ret1 = sdio_disable_func(func);
+			PRINTM_DEBUG("%s: sdio_disable_func %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+			retry_cnt--;
+		} while (ret1 && retry_cnt > 0);
+		if (ret1)
+			PRINT_ERR("%s: sdio_disable_func done %d ret1=%d\n", __FUNCTION__, retry_cnt_start, ret1);
+		else
+			PRINTM_DEBUG("%s: sdio_disable_func done %d ret1=%d\n", __FUNCTION__, retry_cnt_start, ret1);
 	}
 	sdio_release_host(func);
+
+	mdelay(1);
+	/* Set Scratch Reg 0xFD to 1, let device know SLEEP HS done */
+	ret1 = mcu_sdio_write_reg(card, 0xFD, SDIO_SLEEP_HS_DONE);
+	if (ret1 != 0) {
+		PRINT_ERR("%s: mcu_sdio_write_reg 0xFD=%u fail!%d\n", __FUNCTION__, SDIO_SLEEP_HS_DONE, ret1);
+	} else {
+		PRINTM_DEBUG("%s: mcu_sdio_write_reg 0xFD=%u success %d\n", __FUNCTION__, SDIO_SLEEP_HS_DONE, ret1);
+	}
 
 	return ret1;
 }
@@ -1651,32 +1697,56 @@ static int mcu_sdio_enable_irq(struct sdio_func *func, struct mcu_sdio_mmc_card 
 	sdio_claim_host(func);
 
 	/* Request the SDIO IRQ */
-	retry_cnt = RETRY_CNT;
-	PRINTM_DEBUG("%s: try sdio_claim_irq retry_cnt=%d\n", __FUNCTION__, retry_cnt);
+	retry_cnt = 10;
 	do {
 		ret1 = sdio_claim_irq(func, mcu_sdio_interrupt);
+		PRINTM_DEBUG("%s: sdio_claim_irq %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
+		if (ret1 && retry_cnt > 0) {
+			sdio_release_irq(func);
+			mdelay(1);
+		}
 	} while (ret1 && retry_cnt > 0);
 	if (ret1) {
-		PRINT_ERR("%s: sdio_claim_irq() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+		PRINT_ERR("%s: sdio_claim_irq done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
 		//goto out_w1;
 	}
 
 	/* re-enable host interrupt */
 	retry_cnt = RETRY_CNT;
-	PRINTM_DEBUG("%s: try mcu_enable_sdio_host_int retry_cnt=%d\n", __FUNCTION__, retry_cnt);
 	do {
 		ret1 = mcu_enable_sdio_host_int(card, card->regs->host_int_enable);
+		PRINTM_DEBUG("%s: mcu_enable_sdio_host_int %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
 	} while (ret1 && retry_cnt > 0);
 	if (ret1) {
-		PRINT_ERR("%s: mcu_enable_sdio_host_int() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+		PRINT_ERR("%s: mcu_enable_sdio_host_int done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
 		//goto out_w1;
 	}
 
 	sdio_release_host(func);
 
 	return ret1;
+}
+
+static void mcu_sdio_wait_fw_ready(struct mcu_sdio_mmc_card *card)
+{
+	int ret = -EFAULT;
+	u32 fwstat0 = 0;
+	u32 fwstat1 = 0;
+
+	/* Wait for firmware ready */
+	while (true) {
+		ret = mcu_sdio_read_reg(card, card->regs->fw_dnld_status_0_reg, &fwstat0);
+		ret |= mcu_sdio_read_reg(card, card->regs->fw_dnld_status_1_reg, &fwstat1);
+		if ((ret == 0) && (fwstat0 == SDIO_FW_READY0) && (fwstat1 == SDIO_FW_READY1)) {
+			break;
+		}
+		PRINTM_DEBUG("%s: ret=%d fwstat0=0x%x fwstat1=0x%x\n", __FUNCTION__, ret, fwstat0, fwstat1);
+		mdelay(1);
+	}
+
+	PRINTM_DEBUG("%s: Success %d: 0x%x 0x%x\n", __FUNCTION__, ret, fwstat0, fwstat1);
 }
 
 static int mcu_sdio_reset(struct sdio_func *func, struct mcu_sdio_mmc_card *card)
@@ -1692,75 +1762,111 @@ static int mcu_sdio_reset(struct sdio_func *func, struct mcu_sdio_mmc_card *card
 	PRINTM_DEBUG("%s: sdio_claim_host ===\n", __FUNCTION__);
 	sdio_claim_host(func);
 
-	retry_cnt = 100;
-	PRINTM_DEBUG("%s: try mmc_hw_reset retry_cnt=%d\n", __FUNCTION__, retry_cnt);
+	retry_cnt = 10;
 	do {
-		ret1 = mmc_hw_reset(func->card);
+		ret1 = mmc_sw_reset(func->card);
 		mdelay(100);
-		PRINTM_DEBUG("try hw reset %d time\n", retry_cnt);
+		PRINTM_DEBUG("%s: mmc_sw_reset %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
 	} while (ret1 && retry_cnt > 0);
 	if (ret1) {
-		PRINT_ERR("%s: mmc_hw_reset %d time ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
-		//goto out_w1;
+		PRINT_ERR("%s: mmc_sw_reset done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
+		//goto retry;
+	}
+	mdelay(1000);
+
+	if (ret1) {
+		retry_cnt = 10;
+		do {
+			ret1 = mmc_hw_reset(func->card);
+			mdelay(100);
+			PRINTM_DEBUG("%s: mmc_hw_reset %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+			retry_cnt--;
+		} while (ret1 && retry_cnt > 0);
+		if (ret1) {
+			PRINT_ERR("%s: mmc_hw_reset done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
+			//goto retry;
+			return -EFAULT;
+		}
+		mdelay(1000);
 	}
 
+	/* Set Scratch Reg 0xFD to 2, let device know mmc reset done */
+	retry_cnt = 10;
+	do {
+		ret1 = mcu_sdio_write_reg(card, 0xFD, SDIO_RESET_DONE);
+		mdelay(100);
+		PRINTM_DEBUG("%s: mcu_sdio_write_reg %d 0xFD=%u ret=%d\n", __FUNCTION__, retry_cnt, SDIO_RESET_DONE, ret1);
+		retry_cnt--;
+	} while (ret1 && retry_cnt > 0);
+	if (ret1 != 0) {
+		PRINT_ERR("%s: mcu_sdio_write_reg 0xFD=%u fail!%d\n", __FUNCTION__, SDIO_RESET_DONE, ret1);
+		//goto retry;
+		return -EFAULT;
+	}
+
+	mcu_sdio_wait_fw_ready(card);
+	mdelay(100);
+
 	retry_cnt = RETRY_CNT;
-	PRINTM_DEBUG("%s: try sdio_enable_func retry_cnt=%d\n", __FUNCTION__, retry_cnt);
 	do {
 		ret1 = sdio_enable_func(func);
+		PRINTM_DEBUG("%s: sdio_enable_func %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
 	} while (ret1 && retry_cnt > 0);
 	if (ret1) {
-		PRINT_ERR("%s: sdio_enable_func() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+		PRINT_ERR("%s: sdio_enable_func done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
 		//goto out_w1;
 	}
 
 	retry_cnt = RETRY_CNT;
-	PRINTM_DEBUG("%s: try mcu_sdio_init retry_cnt=%d\n", __FUNCTION__, retry_cnt);
 	do {
 		ret1 = mcu_sdio_init(card);
+		PRINTM_DEBUG("%s: mcu_sdio_init %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
 	} while (ret1 && retry_cnt > 0);
 	if (ret1) {
-		PRINT_ERR("%s: mcu_sdio_init() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+		PRINT_ERR("%s: mcu_sdio_init done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
 		//goto out_w1;
 	}
 
 	/* Request the SDIO IRQ */
 	retry_cnt = RETRY_CNT;
-	PRINTM_DEBUG("%s: try sdio_claim_irq retry_cnt=%d\n", __FUNCTION__, retry_cnt);
 	do {
 		ret1 = sdio_claim_irq(func, mcu_sdio_interrupt);
+		PRINTM_DEBUG("%s: sdio_claim_irq %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
+		if (ret1)
+			sdio_release_irq(func);
+		mdelay(1);
 	} while (ret1 && retry_cnt > 0);
 	if (ret1) {
-		PRINT_ERR("%s: sdio_claim_irq() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+		PRINT_ERR("%s: sdio_claim_irq done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
 		//goto out_w1;
 	}
 
 	/* Set block size */
 	retry_cnt = RETRY_CNT;
-	PRINTM_DEBUG("%s: try sdio_set_block_size retry_cnt=%d\n", __FUNCTION__, retry_cnt);
 	do {
 		ret1 = sdio_set_block_size(func, MLAN_SDIO_BLOCK_SIZE);
+		PRINTM_DEBUG("%s: sdio_set_block_size %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
 	} while (ret1 && retry_cnt > 0);
 	if (ret1) {
 		//sdio_release_irq(func);
-		PRINT_ERR("%s: sdio_set_block_size() %d %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, MLAN_SDIO_BLOCK_SIZE, ret1);
+		PRINT_ERR("%s: sdio_set_block_size done %d %d ret1=%d\n", __FUNCTION__, MLAN_SDIO_BLOCK_SIZE, RETRY_CNT, ret1);
 		//goto out_w1;
 	}
 
 	/* re-enable host interrupt */
 	retry_cnt = RETRY_CNT;
-	PRINTM_DEBUG("%s: try mcu_enable_sdio_host_int retry_cnt=%d\n", __FUNCTION__, retry_cnt);
 	do {
 		ret1 = mcu_enable_sdio_host_int(card, card->regs->host_int_enable);
+		PRINTM_DEBUG("%s: mcu_enable_sdio_host_int %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
 	} while (ret1 && retry_cnt > 0);
 	if (ret1) {
-		PRINT_ERR("%s: mcu_enable_sdio_host_int() %d failed: ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
+		PRINT_ERR("%s: mcu_enable_sdio_host_int done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
 		//goto out_w1;
 	}
 	PRINTM_DEBUG("%s: sdio_release_host ===\n", __FUNCTION__);
@@ -1768,7 +1874,6 @@ static int mcu_sdio_reset(struct sdio_func *func, struct mcu_sdio_mmc_card *card
 
 	return ret1;
 }
-
 
 static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
@@ -1842,11 +1947,13 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 			if (val == SDIO_SET_RE_ENUM) {
 				u32 reg = 0;
 				/* Reuse winner_check_reg for device not has winner like WIFI/BT, device save the PM state to this reg when pm exit */
+				mdelay(100);
 				ret1 = mcu_sdio_read_reg(card, card->regs->winner_check_reg, &reg);
 				PRINTM_DEBUG("%s: mcu_sdio_read_reg 0x%x: ret1=%d reg=%u\n", __FUNCTION__, card->regs->winner_check_reg, ret1, reg);
 				if ((ret1 == 0) && ((reg == DEVICE_PM_STATE_PM1) || (reg == DEVICE_PM_STATE_PM2))) {
 					mcu_sdio_enable_irq(func, card);
 				} else {
+					mdelay(100);
 					mcu_sdio_reset(func, card);
 				}
 			} else if ((val == SDIO_SET_DIS_INT_IRQ) || (val == SDIO_SET_DIS_INT_IRQ_TEST)) {
