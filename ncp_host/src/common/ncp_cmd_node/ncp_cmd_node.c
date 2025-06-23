@@ -10,12 +10,14 @@
 #include <semaphore.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <errno.h>
 
 #include "ncp_host_command.h"
 #include "ncp_cmd_node.h"
 #include "ncp_adapter.h"
+#include "ncp_tlv_adapter.h"
 
 ncp_cmd_node_list_t g_cmd_node_list;
 uint16_t g_cmd_node_seqno = 0;
@@ -155,7 +157,6 @@ uint8_t ncp_tlv_send_wait_resp(void * cmd, void * cmd_resp_buf, Handle_respFunc 
     sem_timedwait(sem, &ts);
     if (errno == ETIMEDOUT)
     {
-        printf("xinyu sem_timedwait timeout\r\n");
         ret = NCP_STATUS_ERROR;
         goto out_clear;
     }
@@ -168,6 +169,19 @@ out_clear:
         match_cmd_node(cmd_node->ncp_cmd_id, cmd_node->seqnum);
     }
     free(cmd_node);
+    return ret;
+}
+
+uint8_t ncp_tlv_send_no_resp(void * cmd)
+{
+    NCP_COMMAND * ncp_cmd = (NCP_COMMAND *) cmd;
+    uint8_t ret = NCP_STATUS_SUCCESS;
+
+    if (ncp_tlv_send(cmd, ncp_cmd->size) != NCP_STATUS_SUCCESS)
+    {
+        printf("ncp_tlv_send failed!\r\n");
+        ret = NCP_STATUS_ERROR;
+    }
     return ret;
 }
 

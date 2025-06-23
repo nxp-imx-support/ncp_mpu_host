@@ -31,7 +31,7 @@ ncp_status_t  usb_send(usb_device_t *dev,int8_t *buf, uint32_t len);
 ncp_status_t  usb_receive(usb_device_t *dev, int8_t *buf, uint32_t len, size_t *nb_bytes);
 void usb_deinit(usb_device_t *dev);
 ncp_status_t config_usb(usb_device_t *usb_dev);
-void set_IntfEndpoints(struct libusb_device *req_device, usb_device_t *usb_dev);
+void set_IntfEndpoints(struct libusb_device *req_device, usb_device_t *usb_dev, libusb_device **usb_devices_list, libusb_device_handle *dev_handle);
 int usb_lpm_init();
 
 #endif /* USB_H_ */

@@ -125,7 +125,7 @@ static void ncp_encrypt_handshake_task(void *pvParameters)
 exit:
     (void) ncp_encrypt_teardown();
     ncp_d("**** exit with %d", ret);
-    (void) pthread_exit(ret);
+    (void) pthread_exit(NULL);
 }
 
 int ncp_process_encrypt_event(uint8_t *res)

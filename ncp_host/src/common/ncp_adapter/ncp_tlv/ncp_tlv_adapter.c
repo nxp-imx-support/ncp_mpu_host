@@ -9,6 +9,7 @@
 #include "crc.h"
 #include "ncp_adapter.h"
 #include "lpm.h"
+#include "mbedtls_common.h"
 #if CONFIG_NCP_USE_ENCRYPT
 #include "mbedtls/gcm.h"
 #include "mbedtls_common.h"
@@ -122,14 +123,14 @@ static ncp_status_t ncp_tlv_tx_enque(ncp_tlv_qelem_t *qelem)
     ncp_status_t status = NCP_STATUS_SUCCESS;
 
     pthread_mutex_lock(&ncp_tlv_queue_mutex);
-
+#if 0
     if (ncp_tlv_queue_len == NCP_TLV_QUEUE_LENGTH)
     {
         ncp_adap_e("ncp tlv queue is full max queue length: %d", NCP_TLV_QUEUE_LENGTH);
         status = NCP_STATUS_QUEUE_FULL;
         goto Fail;
     }
-
+#endif
     ncp_adap_d("%s: mq_send qelem=%p: tlv_buf=%p tlv_sz=%lu", __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
 #ifdef CONFIG_MPU_IO_DUMP
     mpu_dump_hex(qelem, sizeof(ncp_tlv_qelem_t) + qelem->tlv_sz);
@@ -164,7 +165,7 @@ static ncp_status_t ncp_tlv_tx_init(void)
         ncp_adap_e("ERROR: pthread_mutex_init");
         return NCP_STATUS_ERROR;
     }
-
+    mq_unlink(NCP_TX_QUEUE_NAME);
     qattr.mq_flags         = 0;
     qattr.mq_maxmsg        = NCP_TLV_QUEUE_LENGTH;
     qattr.mq_msgsize       = NCP_TLV_QUEUE_MSG_SIZE;

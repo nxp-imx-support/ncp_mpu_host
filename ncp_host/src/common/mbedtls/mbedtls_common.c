@@ -33,7 +33,7 @@ static const int _ciphersuite_list[] = {
 mbedtls_ctx_t *_mbedtls;
 uint32_t _verify_num;
 
-static int port_mbedtls_rng(void *p_rng, uint8_t *buf, uint32_t len)
+static int port_mbedtls_rng(void *p_rng, unsigned char *buf, size_t len)
 {
     if (!buf)
     {
@@ -88,7 +88,7 @@ static int port_mbedtls_recv(void *ctx, unsigned char *buf, size_t len)
     return ret;
 }
 
-static int port_mbedtls_entropy_read(unsigned char *buf, unsigned int buf_len)
+static int port_mbedtls_entropy_read(unsigned char *buf, size_t buf_len)
 {
     NCP_ASSERT(_mbedtls);
 
@@ -103,7 +103,7 @@ static int port_mbedtls_entropy_read(unsigned char *buf, unsigned int buf_len)
     return buf_len;
 }
 
-static int port_mbedtls_entropy_write(unsigned char *buf, unsigned int buf_len)
+static int port_mbedtls_entropy_write(unsigned char *buf, size_t buf_len)
 {
     NCP_ASSERT(_mbedtls);
 
@@ -345,7 +345,7 @@ int ncp_encrypt_process_handshake_data(uint8_t *data, uint16_t len)
     recv_buf_free_len = NCP_MBEDTLS_RECV_BUF_LEN - recv_data_cnt - 1;
     if (!recv_buf_free_len)
     {
-        ncp_w("ncp encrypt handshake data, recv_buf_free_len", recv_buf_free_len);
+        ncp_w("ncp encrypt handshake data, recv_buf_free_len %d", recv_buf_free_len);
         return -TLS_ERR_RINGBUF_FULL;
     }
 
