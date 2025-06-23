@@ -23,7 +23,15 @@
 #include <service/hr.h>
 #include <service/bas.h>
 
+#include <matter/src/ncp_bluetooth.h>
+
+
 extern uint8_t cmd_buf[NCP_COMMAND_LEN];
+
+extern struct bt_conn_cb *matter_conn_cb;
+extern struct bt_svc_cb *matter_svc_cb;
+extern int matter_mtu_size;
+extern uint8_t matter_rx_wait_flag;
 
 static uint8_t reg_serv[MAX_SUPPORT_SERVICE] = {0};
 
@@ -1819,6 +1827,16 @@ int ble_process_ncp_event(uint8_t *res)
         case NCP_EVENT_GATT_DISC_DESC:
             ret = ble_process_gatt_desc_discovered(res);
             break;
+        case NCP_EVENT_BLE_MATTER_RX_WRITE:
+            ret = ble_process_matter_rx_write(res);
+            break;
+        case NCP_EVENT_BLE_MATTER_CCC_CFG:
+            ret = ble_process_matter_ccc_cfg(res);
+            break;
+        case NCP_EVENT_BLE_MATTER_IND_CONFIRM:
+            ret = ble_process_matter_ind_confirm(res);
+            break;
+
         default:
             printf("Invaild event! Invalid event id is %08x\r\n", evt->header.cmd);
             break;
@@ -1848,6 +1866,8 @@ int ble_process_device_connected(uint8_t *res)
 
     MCP_DEVICE_CONNECTED_EV *device_connected_tlv = (MCP_DEVICE_CONNECTED_EV *)&evt_res->params.device_connected;
 
+    printf("Connection id: %d\r\n",device_connected_tlv->conn_id);
+
     memcpy(address,device_connected_tlv->address, 6);
     printf("Connected to: %02X:%02X:%02X:%02X:%02X:%02X ",
                     address[0],  address[1], address[2], address[3], address[4], address[5]);
@@ -1864,6 +1884,11 @@ int ble_process_device_connected(uint8_t *res)
     printf("Connection Interval: %X\r\n",device_connected_tlv->interval);
     printf("Connection Latency: %X\r\n",device_connected_tlv->latency);
     printf("Supervation Timeout: %X\r\n",device_connected_tlv->timeout);
+
+    if(matter_conn_cb && (matter_conn_cb->connected))
+    {
+        matter_conn_cb->connected(device_connected_tlv->conn_id, 0);
+    }
 
     return WM_SUCCESS;
 }
@@ -1888,6 +1913,11 @@ int ble_process_device_disconnected(uint8_t *res)
     else
     {
         printf("Address type: random\r\n");
+    }
+
+    if(matter_conn_cb && (matter_conn_cb->disconnected))
+    {
+        matter_conn_cb->disconnected(device_disconnected_tlv->conn_id, device_disconnected_tlv->reason);
     }
 
     return WM_SUCCESS;
@@ -2363,6 +2393,52 @@ int ble_process_gatt_desc_discovered(uint8_t *res)
     return WM_SUCCESS;
 }
 
+int ble_process_matter_rx_write(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+    NCP_MATTER_RX_WRITE_EV *rx_write_tlv = (NCP_MATTER_RX_WRITE_EV *)&evt_res->params.matter_rx_write_ev;
+
+    printf("matter rx write, conn id: %d, len: %d \n", rx_write_tlv->conn_id, rx_write_tlv->len);
+
+    if (matter_svc_cb && (matter_svc_cb->rx_write_cb))
+    {
+        matter_svc_cb->rx_write_cb(rx_write_tlv->conn_id, rx_write_tlv->data, rx_write_tlv->len);
+    }
+
+    return WM_SUCCESS;
+}
+
+int ble_process_matter_ccc_cfg(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+    NCP_MATTER_CCC_CFG_EV *ccc_cfg_tlv = (NCP_MATTER_CCC_CFG_EV *)&evt_res->params.matter_ccc_cfg_ev;
+
+    printf("matter ccc config, conn id: %d, value: %d, \n", ccc_cfg_tlv->conn_id, ccc_cfg_tlv->value);
+
+    if (matter_svc_cb && (matter_svc_cb->tx_ccc_write_cb))
+    {
+        matter_svc_cb->tx_ccc_write_cb(ccc_cfg_tlv->conn_id, ccc_cfg_tlv->value);
+    }
+
+    return WM_SUCCESS;
+}
+
+int ble_process_matter_ind_confirm(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+    NCP_MATTER_IND_CONFIRM_EV *ind_confirm_tlv = (NCP_MATTER_IND_CONFIRM_EV *)&evt_res->params.matter_ind_confirm_ev;
+
+    printf("matter indication confirm, conn id: %d, error: %d, \n", ind_confirm_tlv->conn_id, ind_confirm_tlv->err);
+
+    if (matter_svc_cb && (matter_svc_cb->tx_ind_confirm_cb))
+    {
+        matter_svc_cb->tx_ind_confirm_cb(ind_confirm_tlv->conn_id, ind_confirm_tlv->err);
+    }
+
+    return WM_SUCCESS;
+}
+
+
 /**
  * @brief       This function processes response from ncp_ble
  *
@@ -2471,11 +2547,32 @@ int ble_process_response(uint8_t *res)
         case NCP_RSP_BLE_L2CAP_RECEIVE:
             ret = ble_process_l2cap_receive_response(res);
             break;
+        case NCP_RSP_BLE_MATTER_GET_DEVICE_NAME:
+            ret = ble_process_matter_get_device_name(res);
+            break;
+        case NCP_RSP_BLE_MATTER_CONN_REF:
+            ret = ble_process_matter_conn_ref(res);
+            break;
+        case NCP_RSP_BLE_MATTER_CONN_UNREF:
+            ret = ble_process_matter_conn_unref(res);
+            break;
+        case NCP_RSP_BLE_MATTER_GET_MTU:
+            ret = ble_process_matter_get_mtu(res);
+            break;
+        case NCP_RSP_BLE_MATTER_INDICATE:
+            ret = ble_process_matter_indicate(res);
+            break;
+        case NCP_RSP_BLE_MATTER_UNREGISTER:
+            ret = ble_process_matter_unregister(res);
+            break;
 
         default:
             printf("Invaild response cmd!\r\n");
             break;
     }
+
+    matter_rx_wait_flag = 0;
+
     return ret;
 }
 
@@ -3134,6 +3231,137 @@ int ble_process_l2cap_receive_response(uint8_t *res)
     else
     {
         printf("Error: unable to set l2cap receive delay times\r\n");
+    }
+    return WM_SUCCESS;
+}
+
+/**
+ * @brief      This function processes receive connection reference resopnse from ncp_ble
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int ble_process_matter_get_device_name(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+    MCP_GET_DEV_NAME_EV *get_mtu_tlv = (MCP_GET_DEV_NAME_EV *)&evt_res->params.matter_get_dev_name;
+
+    if (evt_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        printf("matter get device name: %s \r\n", get_mtu_tlv->name);
+    }
+    else
+    {
+        printf("Error: matter connection reference\r\n");
+    }
+    return WM_SUCCESS;
+}
+
+
+/**
+ * @brief      This function processes receive connection reference resopnse from ncp_ble
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int ble_process_matter_conn_ref(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
+
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        printf("matter connection reference successfully\r\n");
+    }
+    else
+    {
+        printf("Error: matter connection reference\r\n");
+    }
+    return WM_SUCCESS;
+}
+
+/**
+ * @brief      This function processes receive connection unreference resopnse from ncp_ble
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int ble_process_matter_conn_unref(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
+
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        printf("matter connection unreference successfully\r\n");
+    }
+    else
+    {
+        printf("Error: matter connection unreference\r\n");
+    }
+    return WM_SUCCESS;
+}
+
+/**
+ * @brief      This function processes receive mtu size from ncp_ble
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int ble_process_matter_get_mtu(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+    MCP_GET_MTU_EV *get_mtu_tlv = (MCP_GET_MTU_EV *)&evt_res->params.matter_get_mtu;
+
+    if (evt_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        printf("matter get mtu size: %d\r\n", get_mtu_tlv->mtu);
+        matter_mtu_size = get_mtu_tlv->mtu;
+    }
+    else
+    {
+        printf("Error: matter get mtu fail\r\n");
+        matter_mtu_size = -1;
+    }
+    return WM_SUCCESS;
+}
+
+/**
+ * @brief      This function processes matter send indicate event
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int ble_process_matter_indicate(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+
+    if (evt_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        printf("matter send indicate successfully\r\n");
+    }
+    else
+    {
+        printf("Error: matter send indicate fail\r\n");
+    }
+    return WM_SUCCESS;
+}
+
+/**
+ * @brief      This function processes matter service unregister event
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int ble_process_matter_unregister(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *evt_res = (NCPCmd_DS_COMMAND *)res;
+
+    if (evt_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        printf("matter service unregister success\r\n");
+    }
+    else
+    {
+        printf("Error: matter service unregister fail\r\n");
     }
     return WM_SUCCESS;
 }

@@ -28,13 +28,18 @@
 #include <assert.h>
 #include "ncp_host_app.h"
 #include "ncp_host_app_wifi.h"
+#ifdef CONFIG_NCP_BLE
 #include "ncp_host_app_ble.h"
+#endif
 #ifndef NCP_OT_STANDALONE
+#ifdef CONFIG_NCP_OT
 #include "ncp_host_app_ot.h"
+#endif
 #endif
 #include "ncp_host_command.h"
 #include "ncp_host_command_wifi.h"
 #include "ncp_tlv_adapter.h"
+#include "ncp_cmd_node.h"
 #include "lpm.h"
 
 uint8_t input_buf[NCP_COMMAND_LEN];
@@ -617,15 +622,23 @@ extern int ncp_system_app_init();
 extern int ncp_host_system_command_init();
 extern void ncp_system_app_deinit(void);
 #ifndef NCP_OT_STANDALONE
+#ifdef CONFIG_MATTER_NCP
+int ncp_host_main()
+#else
 int main(int argc, char **argv)
+#endif
 {
     pthread_t send_thread;
     recv_data_t recv_data;
     send_data_t send_data;
     send_data.data_buf      = input_buf;
     ring_buffer_t *ring_buf = NULL;
-
+#ifdef CONFIG_MATTER_NCP
+    char* dev_name = getenv("NCP_PORT");
+    if (ncp_adapter_init(dev_name) != NCP_STATUS_SUCCESS)
+#else
     if (ncp_adapter_init(argv[1]) != NCP_STATUS_SUCCESS)
+#endif
     {
         printf("ncp_adapter_init failed!\r\n");
         goto err_adapter_init;
@@ -709,7 +722,7 @@ int main(int argc, char **argv)
         printf("Failed to init cmd_node mutex!\r\n");
         goto err_cmd_node_list;
     }
-
+#ifndef CONFIG_MATTER_NCP
     send_thread = pthread_create(&send_thread, NULL, (void *)ncp_handle_input_task, (void *)&send_data);
     if (send_thread != 0)
     {
@@ -726,7 +739,7 @@ int main(int argc, char **argv)
         goto err_wifi_ncp_app_task_init;
     }
 #endif
-
+#endif
     if (mpu_host_init_cli_commands() != TRUE)
     {
         printf("Failed to register MPU ncp host cli commands!\r\n");
@@ -767,6 +780,9 @@ int main(int argc, char **argv)
     printf("================================\r\n");
     help_command(0, NULL);
     printf("================================\r\n");
+#ifdef CONFIG_MATTER_NCP
+    goto matter_ncp;
+#endif
     while (1)
     {
         usleep(100000);
@@ -838,7 +854,7 @@ err_system_init:
     ncp_adapter_deinit();
 err_adapter_init:
     exit(EXIT_FAILURE);
-
+matter_ncp:
     return TRUE;
 }
 #endif

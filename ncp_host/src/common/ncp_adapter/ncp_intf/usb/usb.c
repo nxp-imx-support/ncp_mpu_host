@@ -10,8 +10,10 @@
 #include <string.h>
 #include <semaphore.h>
 #include <stdbool.h>
+#include <pthread.h>
 
 #include "ncp_adapter.h"
+#include "ncp_intf_usb.h"
 #include "usb.h"
 
 /*******************************************************************************
@@ -51,8 +53,8 @@ static void* usb_handle_lpm(void *argv)
     {
         sem_wait(&usb_lpm_sem);
         ncp_adap_d("ncp_usb_deinit \r\n");
-        ncp_usb_deinit();
-        ncp_usb_init();
+        ncp_usb_deinit(NULL);
+        ncp_usb_init(NULL);
         ncp_adap_d("ncp_usb_init \r\n");
     }
 
@@ -168,7 +170,7 @@ ncp_status_t usb_init(usb_device_t *dev)
 ncp_status_t usb_receive(usb_device_t *dev, int8_t *buf, uint32_t len, size_t *nb_bytes)
 {
 
-    size_t bytesread;
+    int bytesread = 0;
     int8_t ret;
 
 	ret = libusb_bulk_transfer(dev->handle, dev->usb_endpoint_in, buf, len, &bytesread, USB_TIMEOUT);
@@ -332,12 +334,12 @@ ncp_status_t config_usb(usb_device_t *usb_dev)
         return NCP_STATUS_ERROR;
     }
 
-    set_IntfEndpoints(dev, usb_dev);
+    set_IntfEndpoints(dev, usb_dev, usb_devices, usb_handle);
 
     return NCP_STATUS_SUCCESS;
 }
 
-void set_IntfEndpoints(struct libusb_device *req_device, usb_device_t *usb_dev)
+void set_IntfEndpoints(struct libusb_device *req_device, usb_device_t *usb_dev, libusb_device **usb_devices_list, libusb_device_handle *dev_handle)
 {
     struct libusb_config_descriptor *dconfig;
     struct libusb_endpoint_descriptor *endpoint;
@@ -366,8 +368,8 @@ void set_IntfEndpoints(struct libusb_device *req_device, usb_device_t *usb_dev)
 
                     if (ret_descr < 0)
                     {
-                        libusb_free_device_list(req_device, 1);
-                        libusb_close(req_device);
+                        libusb_free_device_list(usb_devices_list, 1);
+                        libusb_close(dev_handle);
                     }
 
                     /*Last bit decides if its direction is in or out*/

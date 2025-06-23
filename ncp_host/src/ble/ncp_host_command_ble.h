@@ -22,7 +22,8 @@
 #define NCP_CMD_BLE_L2CAP        0x00300000
 #define NCP_CMD_BLE_POWERMGMT    0x00400000
 #define NCP_CMD_BLE_VENDOR       0x00500000
-#define NCP_CMD_BLE_OTHER        0x00600000
+#define NCP_CMD_BLE_MATTER       0x00600000
+#define NCP_CMD_BLE_OTHER        0x00700000
 #define NCP_CMD_BLE_EVENT        0x00f00000
 
 /*NCP MPU Command definitions*/
@@ -115,6 +116,30 @@
 #define NCP_RSP_BLE_VENDOR_SET_DEVICE_NAME   (NCP_CMD_BLE | NCP_CMD_BLE_VENDOR | NCP_MSG_TYPE_RESP | 0x00000004)
 #define NCP_CMD_BLE_VENDOR_CFG_MULTI_ADV     (NCP_CMD_BLE | NCP_CMD_BLE_VENDOR | NCP_MSG_TYPE_CMD | 0x00000005) /* Config Multi-advertising */
 #define NCP_RSP_BLE_VENDOR_CFG_MULTI_ADV     (NCP_CMD_BLE | NCP_CMD_BLE_VENDOR | NCP_MSG_TYPE_RESP | 0x00000005)
+
+/*BLE Matter command*/
+#define NCP_CMD_BLE_MATTER_GET_DEVICE_NAME   (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_CMD | 0x00000001) /* Get LE device name */
+#define NCP_RSP_BLE_MATTER_GET_DEVICE_NAME   (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_RESP | 0x00000001)
+#define NCP_CMD_BLE_MATTER_GET_CONN_INDEX    (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_CMD | 0x00000002) /* Get LE connection index */
+#define NCP_RSP_BLE_MATTER_GET_CONN_INDEX    (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_RESP | 0x00000002)
+#define NCP_CMD_BLE_MATTER_CONN_REF          (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_CMD | 0x00000003) /* LE connection reference */
+#define NCP_RSP_BLE_MATTER_CONN_REF          (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_RESP | 0x00000003)
+#define NCP_CMD_BLE_MATTER_CONN_UNREF        (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_CMD | 0x00000004) /* LE connection unreference */
+#define NCP_RSP_BLE_MATTER_CONN_UNREF        (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_RESP | 0x00000004)
+#define NCP_CMD_BLE_MATTER_GET_MTU           (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_CMD | 0x00000005) /* Get MTU size */
+#define NCP_RSP_BLE_MATTER_GET_MTU           (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_RESP | 0x00000005)
+#define NCP_CMD_BLE_MATTER_DISCONN           (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_CMD | 0x00000006) /* LE disconnect */
+#define NCP_RSP_BLE_MATTER_DISCONN           (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_RESP | 0x00000006)
+#define NCP_CMD_BLE_MATTER_INDICATE          (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_CMD | 0x00000007) /* Send indicate */
+#define NCP_RSP_BLE_MATTER_INDICATE          (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_RESP | 0x00000007)
+#define NCP_CMD_BLE_MATTER_UNREGISTER        (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_CMD | 0x00000008) /* unregister matter service*/
+#define NCP_RSP_BLE_MATTER_UNREGISTER        (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_RESP | 0x00000008)
+
+/*BLE Matter event*/
+#define NCP_EVENT_BLE_MATTER_RX_WRITE        (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_EVENT | 0x00000001) /* Matter service rx write */
+#define NCP_EVENT_BLE_MATTER_CCC_CFG         (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_EVENT | 0x00000002)/* Matter service ccc config */
+#define NCP_EVENT_BLE_MATTER_IND_CONFIRM     (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_EVENT | 0x00000003)/* Matter service indicatie confirm */
+#define NCP_EVENT_BLE_MATTER_C3_READ         (NCP_CMD_BLE | NCP_CMD_BLE_MATTER | NCP_MSG_TYPE_EVENT | 0x00000004)/* Matter service C3 read */
 
 /*BLE events*/
 #define NCP_EVENT_IUT_READY                  (NCP_CMD_BLE | NCP_CMD_BLE_EVENT | NCP_MSG_TYPE_EVENT | 0x80) /* IUT Ready event */
@@ -261,6 +286,59 @@ typedef struct _MCP_CMD_SET_NAME
 {
     uint8_t name[33];
 } MCP_CMD_SET_NAME;
+
+typedef struct _MCP_CMD_GET_CONN_INDEX
+{
+    uint16_t conn_id;
+} MCP_CMD_GET_CONN_INDEX;
+
+typedef struct _MCP_CMD_CONN_REF
+{
+    uint16_t conn_id;
+} MCP_CMD_CONN_REF;
+
+typedef struct _MCP_CMD_CONN_UNREF
+{
+    uint16_t conn_id;
+} MCP_CMD_CONN_UNREF;
+
+typedef struct _MCP_CMD_GET_MTU
+{
+    uint16_t conn_id;
+} MCP_CMD_GET_MTU;
+
+typedef struct _MCP_CMD_DISCONN
+{
+    uint16_t conn_id;
+    uint8_t reason;
+} MCP_CMD_DISCONN;
+
+typedef struct _MCP_CMD_MATTER_INDICATE
+{
+    uint16_t conn_id;
+    uint16_t len;
+    uint8_t data[256];
+} MCP_CMD_MATTER_INDICATE;
+
+typedef struct _NCP_MATTER_RX_WRITE_RP {
+    uint16_t conn_id;
+    uint16_t offset;
+    uint8_t flags;
+    uint8_t len;
+    uint8_t data[256];
+} NCP_MATTER_RX_WRITE_EV;
+
+typedef struct  _NCP_MATTER_CCC_CFG_RP {
+    uint16_t conn_id;
+    uint16_t value;
+} NCP_MATTER_CCC_CFG_EV;
+
+typedef struct  _NCP_MATTER_IND_CONFIRM_RP {
+    uint16_t conn_id;
+    uint8_t err;
+} NCP_MATTER_IND_CONFIRM_EV;
+
+//matter end
 
 typedef struct _MCP_CMD_SET_POWER_MODE
 {
@@ -456,6 +534,7 @@ typedef struct _MCP_DEVICE_ADV_REPORT_EV {
 } MCP_DEVICE_ADV_REPORT_EV;
 
 typedef struct _MCP_DEVICE_CONNECTED_EV {
+    uint8_t conn_id;
     uint8_t address_type;
     uint8_t address[6];
     uint16_t interval;
@@ -464,8 +543,10 @@ typedef struct _MCP_DEVICE_CONNECTED_EV {
 } MCP_DEVICE_CONNECTED_EV;
 
 typedef struct _MCP_DEVICE_DISCONNECTED_EV {
+    uint8_t conn_id;
     uint8_t address_type;
     uint8_t address[6];
+    uint8_t reason;
 } MCP_DEVICE_DISCONNECTED_EV;
 
 typedef struct _MCP_PASSKEY_DISPLAY_EV {
@@ -537,6 +618,15 @@ typedef struct  _MCP_L2CAP_RECEIVE_EV {
     uint8_t data[256];
 } MCP_L2CAP_RECEIVE_EV;
 
+typedef struct  _MCP_GET_DEV_NAME_EV {
+    uint8_t name[33];
+} MCP_GET_DEV_NAME_EV;
+
+typedef struct  _MCP_GET_MTU_EV {
+    uint16_t mtu;
+} MCP_GET_MTU_EV;
+
+
 typedef struct _NCPCmd_DS_COMMAND
 {
     /** Command Header : Command */
@@ -570,6 +660,18 @@ typedef struct _NCPCmd_DS_COMMAND
         MCP_GATT_READ_CMD gatt_read_char;
         /** Ble Set Device Name */
         MCP_CMD_SET_NAME set_dev_name;
+        /** Ble Get Connection Index */
+        MCP_CMD_GET_CONN_INDEX get_conn_index;
+        /** Ble Connection Reference */
+        MCP_CMD_CONN_REF conn_ref;
+        /** Ble Connection Unreference */
+        MCP_CMD_CONN_UNREF conn_unref;
+        /** Ble Get MTU size */
+        MCP_CMD_GET_MTU get_mtu;
+        /** Ble Disconnect */
+        MCP_CMD_DISCONN disconn;
+        /** Ble matter indicate */
+        MCP_CMD_MATTER_INDICATE indicate;
         /** Ble GATT Add Service Attribute */
         MCP_CMD_SERVICE_ADD host_svc_add;
         /** Ble Start Service at Host side */
@@ -631,12 +733,24 @@ typedef struct _NCPCmd_DS_COMMAND
         /** GATT Discover Primary Service event */
         MCP_DISC_ALL_DESC_EV gatt_disc_desc_ev;
 
+        /** Matter rx wirte event */
+        NCP_MATTER_RX_WRITE_EV matter_rx_write_ev;
+        /** Matter ccc config event */
+        NCP_MATTER_CCC_CFG_EV matter_ccc_cfg_ev;
+        /** Matter ccc config event */
+        NCP_MATTER_IND_CONFIRM_EV matter_ind_confirm_ev;
+
         /** Ble l2cap connect event */
         MCP_L2CAP_CONNECT_EV l2cap_connect_ev;
         /** Ble l2cap disconnect event */
         MCP_L2CAP_DISCONNECT_EV l2cap_disconnect_ev;
         /** Ble l2cap receive event */
         MCP_L2CAP_RECEIVE_EV l2cap_receive_ev;
+
+        /** Matter get device name */
+        MCP_GET_DEV_NAME_EV matter_get_dev_name;
+        /** Matter get mtu size event */
+        MCP_GET_MTU_EV matter_get_mtu;
 
         /** Ble Adv start response */
         MCP_START_ADV_RP start_adv_rp;
@@ -832,6 +946,24 @@ int ble_process_gatt_prim_discovered(uint8_t *res);
 int ble_process_gatt_chrc_discovered(uint8_t *res);
 
 int ble_process_gatt_desc_discovered(uint8_t *res);
+
+int ble_process_matter_get_device_name(uint8_t *res);
+
+int ble_process_matter_conn_ref(uint8_t *res);
+
+int ble_process_matter_conn_unref(uint8_t *res);
+
+int ble_process_matter_get_mtu(uint8_t *res);
+
+int ble_process_matter_indicate(uint8_t *res);
+
+int ble_process_matter_unregister(uint8_t *res);
+
+int ble_process_matter_rx_write(uint8_t *res);
+
+int ble_process_matter_ccc_cfg(uint8_t *res);
+
+int ble_process_matter_ind_confirm(uint8_t *res);
 
 NCPCmd_DS_COMMAND *mpu_host_get_ble_command_buffer();
 

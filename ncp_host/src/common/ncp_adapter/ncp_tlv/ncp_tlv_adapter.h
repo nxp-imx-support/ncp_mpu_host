@@ -48,10 +48,12 @@
 #ifndef CONFIG_NCP_USE_ENCRYPT
 #define CONFIG_NCP_USE_ENCRYPT         0
 #endif
+#ifndef CONFIG_NCP_HOST_AUTO_TRIG_ENCRYPT
+#define CONFIG_NCP_HOST_AUTO_TRIG_ENCRYPT 0
+#endif
 #if CONFIG_NCP_USE_ENCRYPT
 #define CONFIG_NCP_MBEDTLS_DBG_LEVEL              1   /* 0-4, higher means more log output */
 #define CONFIG_NCP_IS_PVTKEY_ENCRYPTED            1
-#define CONFIG_NCP_HOST_AUTO_TRIG_ENCRYPT         0
 #endif
 
 #define TLV_CMD_HEADER_LEN      12
@@ -227,5 +229,6 @@ typedef NCP_TLV_PACK_START struct
 
 #define NCP_DUMP_WRAPAROUND 16
 void ncp_dump_hex(const void *data, unsigned int len);
+int ncp_tlv_adapter_is_encrypt_mode(void);
 
 #endif /* __NCP_TLV_ADAPTER_H__ */

@@ -6,10 +6,15 @@
  *
  */
 
+#ifndef __NCP_CMD_NODE__
+#define __NCP_CMD_NODE__
+
+
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #define NCP_COMMAND_LEN 4096
 #define NCP_CMD_NODE_SEM_TIMEOUT 20
@@ -44,4 +49,7 @@ typedef struct {
 int ncp_cmd_node_list_init();
 void ncp_cmd_node_list_deinit();
 uint8_t ncp_tlv_send_wait_resp(void * cmd, void * cmd_resp_buf, Handle_respFunc cb);
+uint8_t ncp_tlv_send_no_resp(void * cmd);
 void ncp_cmd_node_wakeup_pending_tasks(uint8_t *cmd_res);
+
+#endif

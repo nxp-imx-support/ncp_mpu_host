@@ -35,7 +35,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <sys/times.h>
+#include <sys/time.h>
 #include "ncp_host_wifi_config.h"
 #include "ncp_host_command.h"
 
@@ -86,6 +88,11 @@
 #define IP_ADDR_LEN 16
 
 #pragma pack(1)
+#define MLAN_MAC_ADDR_LENGTH (6)
+#ifdef CONFIG_IPV6
+/** The maximum number of IPV6 addresses that will be stored */
+#define MAX_IPV6_ADDRESSES 3
+#endif
 
 struct icmp_echo_hdr {
     uint8_t type;
@@ -135,8 +142,8 @@ typedef struct _ping_msg_t
 
 typedef struct _ping_time_t
 {
-    uint32_t secs;
-    uint32_t usecs;
+    uint64_t secs;
+    uint64_t usecs;
 } ping_time_t;
 
 typedef struct _ping_res
@@ -567,6 +574,252 @@ typedef struct _NCP_CMD_GET_MAC_ADDRESS
     uint8_t sta_mac[NCP_WLAN_MAC_ADDR_LENGTH];
 } NCP_CMD_GET_MAC_ADDRESS;
 
+/** Wi-Fi Statistics counter */
+typedef struct _NCP_CMD_PKT_STATS
+{
+ /** Multicast transmitted frame count */
+    uint32_t mcast_tx_frame;
+    /** Failure count */
+    uint32_t failed;
+    /** Retry count */
+    uint32_t retry;
+    /** Multi entry count */
+    uint32_t multi_retry;
+    /** Duplicate frame count */
+    uint32_t frame_dup;
+    /** RTS success count */
+    uint32_t rts_success;
+    /** RTS failure count */
+    uint32_t rts_failure;
+    /** Ack failure count */
+    uint32_t ack_failure;
+    /** Rx fragmentation count */
+    uint32_t rx_frag;
+    /** Multicast Tx frame count */
+    uint32_t mcast_rx_frame;
+    /** FCS error count */
+    uint32_t fcs_error;
+    /** Tx frame count */
+    uint32_t tx_frame;
+    /** WEP ICV error count */
+    uint32_t wep_icv_error[4];
+    /** beacon recv count */
+    uint32_t bcn_rcv_cnt;
+    /** beacon miss count */
+    uint32_t bcn_miss_cnt;
+    /** received amsdu count*/
+    uint32_t amsdu_rx_cnt;
+    /** received msdu count in amsdu*/
+    uint32_t msdu_in_rx_amsdu_cnt;
+    /** tx amsdu count*/
+    uint32_t amsdu_tx_cnt;
+    /** tx msdu count in amsdu*/
+    uint32_t msdu_in_tx_amsdu_cnt;
+    /** Tx frag count */
+    uint32_t tx_frag_cnt;
+    /** Qos Tx frag count */
+    uint32_t qos_tx_frag_cnt[8];
+    /** Qos failed count */
+    uint32_t qos_failed_cnt[8];
+    /** Qos retry count */
+    uint32_t qos_retry_cnt[8];
+    /** Qos multi retry count */
+    uint32_t qos_multi_retry_cnt[8];
+    /** Qos frame dup count */
+    uint32_t qos_frm_dup_cnt[8];
+    /** Qos rts success count */
+    uint32_t qos_rts_suc_cnt[8];
+    /** Qos rts failure count */
+    uint32_t qos_rts_failure_cnt[8];
+    /** Qos ack failure count */
+    uint32_t qos_ack_failure_cnt[8];
+    /** Qos Rx frag count */
+    uint32_t qos_rx_frag_cnt[8];
+    /** Qos Tx frame count */
+    uint32_t qos_tx_frm_cnt[8];
+    /** Qos discarded frame count */
+    uint32_t qos_discarded_frm_cnt[8];
+    /** Qos mpdus Rx count */
+    uint32_t qos_mpdus_rx_cnt[8];
+    /** Qos retry rx count */
+    uint32_t qos_retries_rx_cnt[8];
+    /** CMACICV errors count */
+    uint32_t cmacicv_errors;
+    /** CMAC replays count */
+    uint32_t cmac_replays;
+    /** mgmt CCMP replays count */
+    uint32_t mgmt_ccmp_replays;
+    /** TKIP ICV errors count */
+    uint32_t tkipicv_errors;
+    /** TKIP replays count */
+    uint32_t tkip_replays;
+    /** CCMP decrypt errors count */
+    uint32_t ccmp_decrypt_errors;
+    /** CCMP replays count */
+    uint32_t ccmp_replays;
+    /** Tx amsdu count */
+    uint32_t tx_amsdu_cnt;
+    /** failed amsdu count */
+    uint32_t failed_amsdu_cnt;
+    /** retry amsdu count */
+    uint32_t retry_amsdu_cnt;
+    /** multi-retry amsdu count */
+    uint32_t multi_retry_amsdu_cnt;
+    /** Tx octets in amsdu count */
+    uint64_t tx_octets_in_amsdu_cnt;
+    /** amsdu ack failure count */
+    uint32_t amsdu_ack_failure_cnt;
+    /** Rx amsdu count */
+    uint32_t rx_amsdu_cnt;
+    /** Rx octets in amsdu count */
+    uint64_t rx_octets_in_amsdu_cnt;
+    /** Tx ampdu count */
+    uint32_t tx_ampdu_cnt;
+    /** tx mpdus in ampdu count */
+    uint32_t tx_mpdus_in_ampdu_cnt;
+    /** tx octets in ampdu count */
+    uint64_t tx_octets_in_ampdu_cnt;
+    /** ampdu Rx count */
+    uint32_t ampdu_rx_cnt;
+    /** mpdu in Rx ampdu count */
+    uint32_t mpdu_in_rx_ampdu_cnt;
+    /** Rx octets ampdu count */
+    uint64_t rx_octets_in_ampdu_cnt;
+    /** ampdu delimiter CRC error count */
+    uint32_t ampdu_delimiter_crc_error_cnt;
+    /** Rx Stuck Related Info*/
+    /** Rx Stuck Issue count */
+    uint32_t rx_stuck_issue_cnt[2];
+    /** Rx Stuck Recovery count */
+    uint32_t rx_stuck_recovery_cnt;
+    /** Rx Stuck TSF */
+    uint64_t rx_stuck_tsf[2];
+    /** Tx Watchdog Recovery Related Info */
+    /** Tx Watchdog Recovery count */
+    uint32_t tx_watchdog_recovery_cnt;
+    /** Tx Watchdog TSF */
+    uint64_t tx_watchdog_tsf[2];
+    /** Channel Switch Related Info */
+    /** Channel Switch Announcement Sent */
+    uint32_t channel_switch_ann_sent;
+    /** Channel Switch State */
+    uint32_t channel_switch_state;
+    /** Register Class */
+    uint32_t reg_class;
+    /** Channel Number */
+    uint32_t channel_number;
+    /** Channel Switch Mode */
+    uint32_t channel_switch_mode;
+    /** Reset Rx Mac Recovery Count */
+    uint32_t rx_reset_mac_recovery_cnt;
+    /** ISR2 Not Done Count*/
+    uint32_t rx_Isr2_NotDone_Cnt;
+    /** GDMA Abort Count */
+    uint32_t gdma_abort_cnt;
+    /** Rx Reset MAC Count */
+    uint32_t g_reset_rx_mac_cnt;
+    // Ownership error counters
+    /** Error Ownership error count*/
+    uint32_t dwCtlErrCnt;
+    /** Control Ownership error count*/
+    uint32_t dwBcnErrCnt;
+    /** Control Ownership error count*/
+    uint32_t dwMgtErrCnt;
+    /** Control Ownership error count*/
+    uint32_t dwDatErrCnt;
+    /** BIGTK MME good count*/
+    uint32_t bigtk_mmeGoodCnt;
+    /** BIGTK Replay error count*/
+    uint32_t bigtk_replayErrCnt;
+    /** BIGTK MIC error count*/
+    uint32_t bigtk_micErrCnt;
+    /** BIGTK MME not included count*/
+    uint32_t bigtk_mmeNotFoundCnt;
+    /** RX unicast count */
+    uint32_t rx_unicast_cnt;
+    /** TX Buffer Overrun Dropped Count */
+    uint32_t tx_overrun_cnt;
+    /** RX Buffer Overrun Dropped Count */
+    uint32_t rx_overrun_cnt;
+} NCP_CMD_PKT_STATS;
+
+/** Get current rssi */
+typedef struct _NCP_CMD_GET_CURRENT_RSSI
+{
+    /** The signal strength of the beacon */
+    short rssi;
+} NCP_CMD_GET_CURRENT_RSSI;
+
+/** Get current channel */
+typedef struct _NCP_CMD_GET_CURRENT_CHANNEL
+{
+    /** Channel Number */
+    uint16_t channel;
+} NCP_CMD_GET_CURRENT_CHANNEL;
+
+/** Get netif flags */
+typedef struct _NCP_CMD_GET_NETIF_FLAGS
+{
+    /** Netif flags */
+    uint8_t flags;
+} NCP_CMD_GET_NETIF_FLAGS;
+
+/** This data structure represents an IPv4 address */
+struct ipv4_config
+{
+    /** Set to \ref ADDR_TYPE_DHCP to use DHCP to obtain the IP address or
+     *  \ref ADDR_TYPE_STATIC to use a static IP. In case of static IP
+     *  address ip, gw, netmask and dns members must be specified.  When
+     *  using DHCP, the ip, gw, netmask and dns are overwritten by the
+     *  values obtained from the DHCP server. They should be zeroed out if
+     *  not used. */
+    unsigned addr_type;
+    /** The system's IP address in network order. */
+    unsigned address;
+    /** The system's default gateway in network order. */
+    unsigned gw;
+    /** The system's subnet mask in network order. */
+    unsigned netmask;
+    /** The system's primary dns server in network order. */
+    unsigned dns1;
+    /** The system's secondary dns server in network order. */
+    unsigned dns2;
+};
+
+#ifdef CONFIG_IPV6
+/** This data structure represents an IPv6 address */
+struct ipv6_config
+{
+    /** The system's IPv6 address in network order. */
+    unsigned address[4];
+    /** The address type: linklocal, site-local or global. */
+    unsigned char addr_type;
+    /** The state of IPv6 address (Tentative, Preferred, etc). */
+    unsigned char addr_state;
+    /** For structure alignment */
+    unsigned char padding[2];
+};
+#endif
+
+/** Network IP configuration.
+ *
+ *  This data structure represents the network IP configuration
+ *  for IPv4 as well as IPv6 addresses
+ */
+typedef struct _NCP_CMD_IP_CONFIG
+{
+#ifdef CONFIG_IPV6
+    /** The network IPv6 address configuration that should be
+     * associated with this interface. */
+    struct ipv6_config ipv6[MAX_IPV6_ADDRESSES];
+    /** The network IPv6 valid addresses count */
+    unsigned ipv6_count;
+#endif
+    /** The network IPv4 address configuration that should be
+     * associated with this interface. */
+    struct ipv4_config ipv4;
+} NCP_CMD_IP_CONFIG;
+
 typedef struct _NCP_CMD_CONNECT_STAT
 {
     uint8_t ps_mode;
@@ -579,6 +832,16 @@ typedef struct _NCP_CMD_ROAMING
     uint32_t enable;
     uint8_t rssi_threshold;
 } NCP_CMD_ROAMING;
+
+/** This structure is used for OKC configuration. */
+typedef struct _NCP_CMD_OKC
+{
+    /** STA OKC enable flag,
+     *  1: enable OKC,
+     *  0: disable OKC.
+     */
+    uint32_t enable;
+} NCP_CMD_OKC;
 
 #ifdef CONFIG_WIFI_CAPA
 #define WIFI_SUPPORT_11AX   (1 << 3)
@@ -1451,7 +1714,18 @@ typedef struct _NCP_CMD_RSSI
 #define NCP_RSP_WLAN_GET_CURRENT_NETWORK (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000034)
 #define NCP_CMD_WLAN_NETWORKS_REMOVE_ALL  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000035) /* wlan-remove-all-networks */
 #define NCP_RSP_WLAN_NETWORKS_REMOVE_ALL  (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000035)
-
+#define NCP_CMD_WLAN_GET_PKT_STATS    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000036)
+#define NCP_RSP_WLAN_GET_PKT_STATS    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000036)
+#define NCP_CMD_WLAN_STA_GET_CURRENT_RSSI    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000037)
+#define NCP_RSP_WLAN_STA_GET_CURRENT_RSSI    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000037)
+#define NCP_CMD_WLAN_STA_GET_CURRENT_CHANNEL    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000038)
+#define NCP_RSP_WLAN_STA_GET_CURRENT_CHANNEL    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000038)
+#define NCP_CMD_WLAN_GET_IP_CONFIG    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x00000039)
+#define NCP_RSP_WLAN_GET_IP_CONFIG    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x00000039)
+#define NCP_CMD_WLAN_STA_GET_NETIF_FLAGS    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x0000003a)
+#define NCP_RSP_WLAN_STA_GET_NETIF_FLAGS    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x0000003a)
+#define NCP_CMD_WLAN_STA_SET_OKC    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_CMD | 0x0000003b) /* wlan-set-okc */
+#define NCP_RSP_WLAN_STA_SET_OKC    (NCP_CMD_WLAN | NCP_CMD_WLAN_STA | NCP_MSG_TYPE_RESP | 0x0000003b)
 /*WLAN Basic command/response*/
 #define NCP_CMD_WLAN_BASIC_WLAN_RESET           (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_CMD | 0x00000001) /* wlan-reset */
 #define NCP_RSP_WLAN_BASIC_WLAN_RESET           (NCP_CMD_WLAN | NCP_CMD_WLAN_BASIC | NCP_MSG_TYPE_RESP | 0x00000001)
@@ -1635,6 +1909,9 @@ typedef struct _NCP_CMD_RSSI
 #define NCP_EVENT_MDNS_RESOLVE_DOMAIN (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000004)
 #define NCP_EVENT_CSI_DATA            (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000005) /* csi data */
 
+#define NCP_EVENT_WLAN_NCP_INET_RECV   (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x00000009) /* INET RECV event */
+#define NCP_EVENT_INET_DAD_DONE        (NCP_CMD_WLAN | NCP_CMD_WLAN_ASYNC_EVENT | NCP_MSG_TYPE_EVENT | 0x0000000b) /* IPV6 DAD done */
+
 typedef struct _NCP_CMD_POWERMGMT_MEF
 {
     int type;
@@ -1754,20 +2031,34 @@ typedef struct _NCP_CMD_11AX_CFG_INFO
     HE_CAP_ParamSet_t he_cap_tlv;
 } NCP_CMD_11AX_CFG_INFO;
 
-typedef struct _NCP_CMD_BTWT_CFG_INFO
+/** This structure is used for broadcast various TWT config sets */
+#define BTWT_AGREEMENT_MAX 5
+typedef struct
 {
-    /** only support 1: Set */
-    uint16_t action;
-    /** 0x125: Broadcast TWT AP config */
-    uint16_t sub_id;
-    /** range 64-255 */
+    /** BTWT ID */
+    uint8_t btwt_id;
+    /** BTWT Mantissa */
+    uint16_t bcast_mantissa;
+    /** BTWT Exponent */
+    uint8_t bcast_exponent;
+    /** Range 64-255 */
     uint8_t nominal_wake;
-    /** Max STA Support */
-    uint8_t max_sta_support;
-    uint16_t twt_mantissa;
-    uint16_t twt_offset;
-    uint8_t twt_exponent;
-    uint8_t sp_gap;
+} ncp_btwt_set_t;
+
+typedef struct _NCP_CMD_BTWT_CFG
+{
+    /** Action 0: get, 1: set */
+    uint8_t action;
+    /** Reserved */
+    uint8_t bcast_bet_sta_wait;
+    /** Reserved */
+    uint16_t bcast_offset;
+    /** Reserved */
+    uint8_t bcast_twtli;
+    /** Count of BTWT agreement sets */
+    uint8_t count;
+    /** BTWT agreement sets */
+    ncp_btwt_set_t btwt_sets[BTWT_AGREEMENT_MAX];
 } NCP_CMD_BTWT_CFG_INFO;
 
 typedef struct _NCP_CMD_TWT_SETUP_CFG
@@ -2169,6 +2460,8 @@ typedef struct _NCPCmd_DS_COMMAND
         NCP_CMD_CONNECT_STAT conn_stat;
         /** Roaming configuration */
         NCP_CMD_ROAMING roaming;
+        /** OKC configurations */
+        NCP_CMD_OKC okc_cfg;
         /** wlan network info*/
         NCP_CMD_NETWORK_INFO network_info;
 		/** wlan network address*/
@@ -2283,6 +2576,16 @@ typedef struct _NCPCmd_DS_COMMAND
         NCP_CMD_NETWORK_REMOVE network_remove;
         /** get current network*/
         NCP_CMD_GET_CURRENT_NETWORK current_network;
+        /** get pkt stats*/
+        NCP_CMD_PKT_STATS get_pkt_stats;
+        /** get current rssi*/
+        NCP_CMD_GET_CURRENT_RSSI current_rssi;
+        /** get current channel*/
+        NCP_CMD_GET_CURRENT_CHANNEL current_channel;
+        /** get ip config*/
+        NCP_CMD_IP_CONFIG ip_config;
+        /** get netif flag*/
+        NCP_CMD_GET_NETIF_FLAGS netif_flags;
     } params;
 } NCPCmd_DS_COMMAND;
 
@@ -2427,6 +2730,22 @@ int wlan_get_mac_address_command(int argc, char **argv);
 int wlan_stat_command(int argc, char **argv);
 
 int wlan_roaming_command(int argc, char **argv);
+
+/**
+ * Enable/disable the Opportunistic Key Caching (OKC).
+ *
+ * \param[in] argc    Argument count, the number of strings pointed to by argv, \n
+ *                    argc should be 2.
+ * \param[in] argv    Argument vector, \n
+ *                    argv[0]: wlan-info \n
+ *                    argv[1]: enable/disable OKC \n
+ *                             0 -- Disable OKC (default) \n
+ *                             1 -- Enable OKC
+ *
+ * \return TRUE if success.
+ * \return FALSE if failure.
+ */
+int wlan_set_okc_command(int argc, char **argv);
 
 /**
  * Get the configured Wi-Fi network information.
@@ -2861,6 +3180,8 @@ int wlan_process_wlan_uap_prov_reset_result_response(uint8_t *res);
 
 int wlan_process_roaming(uint8_t *res);
 
+int wlan_process_okc_response(uint8_t *res);
+
 int wlan_process_wlan_socket_open_response(uint8_t *res);
 
 int wlan_process_wlan_socket_con_response(uint8_t *res);
@@ -2949,7 +3270,7 @@ int wlan_set_11axcfg_command(int argc, char **argv);
 
 int wlan_process_11axcfg_response(uint8_t *res);
 
-int wlan_set_btwt_command(int argc, char **argv);
+int wlan_bcast_twt_command(int argc, char **argv);
 
 int wlan_process_btwt_response(uint8_t *res);
 
@@ -3681,6 +4002,8 @@ int wlan_process_con_event(uint8_t *res);
 int wlan_process_discon_event(uint8_t *res);
 
 int wlan_process_stop_network_event(uint8_t *res);
+
+int wlan_process_ipv6_dad_done_event(uint8_t *res);
 
 /**
  * Send an ICMP echo request, receive its response and print its statistics and result.

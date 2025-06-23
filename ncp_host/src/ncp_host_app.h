@@ -93,6 +93,17 @@ typedef struct serial_data_recv
 
 void send_tlv_command(send_data_t *S_D);
 
+#ifdef CONFIG_MATTER_NCP
+/**
+ * @brief        The main function of ncp-host provided to MATTER
+ *
+ * @param argc   argc
+ * @param argv   argv
+ * @return       TRUE
+ */
+int ncp_host_main();
+#endif
+
 int string_equal(const char *s1, const char *s2);
 
 /**

@@ -21,6 +21,8 @@
 #include "ncp_host_command_wifi.h"
 #include "ncp_wifi_api.h"
 #include "ncp_tlv_adapter.h"
+#include "ncp_inet.h"
+#include <sys/ioctl.h>
 
 static uint8_t broadcast_mac[NCP_WLAN_MAC_ADDR_LENGTH] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 static int mdns_result_num;
@@ -38,6 +40,7 @@ extern ping_res_t ping_res;
 extern int ping_sock_handle;
 extern pthread_mutex_t gpio_wakeup_mutex;
 
+extern sem_t global_sem_dad;
 extern sem_t iperf_tx_sem;
 extern sem_t iperf_rx_sem;
 
@@ -239,6 +242,49 @@ int wlan_stat_command(int argc, char **argv)
     conn_stat_command->header.cmd        = NCP_CMD_WLAN_STA_CONNECT_STAT;
     conn_stat_command->header.size       = NCP_CMD_HEADER_LEN;
     conn_stat_command->header.result     = NCP_CMD_RESULT_OK;
+
+    return TRUE;
+}
+
+/**
+ * @brief  This function prepares OKC command
+ *
+ * @return Status returned
+ */
+int wlan_set_okc_command(int argc, char **argv)
+{
+    NCPCmd_DS_COMMAND *okc_command = mpu_host_get_wifi_command_buffer();
+    int enable                     = 0;
+
+    if (argc != 2)
+    {
+        printf("Usage: %s <okc: 0(default)/1>\r\n", argv[0]);
+        printf(
+            "\tOpportunistic Key Caching (also known as Proactive Key Caching) default\r\n"
+            "\tThis parameter can be used to set the default behavior for the\r\n"
+            "\tBy default, OKC is disabled unless enabled with the global okc=1 parameter \r\n"
+            "\tor with the per-network proactive_key_caching=1 parameter.\r\n"
+            "With okc=1, OKC is enabled by default, but can be disabled with per-network proactive_key_caching=0 "
+            "parameter.\r\n"
+            "\t# 0 = Disable OKC (default)\r\n"
+            "\t# 1 = Enable OKC\r\n");
+        return FALSE;
+    }
+
+    enable = atoi(argv[1]);
+    if (enable != 0 && enable != 1)
+    {
+        printf("Error! Invalid input of parameter <enable>\r\n");
+        return FALSE;
+    }
+
+    okc_command->header.cmd      = NCP_CMD_WLAN_STA_SET_OKC;
+    okc_command->header.size     = NCP_CMD_HEADER_LEN;
+    okc_command->header.result   = NCP_CMD_RESULT_OK;
+
+    NCP_CMD_OKC *okc = (NCP_CMD_OKC *)&okc_command->params.okc_cfg;
+    okc->enable      = enable;
+    okc_command->header.size += sizeof(NCP_CMD_OKC);
 
     return TRUE;
 }
@@ -1779,6 +1825,15 @@ int wlan_process_ncp_event(uint8_t *res)
         case NCP_EVENT_WLAN_STOP_NETWORK:
             ret = wlan_process_stop_network_event(res);
             break;
+        case NCP_EVENT_WLAN_NCP_INET_RECV:
+            ret = inet_sock_recv_event(res);
+            break;
+        case NCP_EVENT_WLAN_NCP_INET_SEND_FAIL:
+            ret = inet_sock_send_fail_event(res);
+            break;
+        case NCP_EVENT_INET_DAD_DONE:
+            ret = wlan_process_ipv6_dad_done_event(res);
+            break;
         default:
             printf("Invaild event cmd!\r\n");
             break;
@@ -1787,15 +1842,16 @@ int wlan_process_ncp_event(uint8_t *res)
 }
 
 iperf_msg_t iperf_msg;
+#if CONFIG_USE_NEW_SOCKET
 int wlan_ncp_iperf_command(int argc, char **argv)
 {
     unsigned int handle      = 0;
     unsigned int type        = -1;
     unsigned int direction   = -1;
-	
-	unsigned int udp_rx_pkt_count   = 0;
-	unsigned int udp_rx_rate   = 0;
-	unsigned int time_per_pkt = 0;
+
+    unsigned int udp_rx_pkt_count   = 0;
+    unsigned int udp_rx_rate   = 0;
+    unsigned int time_per_pkt = 0;
     enum ncp_iperf_item item = FALSE_ITEM;
     memset((char *)&iperf_msg, 0, sizeof(iperf_msg));
     if (argc < 4)
@@ -1803,6 +1859,153 @@ int wlan_ncp_iperf_command(int argc, char **argv)
         (void)printf("Usage: %s handle [tcp|udp] [tx|rx]\r\n", __func__);
         return -WM_FAIL;
     }
+	iperf_msg.handle = 0;
+    memcpy(iperf_msg.ip_addr, argv[1], strlen(argv[1]) + 1);
+    if (!strncmp(argv[2], "tcp", 3))
+    {
+        type = 0;
+        if (argc == 5)
+        {
+            if (get_uint(argv[4], (unsigned int *)&iperf_msg.iperf_set.iperf_count, strlen(argv[4])))
+            {
+                (void)printf("tcp packet number format is error\r\n");
+                return -WM_FAIL;
+            }
+        }
+        else
+            iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
+    }
+    else if (!strncmp(argv[2], "udp", 3))
+    {
+        type = 1;
+        if (argc < 3)
+        {
+            (void)printf("udp want ip and port, Usage: %s handle udp [tx|rx] ip port\r\n", __func__);
+            return -WM_FAIL;
+        }
+        iperf_msg.port = NCP_IPERF_UDP_SERVER_PORT_DEFAULT;
+        if (argc >= 5)
+        {
+            if (get_uint(argv[4], (unsigned int *)&iperf_msg.iperf_set.iperf_count, strlen(argv[4])))
+            {
+                printf("tcp packet number format is error\r\n");
+                return -WM_FAIL;
+            }
+			udp_rx_pkt_count = iperf_msg.iperf_set.iperf_count;
+        }
+        else
+            iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
+
+        if (argc >= 6)
+        {
+            if (get_uint(argv[5], &iperf_msg.iperf_set.iperf_udp_rate, strlen(argv[5])))
+            {
+                printf("udp rate format is error\r\n");
+                return -WM_FAIL;
+            }
+			udp_rx_rate = iperf_msg.iperf_set.iperf_udp_rate;
+        }
+        else
+            iperf_msg.iperf_set.iperf_udp_rate = NCP_IPERF_UDP_RATE;
+
+        if (argc >= 7)
+        {
+            if (get_uint(argv[6], &iperf_msg.iperf_set.iperf_udp_time, strlen(argv[6])))
+            {
+                printf("udp time format is error\r\n");
+                return -WM_FAIL;
+            }
+        }
+        else
+            iperf_msg.iperf_set.iperf_udp_time = NCP_IPERF_UDP_TIME;
+    }
+    else
+    {
+        (void)printf("Usage: %s handle [tcp|udp] [tx|rx]\r\n", __func__);
+        return -WM_FAIL;
+    }
+
+    if (!strncmp(argv[3], "tx", 3))
+        direction = 0;
+    else if (!strncmp(argv[3], "rx", 3))
+        direction = 1;
+    else
+    {
+        (void)printf("Usage: %s handle [tcp|udp] [tx|rx]\r\n", __func__);
+        return -WM_FAIL;
+    }
+
+    if (!type && direction == 0)
+        item = NCP_IPERF_TCP_TX;
+    else if (!type && direction == 1)
+        item = NCP_IPERF_TCP_RX;
+    else if (type == 1 && direction == 0)
+        item = NCP_IPERF_UDP_TX;
+    else if (type == 1 && direction == 1)
+        item = NCP_IPERF_UDP_RX;
+    switch (item)
+    {
+        case NCP_IPERF_TCP_TX:
+            iperf_msg.iperf_set.iperf_type  = NCP_IPERF_TCP_TX;
+            iperf_msg.per_size              = NCP_IPERF_PER_TCP_PKG_SIZE;
+            if (iperf_msg.iperf_set.iperf_count == 0)
+                iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
+            sem_post(&iperf_tx_sem);
+            break;
+        case NCP_IPERF_TCP_RX:
+            iperf_msg.iperf_set.iperf_type  = NCP_IPERF_TCP_RX;
+            iperf_msg.per_size              = NCP_IPERF_PER_TCP_PKG_SIZE;
+            if (iperf_msg.iperf_set.iperf_count == 0)
+                iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
+            sem_post(&iperf_rx_sem);
+            break;
+        case NCP_IPERF_UDP_TX:
+            iperf_msg.iperf_set.iperf_type  = NCP_IPERF_UDP_TX;
+            iperf_msg.per_size              = NCP_IPERF_PER_UDP_PKG_SIZE;
+            if (iperf_msg.iperf_set.iperf_count == 0)
+                iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
+            sem_post(&iperf_tx_sem);
+            break;
+        case NCP_IPERF_UDP_RX:
+            iperf_msg.iperf_set.iperf_type  = NCP_IPERF_UDP_RX;
+            iperf_msg.per_size              = NCP_IPERF_PER_UDP_PKG_SIZE;
+            if (iperf_msg.iperf_set.iperf_count == 0)
+                iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
+            sem_post(&iperf_rx_sem);
+            break;
+        default:
+            return -WM_FAIL;
+    }
+    g_udp_recv_timeout = IPERF_UDP_RECV_TIMEOUT;
+
+    if (item == NCP_IPERF_UDP_RX && udp_rx_pkt_count !=0 && udp_rx_rate)
+    {
+        /* calculate time for each receive packet, unit: milliseconds. */
+        time_per_pkt = (1472 * 8 * udp_rx_pkt_count) / (udp_rx_rate * 1000) * 1000 / udp_rx_pkt_count;
+        g_udp_recv_timeout = IPERF_UDP_RECV_TIMEOUT + time_per_pkt;
+    }
+
+    return WM_SUCCESS;
+}
+
+#else
+int wlan_ncp_iperf_command(int argc, char **argv)
+{
+    unsigned int handle      = 0;
+    unsigned int type        = -1;
+    unsigned int direction   = -1;
+
+    unsigned int udp_rx_pkt_count   = 0;
+    unsigned int udp_rx_rate   = 0;
+    unsigned int time_per_pkt = 0;
+    enum ncp_iperf_item item = FALSE_ITEM;
+    memset((char *)&iperf_msg, 0, sizeof(iperf_msg));
+    if (argc < 4)
+    {
+        (void)printf("Usage: %s handle [tcp|udp] [tx|rx]\r\n", __func__);
+        return -WM_FAIL;
+    }
+    memcpy(iperf_msg.ip_addr, argv[4], strlen(argv[1]) + 1);
     if (get_uint(argv[1], &handle, strlen(argv[1])))
     {
         (void)printf("Usage: %s handle [tcp|udp] [tx|rx]\r\n", __func__);
@@ -1947,6 +2150,7 @@ int wlan_ncp_iperf_command(int argc, char **argv)
 		
     return WM_SUCCESS;
 }
+#endif
 
 /**
  * @brief       This function processes response from ncp device
@@ -1961,7 +2165,9 @@ int wlan_process_response(uint8_t *res)
     switch (cmd_res->header.cmd)
     {
         case NCP_RSP_WLAN_STA_SCAN:
+#if !defined CONFIG_MATTER_NCP
             ret = wlan_process_scan_response(res);
+#endif
             break;
         case NCP_RSP_WLAN_STA_CONNECT:
             ret = wlan_process_con_response(res);
@@ -1979,10 +2185,15 @@ int wlan_process_response(uint8_t *res)
             ret = wlan_process_get_mac_address(res);
             break;
         case NCP_RSP_WLAN_STA_CONNECT_STAT:
+#if !defined CONFIG_MATTER_NCP
             ret = wlan_process_stat(res);
+#endif
             break;
         case NCP_RSP_WLAN_STA_ROAMING:
             ret = wlan_process_roaming(res);
+            break;
+        case NCP_RSP_WLAN_STA_SET_OKC:
+            ret = wlan_process_okc_response(res);
             break;
         case NCP_RSP_WLAN_BASIC_WLAN_RESET:
             ret = wlan_process_wlan_reset_result_response(res);
@@ -2241,11 +2452,10 @@ int wlan_process_response(uint8_t *res)
             ret = wlan_process_network_remove_response(res);
             break;
         default:
-            printf("Invaild response cmd!\r\n");
             break;
     }
 
-    ncp_cmd_node_wakeup_pending_tasks(cmd_res);
+    ncp_cmd_node_wakeup_pending_tasks((uint8_t *)cmd_res);
 
     return ret;
 }
@@ -2379,6 +2589,42 @@ int wlan_process_get_mac_address(uint8_t *res)
     return TRUE;
 }
 
+int wlan_ncp_process_get_mac(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        NCP_CMD_GET_MAC_ADDRESS *get_mac = (NCP_CMD_GET_MAC_ADDRESS *)&cmd_res->params.get_mac_addr;
+        printf("MAC Address\r\n");
+        printf("STA MAC Address: %02X:%02X:%02X:%02X:%02X:%02X \r\n", MAC2STR((unsigned char)get_mac->sta_mac));
+        printf("UAP MAC Address: %02X:%02X:%02X:%02X:%02X:%02X \r\n", MAC2STR((unsigned char)get_mac->uap_mac));
+    }
+    else
+    {
+        printf("failed to get mac address\r\n");
+    }
+
+    return TRUE;
+}
+
+int wlan_ncp_process_get_pkt_stats(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        NCP_CMD_PKT_STATS *pkt_stats = (NCP_CMD_PKT_STATS *)&cmd_res->params.get_pkt_stats;
+        printf("pkt stats\r\n");
+        printf("pkt_stats: mcast_tx_frame %d \r\n", pkt_stats->mcast_tx_frame);
+        //printf("UAP MAC Address: %02X:%02X:%02X:%02X:%02X:%02X \r\n", MAC2STR((unsigned char)get_mac->uap_mac));
+    }
+    else
+    {
+        printf("failed to get pkt stats\r\n");
+    }
+
+    return TRUE;
+}
+
 /**
  * @brief      This function processes wlan connection state response from ncp device
  *
@@ -2485,6 +2731,23 @@ int wlan_process_roaming(uint8_t *res)
     }
     else
         printf("Failed to set roaming!\r\n");
+    return TRUE;
+}
+
+/**
+ * @brief      This function processes OKC response from ncp device
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int wlan_process_okc_response(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
+
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
+        printf("Set OKC successfully!\r\n");
+    else
+        printf("Failed to set OKC!\r\n");
     return TRUE;
 }
 
@@ -5257,15 +5520,6 @@ NCP_CMD_11AX_CFG_INFO g_11axcfg_params = {
      /* val for txrx mcs 160Mhz or 80+80, and PPE thresholds */
      {0x88, 0x1f}}};
 
-NCP_CMD_BTWT_CFG_INFO g_btwt_params = {.action          = 0x0001,
-                                  .sub_id          = 0x0125,
-                                  .nominal_wake    = 0x40,
-                                  .max_sta_support = 0x04,
-                                  .twt_mantissa    = 0x0063,
-                                  .twt_offset      = 0x0270,
-                                  .twt_exponent    = 0x0a,
-                                  .sp_gap          = 0x05};
-
 NCP_CMD_TWT_SETUP_CFG g_twt_setup_params = {.implicit            = 0x01,
                                         .announced           = 0x00,
                                         .trigger_enabled     = 0x00,
@@ -5285,7 +5539,6 @@ NCP_CMD_TWT_TEARDOWN_CFG g_twt_teardown_params = {
 enum
 {
     TEST_WLAN_11AX_CFG,
-    TEST_WLAN_BCAST_TWT,
     TEST_WLAN_TWT_SETUP,
     TEST_WLAN_TWT_TEARDOWN,
 };
@@ -5332,18 +5585,6 @@ const static test_cfg_param_t g_11ax_cfg_param[] = {
     {"pe", 27, 2, NULL},
 };
 
-const static test_cfg_param_t g_btwt_cfg_param[] = {
-    /* name             offset  len   notes */
-    {"action", 0, 2, "only support 1: Set"},
-    {"sub_id", 2, 2, "Broadcast TWT AP config"},
-    {"nominal_wake", 4, 1, "range 64-255"},
-    {"max_sta_support", 5, 1, "Max STA Support"},
-    {"twt_mantissa", 6, 2, NULL},
-    {"twt_offset", 8, 2, NULL},
-    {"twt_exponent", 10, 1, NULL},
-    {"sp_gap", 11, 1, NULL},
-};
-
 static test_cfg_param_t g_twt_setup_cfg_param[] = {
     /* name                 offset  len  notes */
     {"implicit", 0, 1, "0: TWT session is explicit, 1: Session is implicit"},
@@ -5378,7 +5619,6 @@ static test_cfg_param_t g_twt_teardown_cfg_param[] = {
 static test_cfg_table_t g_test_cfg_table_list[] = {
     /*  name         data                          total_len param_list          param_num*/
     {"11axcfg",      (uint8_t *)&g_11axcfg_params,      29,  g_11ax_cfg_param,         8},
-    {"twt_bcast",    (uint8_t *)&g_btwt_params,         12,  g_btwt_cfg_param,         8},
     {"twt_setup",    (uint8_t *)&g_twt_setup_params,    12,  g_twt_setup_cfg_param,    11},
     {"twt_teardown", (uint8_t *)&g_twt_teardown_params, 3,   g_twt_teardown_cfg_param, 3},
     {NULL}};
@@ -5405,7 +5645,7 @@ int wlan_process_11axcfg_response(uint8_t *res)
     return TRUE;
 }
 
-static int wlan_send_btwt_command(void)
+static int wlan_send_btwt_command(uint8_t *data)
 {
     NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
 
@@ -5414,8 +5654,8 @@ static int wlan_send_btwt_command(void)
     command->header.size     = NCP_CMD_HEADER_LEN;
     command->header.result   = NCP_CMD_RESULT_OK;
 
-    (void)memcpy((uint8_t *)&command->params.btwt_cfg, (uint8_t *)&g_btwt_params, sizeof(g_btwt_params));
-    command->header.size += sizeof(g_btwt_params);
+    (void)memcpy((uint8_t *)&command->params.btwt_cfg, data, sizeof(NCP_CMD_BTWT_CFG_INFO));
+    command->header.size += sizeof(NCP_CMD_BTWT_CFG_INFO);
 
     return TRUE;
 }
@@ -5423,7 +5663,24 @@ static int wlan_send_btwt_command(void)
 int wlan_process_btwt_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    (void)printf("btwt cfg set ret %hu\r\n", cmd_res->header.result);
+    NCP_CMD_BTWT_CFG_INFO *btwt = (NCP_CMD_BTWT_CFG_INFO *)&cmd_res->params.btwt_cfg;
+    ncp_btwt_set_t *cfg;
+    int i;
+
+    if (btwt->action == ACTION_GET && cmd_res->header.result == NCP_CMD_RESULT_OK)
+    {
+        (void)printf("btwt cfg count %d:\r\n", btwt->count);
+        for (i = 0; i < btwt->count; i++)
+        {
+            cfg = &btwt->btwt_sets[i];
+            (void)printf("id[%d] mantissa[%d] exponent[%d] nominal_wake[%d]\r\n",
+                cfg->btwt_id, cfg->bcast_mantissa, cfg->bcast_exponent, cfg->nominal_wake);
+        }
+    }
+    else
+    {
+        (void)printf("btwt cfg action %d ret %hu\r\n", btwt->action, cmd_res->header.result);
+    }
     return TRUE;
 }
 
@@ -5599,9 +5856,6 @@ static void send_cfg_msg(test_cfg_table_t *cfg, uint32_t index)
         case TEST_WLAN_11AX_CFG:
             ret = wlan_send_11axcfg_command();
             break;
-        case TEST_WLAN_BCAST_TWT:
-            ret = wlan_send_btwt_command();
-            break;
         case TEST_WLAN_TWT_SETUP:
             ret = wlan_send_twt_setup_command();
             break;
@@ -5653,9 +5907,59 @@ int wlan_set_11axcfg_command(int argc, char **argv)
     return WM_SUCCESS;
 }
 
-int wlan_set_btwt_command(int argc, char **argv)
+static void dump_wlan_btwt_usage(void)
 {
-    test_wlan_cfg_process(TEST_WLAN_BCAST_TWT, argc, argv);
+    (void)printf("Usage:\r\n");
+    (void)printf("wlan-bcast-twt get\r\n");
+    (void)printf("wlan-bcast-twt set <sta_wait> <offset> <twtli> <session_num>\
+ <id0> <mantissa0> <exponent0> <nominal_wake0> <id1> <mantissa1> <exponent1> <nominal_wake1> ...\r\n");
+    (void)printf("AP BTWT setting. \r\n");
+    (void)printf("Note: If set cfg, session_num, the number of TWT sessions, range: [2-5]\r\n");
+}
+
+int wlan_bcast_twt_command(int argc, char **argv)
+{
+    int ret = 0;
+    NCP_CMD_BTWT_CFG_INFO btwt_cfg = {0};
+    int i;
+
+    if (argc < 2)
+    {
+        dump_wlan_btwt_usage();
+        return -WM_FAIL;
+    }
+
+    if (0 == strncmp(argv[1], "get", 3))
+    {
+        btwt_cfg.action = ACTION_GET;
+        ret = wlan_send_btwt_command((uint8_t *)(void *)&btwt_cfg);
+        (void)ret;
+    }
+    else if (0 == strncmp(argv[1], "set", 3))
+    {
+        btwt_cfg.action              = ACTION_SET;
+        btwt_cfg.bcast_bet_sta_wait  = a2hex_or_atoi(argv[2]);
+        btwt_cfg.bcast_offset        = a2hex_or_atoi(argv[3]);
+        btwt_cfg.bcast_twtli         = a2hex_or_atoi(argv[4]);
+        btwt_cfg.count               = a2hex_or_atoi(argv[5]);
+
+        if (btwt_cfg.count < 2 || argc != 6 + 4 * btwt_cfg.count)
+        {
+            dump_wlan_btwt_usage();
+            return -WM_FAIL;
+        }
+
+        for (i = 0; i < btwt_cfg.count; ++i)
+        {
+            btwt_cfg.btwt_sets[i].btwt_id        = a2hex_or_atoi(argv[6 + i * 4 + 0]);
+            btwt_cfg.btwt_sets[i].bcast_mantissa = a2hex_or_atoi(argv[6 + i * 4 + 1]);
+            btwt_cfg.btwt_sets[i].bcast_exponent = a2hex_or_atoi(argv[6 + i * 4 + 2]);
+            btwt_cfg.btwt_sets[i].nominal_wake   = a2hex_or_atoi(argv[6 + i * 4 + 3]);
+        }
+
+        ret = wlan_send_btwt_command((uint8_t *)(void *)&btwt_cfg);
+        (void)ret;
+    }
     return WM_SUCCESS;
 }
 
@@ -8112,6 +8416,12 @@ int wlan_process_stop_network_event(uint8_t *res)
     return WM_SUCCESS;
 }
 
+int wlan_process_ipv6_dad_done_event(uint8_t *res)
+{
+    sem_post(&global_sem_dad);
+    return WM_SUCCESS;
+}
+
 int wlan_list_command(int argc, char **argv)
 {
     NCPCmd_DS_COMMAND *network_list_command = mpu_host_get_wifi_command_buffer();
@@ -8220,6 +8530,619 @@ int wlan_process_network_remove_response(uint8_t *res)
     return WM_SUCCESS;
 }
 
+
+/*
+ * @brief: ncp inet socket tcp/udp server/client test APIs, only for internal debug using
+ */
+typedef enum inet_test_type
+{
+    TCP_SERVER = 0,
+	TCP_CLIENT,
+	UDP_SERVER,
+	UDP_CLIENT,
+} INET_TEST_TYPE;
+
+
+#ifdef NET_IPV6
+#define OPT_NUM_ARGS 4
+// IPv6 Specifics
+#define NET_IN_ADDR in6_addr
+#define NET_SOCKADDR_IN sockaddr_in6
+#define NET_PF_INET PF_INET6 /* IPv6 Internet Namespace also called Protocol Family (PF) */
+#define NET_AF_INET AF_INET6 /* Address Format (AF) for that namespace                   */
+#define NET_ADDRSTRLEN INET6_ADDRSTRLEN
+static int IF_num; // Network Interface number (check with 'ip a')
+#else
+#define OPT_NUM_ARGS 3
+// IPv4 Specifics
+#define NET_IN_ADDR in_addr
+#define NET_SOCKADDR_IN sockaddr_in
+#define NET_PF_INET PF_INET /* IPv4 Internet Namespace also called Protocol Family (PF) */
+#define NET_AF_INET AF_INET /* Address Format (AF) for that namespace                   */
+#define NET_ADDRSTRLEN INET_ADDRSTRLEN
+#endif
+typedef struct ncp_inet_test
+{
+	unsigned int type;
+	unsigned int port;
+	char addr[64];
+} NCP_INET_TEST;
+
+static void ncp_inet_tcp_server_test(char *addr, int port)
+{
+	/*
+	** Done with options.
+	** OPTIND points to first non-option argument.
+	*/
+
+	char	buffer[1024] = {0};
+	ssize_t nBytesRX;
+
+	struct NET_IN_ADDR dest_addr;		 // argv[1]
+
+	int 				   server_sockfd;
+	struct NET_SOCKADDR_IN server_addr = {0};
+
+	int 				   client_sockfd;
+	struct NET_SOCKADDR_IN client_addr = {0};
+	socklen_t			   client_addr_size;
+
+	int status = 0;
+
+	// converts an Internet address (either IPv4 or IPv6) from presentation (textual) to network (binary) format.
+	if (inet_pton(NET_AF_INET, addr, &dest_addr) == 0)
+	{
+		ncp_adap_e( "Invalid <dest_addr>");
+	}
+
+
+	//....................Main Processing Loop..........>>>
+
+	//__________________________________________________
+	//
+	// Now open a TCP server socket
+	//__________________________________________________
+
+	// Function: int socket (int family, int style, int protocol)  (see <sys/socket.h>)
+	//	   Protocol Family: 	PF_INET for IPv4 ; PF_INET6 for IPv6
+	//	   Communication Style: SOCK_DGRAM for udp ; SOCK_STREAM for tcp
+	//	   Specific Protocol:	zero is usually right for protocol. (i.e. IPPROTO_TCP=6 see <netinet/in.h>)
+
+	/*
+	 * REF: https://stackoverflow.com/questions/22304631/what-is-the-purpose-to-set-sock-cloexec-flag-with-accept4-same-as-o-cloexec
+	 *
+	 *		The reason for SOCK_CLOEXEC to exist is to avoid a race condition between getting a new
+	 * socket from accept and setting the FD_CLOEXEC flag afterwards.
+	 *
+	 *		Normally if you want the file descriptor to be close-on-exec you'd first obtain the file
+	 * descriptor in some way, then call fcntl(fd, F_SETFD, FD_CLOEXEC). But in a threaded program 
+	 * there is a possibility for a race condition between getting that file descriptor (in this 
+	 * case from accept) and setting the CLOEXEC flag. 
+	 *		Therefore Linux has recently changed most (if not all) system calls that return new file
+	 * descriptors to also accept flags that tell the kernel to atomically set the close-on-exec flag
+	 * before making the file descriptor valid. That way the race condition is closed.
+	 *
+	 * If you wonder why close on exec exists, it's because in some cases, especially when you're 
+	 * executing non-privileged programs from a privileged one, you don't want some file descriptors 
+	 * to leak to that program. 
+	 *
+	 */
+
+	server_sockfd = ncp_socket(NET_PF_INET, (SOCK_STREAM | SOCK_CLOEXEC), IPPROTO_TCP);
+	if (server_sockfd <0)
+	{
+		ncp_adap_e("socket() -- socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+	    ncp_adap_w("[OK] socket Created");
+	}
+
+	// Structure describing an Internet socket address. (see <netinet/in.h>)
+#ifdef NET_IPV6
+	server_addr.sin6_family 	= NET_AF_INET;
+	server_addr.sin6_port		= htons(port);		  // converts the uint16_t integer hostshort from host byte order to network byte order
+	memcpy(server_addr.sin6_addr.s6_addr, dest_addr.s6_addr, sizeof(dest_addr.s6_addr)); // see inet_pton (int af, const char *cp, void *buf) function above
+	//server_addr.sin6_addr 	  = in6addr_any;
+	server_addr.sin6_scope_id	= IF_num;			  // Specify INET interface number
+#else
+	server_addr.sin_family		= NET_AF_INET;
+	server_addr.sin_port		= htons(port);		  // converts the uint16_t integer hostshort from host byte order to network byte order
+	server_addr.sin_addr.s_addr = dest_addr.s_addr;   // see inet_pton (int af, const char *cp, void *buf) function above
+	//server_addr.sin_addr.s_addr = htonl(INADDR_ANY);	// see inet_pton (int af, const char *cp, void *buf) function above
+    //server_addr.sin_addr.s_addr = INADDR_ANY;
+#endif
+
+	// Function:	int bind (int socket, struct sockaddr *addr, socklen_t length)
+	// Description: assigns an address to the created socket. 'addr' and 'length' arguments specify the address.
+	if (ncp_bind(server_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
+	{
+		ncp_adap_e("bind() -- Can't assign an address to the socket! -- errno=%d => '%s'", errno, strerror(errno));
+		ncp_close(server_sockfd);
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+	    ncp_adap_w("[OK] bind");
+	}
+
+	// Function: int listen (int socket, int n)
+	if (ncp_listen(server_sockfd, 1))
+	{
+		ncp_adap_e("listen() -- listen failed!\nCan't enable socket to accept connections! -- errno=%d => '%s'", errno, strerror(errno));
+		ncp_close(server_sockfd);
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+	    ncp_adap_w("[OK] Listen"); }
+        ncp_adap_w("[...Blocked--Waiting for Connection Request...]");
+
+	// Function: int accept (int socket, struct sockaddr *addr, socklen_t *length_ptr)
+	client_addr_size = sizeof(client_addr);
+	client_sockfd = ncp_accept(server_sockfd, (struct sockaddr *) &client_addr, &client_addr_size);
+	if (client_sockfd  < 0)
+	{
+		ncp_adap_e("accept() -- accept failed!\nCan't accept the connection request! -- errno=%d => '%s'", errno, strerror(errno));
+		ncp_close(server_sockfd);
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+	    ncp_adap_w("[OK] Client Connected");
+	}
+
+	ncp_adap_w("[...Blocked--Waiting for RX data...]");
+
+    fd_set readfds;
+    for (int i = 0; i < 2; i++)
+    {
+        FD_ZERO(&readfds);
+        FD_SET(client_sockfd, &readfds);
+
+        if (ncp_select(client_sockfd + 1, &readfds, NULL, NULL, NULL) < 0)
+        {
+            ncp_adap_e("select failed!");
+        }
+
+        // Function: ssize_t recv (int socket, void *buffer, size_t size, int flags)
+        if ((nBytesRX = ncp_recv(client_sockfd, buffer, sizeof(buffer), 0)) < 0)
+        {
+            ncp_adap_e("recv() -- data received failed! -- errno=%d => '%s'", errno, strerror(errno));
+            ncp_close(client_sockfd);
+            ncp_close(server_sockfd);
+            exit(EXIT_FAILURE);
+        }
+        else
+        {
+            char		  theClientIP[NET_ADDRSTRLEN];
+            unsigned int  theClientPort;
+
+#ifdef NET_IPV6
+            inet_ntop(NET_AF_INET, &client_addr.sin6_addr, theClientIP, sizeof(theClientIP));
+            theClientPort = ntohs(client_addr.sin6_port); // converts the uint16_t integer hostshort from network byte order to host byte order
+#else
+            inet_ntop(NET_AF_INET, &client_addr.sin_addr,  theClientIP, sizeof(theClientIP));
+            theClientPort = ntohs(client_addr.sin_port); // converts the uint16_t integer hostshort from network byte order to host byte order
+#endif
+
+            ncp_adap_w("[OK] Data Received: (%ld Bytes) '%s' from @ '[%s]:%d'", nBytesRX, buffer, theClientIP, theClientPort);
+        }
+    }
+	//__________________________________________________
+	//
+	// Now close both the TCP server & client sockets
+	//__________________________________________________
+
+	// Function: int close (int socket)
+	if (ncp_close(client_sockfd) < 0)
+	{
+		ncp_adap_e("close() -- client socket closing failed! -- 'errno'=%d", errno);
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		ncp_adap_w("[OK] client socket Closed");
+	}
+
+	// Function: int close (int socket)
+	if (ncp_close(server_sockfd) < 0)
+	{
+		ncp_adap_e("close() -- server socket closing failed! -- 'errno'=%d", errno);
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		ncp_adap_w("[OK] server socket Closed");
+	}
+}
+
+static void ncp_inet_tcp_client_test(char *addr, int port)
+{
+    struct NET_IN_ADDR dest_addr;
+    int                client_sockfd;
+	struct NET_SOCKADDR_IN server_addr = {0};
+    char    buffer[1024] = "Hello TCP Server";
+    ssize_t nBytesTX;
+
+	inet_pton(NET_AF_INET, addr, &dest_addr);
+
+	client_sockfd = ncp_socket(NET_PF_INET, (SOCK_STREAM | SOCK_CLOEXEC), IPPROTO_TCP);
+	if (client_sockfd < 0)
+	    ncp_adap_e("socket creation failed!");
+	else
+	    ncp_adap_w("[OK] socket Created");
+
+	
+	// Structure describing an Internet socket address. (see <netinet/in.h>)
+#ifdef NET_IPV6
+	server_addr.sin6_family 	= NET_AF_INET;
+	server_addr.sin6_port		= htons(port);		  // converts the uint16_t integer hostshort from host byte order to network byte order
+	memcpy(server_addr.sin6_addr.s6_addr, dest_addr.s6_addr, sizeof(dest_addr.s6_addr)); // see inet_pton (int af, const char *cp, void *buf) function above
+	server_addr.sin6_scope_id	= IF_num;			  // Specify INET interface number
+#else
+	server_addr.sin_family		= NET_AF_INET;
+	server_addr.sin_port		= htons(port);		  // converts the uint16_t integer hostshort from host byte order to network byte order
+	server_addr.sin_addr.s_addr = dest_addr.s_addr;   // see inet_pton (int af, const char *cp, void *buf) function above
+#endif
+
+	
+	// Function: int connect (int socket, struct sockaddr *addr, socklen_t length)
+	if (ncp_connect(client_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
+	{
+	    ncp_adap_e("connect to server failed!");
+	    ncp_close(client_sockfd);
+	}
+	else
+        ncp_adap_w("[OK] Connected to Server");
+    char ioctl_example_buffer[128];
+	if (ncp_ioctl(client_sockfd, SIOCGIFADDR, ioctl_example_buffer) < 0)
+	{
+	    ncp_adap_e("ioctl failed!");
+	}
+	if (ncp_fcntl(client_sockfd, F_GETFL, 0) < 0)
+	{
+	    ncp_adap_e("fcntl failed!");
+	}
+
+	// Function: ssize_t send (int socket, const void *buffer, size_t size, int flags)
+	if ((nBytesTX = ncp_send(client_sockfd, buffer, strlen(buffer), 0)) < 0)
+	{
+	    ncp_adap_e("data send failed!");
+		ncp_close(client_sockfd);
+	}
+	else
+	{
+		struct NET_SOCKADDR_IN myAddr  = {0};
+		socklen_t			   lenAddr = sizeof(myAddr);
+		
+		// Reading the Address of the client Socket
+		if (ncp_getsockname(client_sockfd, (struct sockaddr *) &myAddr, &lenAddr))
+		{
+			ncp_adap_e("getsockname() -- Reading the Address of a Socket failed! -- errno=%d => '%s'", errno, strerror(errno));
+			ncp_close(client_sockfd);
+
+		}
+		else
+		{
+			char		  myIP[NET_ADDRSTRLEN];
+			unsigned int  myPort;
+		
+#ifdef NET_IPV6
+			inet_ntop(NET_AF_INET, &myAddr.sin6_addr.s6_addr, myIP, sizeof(myIP));
+			myPort = ntohs(myAddr.sin6_port); // converts the uint16_t integer hostshort from network byte order to host byte order
+#else
+			inet_ntop(NET_AF_INET, &myAddr.sin_addr.s_addr,   myIP, sizeof(myIP));
+			myPort = ntohs(myAddr.sin_port); // converts the uint16_t integer hostshort from network byte order to host byte order
+#endif
+
+			ncp_adap_w("[OK] Data Sent: (%ld Bytes) '%s' to @ '[%s]:%d'", nBytesTX, buffer, myIP, myPort);
+		}
+	}
+	
+	// Function: int close (int socket)
+	if (ncp_close(client_sockfd) < 0)
+	{
+		ncp_adap_e("close() -- Client socket closing failed! -- errno=%d => '%s'", errno, strerror(errno));
+	} 
+}
+
+static int ncp_inet_udp_client_test(char *addr, int port)
+{
+	char buffer[1024] = "Hello UDP Client";
+	ssize_t nBytesTX;
+
+	struct NET_IN_ADDR dest_addr; // argv[1]
+
+	int client_sockfd;
+
+	struct NET_SOCKADDR_IN server_addr = {0};
+
+	int status = 0;
+	
+
+	if (inet_pton(NET_AF_INET, addr, &dest_addr) == 0)
+	{
+		ncp_adap_e( "Invalid <dest_addr>");
+	}
+
+	//....................Main Processing Loop..........>>>
+
+	//__________________________________________________
+	//
+	// Now open a UDP socket
+	//__________________________________________________
+
+	// Function: int socket (int family, int style, int protocol)  (see <sys/socket.h>)
+	//	   Protocol Family: 	PF_INET for IPv4 ; PF_INET6 for IPv6
+	//	   Communication Style: SOCK_DGRAM for udp ; SOCK_STREAM for tcp
+	//	   Specific Protocol:	zero is usually right for protocol. (i.e. IPPROTO_UDP=17 see <netinet/in.h>)
+
+	/*
+	 * REF: https://stackoverflow.com/questions/22304631/what-is-the-purpose-to-set-sock-cloexec-flag-with-accept4-same-as-o-cloexec
+	 *
+	 *		The reason for SOCK_CLOEXEC to exist is to avoid a race condition between getting a new
+	 * socket from accept and setting the FD_CLOEXEC flag afterwards.
+	 *
+	 *		Normally if you want the file descriptor to be close-on-exec you'd first obtain the file
+	 * descriptor in some way, then call fcntl(fd, F_SETFD, FD_CLOEXEC). But in a threaded program 
+	 * there is a possibility for a race condition between getting that file descriptor (in this 
+	 * case from accept) and setting the CLOEXEC flag. 
+	 *		Therefore Linux has recently changed most (if not all) system calls that return new file
+	 * descriptors to also accept flags that tell the kernel to atomically set the close-on-exec flag
+	 * before making the file descriptor valid. That way the race condition is closed.
+	 *
+	 * If you wonder why close on exec exists, it's because in some cases, especially when you're 
+	 * executing non-privileged programs from a privileged one, you don't want some file descriptors 
+	 * to leak to that program. 
+	 *
+	 */
+	
+	client_sockfd = ncp_socket(NET_PF_INET, (SOCK_DGRAM | SOCK_CLOEXEC), IPPROTO_UDP);
+	if (client_sockfd < 0)
+	{
+		ncp_adap_e("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+	}
+	else
+	{
+		ncp_adap_w("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
+	}
+
+	
+	//__________________________________________________
+	//
+	// GET / SET Socket Options
+	//
+	//__________________________________________________
+
+	int 	  sendbuf_sz;
+	int 	  recvbuf_sz;
+	socklen_t optlen;
+	//__________________________________________________
+	//
+	// send INET data to server
+	//__________________________________________________
+
+	// Structure describing an Internet socket address. (see <netinet/in.h>)
+#ifdef NET_IPV6
+	server_addr.sin6_family = NET_AF_INET;
+	server_addr.sin6_port = htons(port);												 // converts the uint16_t integer hostshort from host byte order to network byte order
+	memcpy(server_addr.sin6_addr.s6_addr, dest_addr.s6_addr, sizeof(dest_addr.s6_addr)); // see inet_pton (int af, const char *cp, void *buf) function above
+	server_addr.sin6_scope_id = IF_num; 												 // Specify INET interface number
+#else
+	server_addr.sin_family = NET_AF_INET;
+	server_addr.sin_port = htons(port); 			// converts the uint16_t integer hostshort from host byte order to network byte order
+	server_addr.sin_addr.s_addr = dest_addr.s_addr; // see inet_aton(const char *name, struct in_addr *addr) function above
+#endif
+
+	// Function:	ssize_t sendto (int socket, const void *buffer, size_t size, int flags, struct sockaddr *addr, socklen_t length)
+	// Description: send data on a datagram socket to the specified destination address
+	if ((nBytesTX = ncp_sendto(client_sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&server_addr, sizeof(server_addr))) < 0)
+	{
+		ncp_adap_e("sendto() -- data send failed! -- errno=%d => '%s'", errno, strerror(errno));
+		ncp_close(client_sockfd);
+	}
+	else
+	{
+		char str_addr[NET_ADDRSTRLEN];
+		int  s_port;
+		//		  inet_ntop (NET_AF_INET, &dest_addr, str_addr, NET_ADDRSTRLEN);
+#ifdef NET_IPV6
+		inet_ntop (NET_AF_INET, &server_addr.sin6_addr, str_addr, NET_ADDRSTRLEN);
+		s_port = ntohs(server_addr.sin6_port);
+#else
+		inet_ntop (NET_AF_INET, &server_addr.sin_addr, str_addr, NET_ADDRSTRLEN);
+		s_port = ntohs(server_addr.sin_port);
+#endif
+		ncp_adap_w("[OK] Data Sent: (%ld Bytes) '%s' to @ '[%s]:%d'", nBytesTX, buffer, str_addr, s_port);
+	}
+
+	//__________________________________________________
+	//
+	// wait for ACK response from server
+	//__________________________________________________
+
+
+	//__________________________________________________
+	//
+	// Now close the UDP socket
+	//__________________________________________________
+
+	// Function: int close (int socket)
+	if (ncp_close(client_sockfd) < 0)
+	{
+		printf("close() -- socket closing failed! -- errno=%d => '%s'", errno, strerror(errno));
+	}
+	else
+	{
+		printf("\t[OK] socket Closed");
+	}
+	return WM_SUCCESS;
+}
+
+static int ncp_inet_udp_server_test(char *addr, int port)
+{	
+	char buffer[1024] = "Hello UDP Server";
+	ssize_t nBytesRX;
+
+	struct NET_IN_ADDR dest_addr; // argv[1]
+
+	int server_sockfd;
+	struct NET_SOCKADDR_IN server_addr = {0};
+
+	struct NET_SOCKADDR_IN client_addr = {0};
+	socklen_t client_addr_size;
+
+	int status = 0;
+
+	if (inet_pton(NET_AF_INET, addr, &dest_addr) == 0)
+	{
+		ncp_adap_e( "Invalid <dest_addr>");
+	}
+
+
+	// Structure describing an Internet socket address. (see <netinet/in.h>)
+    server_sockfd = ncp_socket(NET_PF_INET, (SOCK_DGRAM | SOCK_CLOEXEC), IPPROTO_UDP);
+    if (server_sockfd < 0)
+    {
+        ncp_adap_e("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    else
+    {
+        ncp_adap_w("[OK] socket Created: server_sockfd=%d", server_sockfd);
+    }
+
+#ifdef NET_IPV6
+	server_addr.sin6_family = NET_AF_INET;
+	server_addr.sin6_port = htons(port);												 // converts the uint16_t integer hostshort from host byte order to network byte order
+	memcpy(server_addr.sin6_addr.s6_addr, dest_addr.s6_addr, sizeof(dest_addr.s6_addr)); // see inet_pton (int af, const char *cp, void *buf) function above
+	// server_addr.sin6_addr	   = in6addr_any;
+	server_addr.sin6_scope_id = IF_num; // Specify INET interface number
+#else
+	server_addr.sin_family = NET_AF_INET;
+	server_addr.sin_port = htons(port); 			// converts the uint16_t integer hostshort from host byte order to network byte order
+	server_addr.sin_addr.s_addr = dest_addr.s_addr; // see inet_pton (int af, const char *cp, void *buf) function above
+	// server_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // see inet_pton (int af, const char *cp, void *buf) function above
+#endif
+
+	// Function:	int bind (int socket, struct sockaddr *addr, socklen_t length)
+	// Description: assigns an address to the created socket. 'server_addr' specifies the address.
+	if (ncp_bind(server_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)))
+	{
+		ncp_adap_e("bind() -- Can't assign an address to the socket! -- errno=%d => '%s'", errno, strerror(errno));
+		ncp_close(server_sockfd);
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		ncp_adap_w("[OK] bind");
+	}
+
+	ncp_adap_w("[...Blocked--Waiting for RX data...]");
+
+	// Function:	ssize_t recvfrom (int socket, void *buffer, size_t size, int flags, struct sockaddr *addr, socklen_t *length-ptr)
+	// Description: reads a packet from a datagram socket and also tells you where it was sent from
+    for (int i = 0; i < 2; i++)
+    {
+        client_addr_size = sizeof(client_addr);
+        memset(buffer, 0, sizeof(buffer));
+        if ((nBytesRX = ncp_recvfrom(server_sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &client_addr_size)) < 0)
+        {
+            ncp_adap_e("recvfrom() -- data received failed! -- errno=%d => '%s'", errno, strerror(errno));
+            ncp_close(server_sockfd);
+            sleep(1);
+            exit(EXIT_FAILURE);
+        }
+        else
+        {
+            char str_addr[NET_ADDRSTRLEN];
+            int  r_port;
+#ifdef NET_IPV6
+            inet_ntop (NET_AF_INET, &client_addr.sin6_addr, str_addr, NET_ADDRSTRLEN);
+            r_port = ntohs(server_addr.sin6_port);
+#else
+            inet_ntop (NET_AF_INET, &client_addr.sin_addr, str_addr, NET_ADDRSTRLEN);
+            r_port = ntohs(server_addr.sin_port);
+#endif
+            ncp_adap_w("[OK] Data Received: (%ld Bytes) '%s' from @ '[%s]:%d'", nBytesRX, buffer, str_addr, r_port);
+        }
+    }
+	//__________________________________________________
+	//
+	// Now close the UDP socket
+	//__________________________________________________
+
+	// Function: int close (int socket)
+	if (ncp_close(server_sockfd) < 0)
+	{
+		ncp_adap_e("close() -- socket closing failed! -- errno=%d => '%s'", errno, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		ncp_adap_w("[OK] socket Closed");
+	}
+
+	sleep(1);
+    return WM_SUCCESS;
+	//..................................................<<<
+}
+
+
+static pthread_t ncp_inet_test_thread;
+static void ncp_inet_test_task(void *data)
+{
+    NCP_INET_TEST *arg = (NCP_INET_TEST *)data;
+    switch (arg->type)
+    {
+        case TCP_SERVER:
+			ncp_inet_tcp_server_test(arg->addr, arg->port);
+		break;
+	    case TCP_CLIENT:
+			ncp_inet_tcp_client_test(arg->addr, arg->port);
+	    break;
+		case UDP_SERVER:
+			ncp_inet_udp_server_test(arg->addr, arg->port);
+		break;
+		case UDP_CLIENT:
+			ncp_inet_udp_client_test(arg->addr, arg->port);
+		break;
+    }
+	free(arg);
+    pthread_exit(NULL);
+}
+
+static int ncp_inet_test_command(int argc, char **argv)
+{
+    NCP_INET_TEST *arg = (NCP_INET_TEST *)malloc(sizeof(NCP_INET_TEST));
+	
+
+    unsigned int type;
+	unsigned int port;
+	char addr[64];
+    if (get_uint(argv[1], &arg->type, strlen(argv[1])))
+    {
+        printf("Usage: %s handle ip_addr port\r\n", __func__);
+        return FALSE;
+    }
+    if (get_uint(argv[3], &arg->port, strlen(argv[3])))
+    {
+        printf("Usage: %s handle ip_addr port\r\n", __func__);
+        return FALSE;
+    }
+    if (strlen(argv[2]) + 1 > IP_ADDR_LEN)
+    {
+        printf("over buffer size\r\n");
+        return FALSE;
+    }
+    memcpy(arg->addr, argv[2], strlen(argv[2]) + 1);
+	pthread_create(&ncp_inet_test_thread, NULL, (void *)ncp_inet_test_task, (void *)arg);
+	pthread_detach(ncp_inet_test_thread);
+	return TRUE;
+}
+
 #ifdef CONFIG_SDIO_TEST_LOOPBACK
 static struct mpu_host_cli_command mpu_host_app_cli_commands_loopback[] = {
     {"test-loopback", NULL, ncp_test_loopback_command},
@@ -8247,6 +9170,7 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
     {"wlan-socket-sendto", NULL, wlan_socket_sendto_command},
     {"wlan-socket-receive", NULL, wlan_socket_receive_command},
     {"wlan-socket-recvfrom", NULL, wlan_socket_recvfrom_command},
+    {"wlan-ncp-inet-test", NULL, ncp_inet_test_command},
     {"wlan-http-connect", NULL, wlan_http_connect_command},
     {"wlan-http-disconnect", NULL, wlan_http_disconnect_command},
     {"wlan-http-req", NULL, wlan_http_req_command},
@@ -8284,7 +9208,7 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
     {"wlan-suspend", NULL, wlan_suspend_command},
 #endif
     {"wlan-set-11axcfg", NULL, wlan_set_11axcfg_command},
-    {"wlan-set-btwt-cfg", NULL, wlan_set_btwt_command},
+    {"wlan-bcast-twt", "<set/get>", wlan_bcast_twt_command},
     {"wlan-twt-setup", NULL, wlan_twt_setup_command},
     {"wlan-twt-teardown", NULL, wlan_twt_teardown_command},
     {"wlan-get-twt-report", NULL, wlan_get_twt_report_command},
@@ -8341,6 +9265,9 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
     {"wlan-list", NULL, wlan_list_command},
     {"wlan-remove", "<profile_name>", wlan_remove_command},
     {"wlan-ncp-iperf", NULL, wlan_ncp_iperf_command},
+#ifdef CONFIG_NCP_SUPP
+    {"wlan-set-okc", "<okc: 0(default)/1>", wlan_set_okc_command},
+#endif
 };
 #endif
 
@@ -8373,4 +9300,3 @@ int mpu_host_deinit_cli_commands_wifi()
 
     return TRUE;
 }
-

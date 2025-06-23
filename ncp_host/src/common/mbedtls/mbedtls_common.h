@@ -75,11 +75,12 @@ extern uint32_t _verify_num;
 
 
 psa_status_t psa_crypto_init(void);
+void mbedtls_psa_crypto_free(void);
 int port_mbedtls_send(void *ctx, const unsigned char *buf, size_t len);
 int ncp_encrypt_init_mbedtls(void);
 int ncp_encrypt_setup(uint8_t is_server);
 int ncp_encrypt_teardown(void);
 int ncp_encrypt_process_handshake_data(uint8_t *data, uint16_t len);
-
+int ncp_cmd_is_data_cmd(uint32_t cmd);
 
 #endif /* __MBEDTLS_COMMON_H__ */
