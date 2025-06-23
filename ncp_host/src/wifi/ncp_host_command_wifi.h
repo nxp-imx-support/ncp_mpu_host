@@ -1754,34 +1754,20 @@ typedef struct _NCP_CMD_11AX_CFG_INFO
     HE_CAP_ParamSet_t he_cap_tlv;
 } NCP_CMD_11AX_CFG_INFO;
 
-/** This structure is used for broadcast various TWT config sets */
-#define BTWT_AGREEMENT_MAX 5
-typedef struct
+typedef struct _NCP_CMD_BTWT_CFG_INFO
 {
-    /** BTWT ID */
-    uint8_t btwt_id;
-    /** BTWT Mantissa */
-    uint16_t bcast_mantissa;
-    /** BTWT Exponent */
-    uint8_t bcast_exponent;
-    /** Range 64-255 */
+    /** only support 1: Set */
+    uint16_t action;
+    /** 0x125: Broadcast TWT AP config */
+    uint16_t sub_id;
+    /** range 64-255 */
     uint8_t nominal_wake;
-} ncp_btwt_set_t;
-
-typedef struct _NCP_CMD_BTWT_CFG
-{
-    /** Action 0: get, 1: set */
-    uint8_t action;
-    /** Reserved */
-    uint8_t bcast_bet_sta_wait;
-    /** Reserved */
-    uint16_t bcast_offset;
-    /** Reserved */
-    uint8_t bcast_twtli;
-    /** Count of BTWT agreement sets */
-    uint8_t count;
-    /** BTWT agreement sets */
-    ncp_btwt_set_t btwt_sets[BTWT_AGREEMENT_MAX];
+    /** Max STA Support */
+    uint8_t max_sta_support;
+    uint16_t twt_mantissa;
+    uint16_t twt_offset;
+    uint8_t twt_exponent;
+    uint8_t sp_gap;
 } NCP_CMD_BTWT_CFG_INFO;
 
 typedef struct _NCP_CMD_TWT_SETUP_CFG
@@ -2963,7 +2949,7 @@ int wlan_set_11axcfg_command(int argc, char **argv);
 
 int wlan_process_11axcfg_response(uint8_t *res);
 
-int wlan_bcast_twt_command(int argc, char **argv);
+int wlan_set_btwt_command(int argc, char **argv);
 
 int wlan_process_btwt_response(uint8_t *res);
 

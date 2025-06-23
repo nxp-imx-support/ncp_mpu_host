@@ -345,7 +345,7 @@ int ncp_encrypt_process_handshake_data(uint8_t *data, uint16_t len)
     recv_buf_free_len = NCP_MBEDTLS_RECV_BUF_LEN - recv_data_cnt - 1;
     if (!recv_buf_free_len)
     {
-        ncp_w("ncp encrypt handshake data, recv_buf_free_len %d", recv_buf_free_len);
+        ncp_w("ncp encrypt handshake data, recv_buf_free_len", recv_buf_free_len);
         return -TLS_ERR_RINGBUF_FULL;
     }
 
