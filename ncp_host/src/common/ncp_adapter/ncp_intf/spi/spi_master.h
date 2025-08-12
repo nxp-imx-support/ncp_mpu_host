@@ -40,8 +40,6 @@ int ncp_host_spi_init(void);
 void ncp_host_spi_deinit(void);
 int ncp_host_spi_master_tx(uint8_t *buff, uint16_t data_size);
 int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz);
-void stop_spi(int signo);
-
 
 typedef struct _gpio_signal_msg
 {

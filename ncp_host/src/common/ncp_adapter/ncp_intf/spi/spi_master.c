@@ -369,7 +369,7 @@ static void *spi_select_loop_func(void *arg)
             // Read event data to clear interrupt.
             read(ncp_host_gpio_rx_fd, &event, sizeof(event));
             gpio_signal.msg_type = GPIO_RX_SIGNAL;
-			SPI_DEBUG_PRINT("send gpio rx signal\n");
+            SPI_DEBUG_PRINT("send gpio rx signal\n");
             if ((msgsnd(ncp_host_gpio_sig_msgq, &gpio_signal, sizeof(spi_gpio_signal_msg_t), 0)) < 0)
             {
                 perror("send gpio rx signal fail: ");
@@ -383,7 +383,7 @@ static void *spi_select_loop_func(void *arg)
             // Read event data to clear interrupt.
             read(ncp_host_gpio_rx_ready_fd, &event, sizeof(event));
             gpio_signal.msg_type = GPIO_RX_READY_SIGNAL;
-			SPI_DEBUG_PRINT("send gpio rx ready signal\n");
+            SPI_DEBUG_PRINT("send gpio rx ready signal\n");
             if ((msgsnd(ncp_host_gpio_rd_sig_msgq, &gpio_signal, sizeof(spi_gpio_signal_msg_t), 0)) < 0)
             {
                 perror("send gpio rx ready signal fail: ");
@@ -615,7 +615,6 @@ int ncp_host_spi_init(void)
         goto create_ms_thread_fail;
     
     }
-	signal(SIGINT, stop_spi);
     return 0;
     
 create_ms_thread_fail:
@@ -693,11 +692,4 @@ void ncp_host_spi_deinit(void)
     }
 	spi_master_gpio_deinit();
     spi_dev_deinit();
-}
-
-
-void stop_spi(int signo)
-{
-	ncp_host_spi_deinit();
-    _exit(0);
 }

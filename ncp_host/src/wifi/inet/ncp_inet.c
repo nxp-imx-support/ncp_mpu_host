@@ -17,6 +17,10 @@
 #include <ncp_wifi_api.h>
 #include <errno.h>
 
+#ifdef CONFIG_NCP_SPI
+#include "spi_master.h"
+#endif
+
 
 static int inet_socket_recv_queue_open(int socket, int socket_type);
 static void inet_socket_recv_queue_close(int socket);
@@ -669,6 +673,7 @@ int inet_sock_send_fail_event(uint8_t *res)
     NCPCmd_DS_INET_COMMAND *evt_res = (NCPCmd_DS_INET_COMMAND *)res;
     if (evt_res->header.result != NCP_CMD_RESULT_OK)
     {
+        ncp_adap_e("%s: fail event result=0x%x", __FUNCTION__, evt_res->header.result);
         return -WM_FAIL;
     }
     inet_sock_recv_tlv = (NCP_CMD_INET_RESP_SEND_CFG *)&evt_res->params.wlan_inet_resp_send;
@@ -737,7 +742,6 @@ static ssize_t ncp_common_send(int socket, const void *buffer, size_t size, int 
 
     cmd->header.size += sizeof(NCP_CMD_INET_SENDTO_CFG);
     cmd->header.size += size;
-    ncp_adap_w("send data %d size to lwip\n", size);
     ret = ncp_tlv_send_no_resp(cmd);
     free(cmd);
     if (ret == 0)
@@ -758,13 +762,6 @@ ssize_t ncp_sendto(int socket, const void *buffer, size_t size, int flags, struc
     return ncp_common_send(socket, buffer, size, flags, addr, length);
 }
 
-/* ncp socket enhance receive queue */
-void stop_ncp_host(int signo)
-{
-    inet_sock_recv_queue_init();
-    _exit(0);
-}
-
 /* ncp inet data path RX */
 static struct ncp_socket_recv_t inet_sock_handle_array[NCP_INET_SOCK_NUMBER];
 static int inet_sock_recv_queue_init(void)
@@ -780,7 +777,6 @@ static int inet_sock_recv_queue_init(void)
         handle->socket_type = IPPROTO_NONE;
     }
 
-    signal(SIGINT, stop_ncp_host);
     return WM_SUCCESS;
 }
 
@@ -897,7 +893,11 @@ int inet_sock_recv_send_queue_data(int socket, char *buf, int size)
         errno = ENOTCONN;
         return -1;
     }
-    ncp_adap_w("send data %d size to fifo rx fd %d\n", size, handle->rx_fifo_fd);
+    ncp_adap_w("send data %d size to fifo rx fd %d on socket %d\n", size, handle->rx_fifo_fd, socket);
+#ifdef CONFIG_MPU_INET_DUMP
+    ncp_adap_e("%s: dump buf size=%u", __FUNCTION__, size);
+    ncp_dump_hex(buf, size);
+#endif
     /* enqueue buffer address to queue */
     ret = write(handle->rx_fifo_fd, buf, size);
     if (ret < 0)
@@ -935,9 +935,18 @@ int inet_sock_recv_event(uint8_t *res)
         ncp_adap_e("ncp socket receive rx queue isn't created");
         return -WM_FAIL;
     }
+#ifdef CONFIG_MPU_INET_DUMP
+    ncp_adap_e("%s: dump inet_sock_recv_tlv", __FUNCTION__);
+    ncp_dump_hex(inet_sock_recv_tlv, sizeof(NCP_CMD_INET_RESP_RECVFROM_CFG));
+#endif
     handle->read_errorn = inet_sock_recv_tlv->errorn;
     if (inet_sock_recv_tlv->ret < 0)
     {
+        return WM_SUCCESS;
+    }
+    if (inet_sock_recv_tlv->socklen <= 0)
+    {
+        ncp_adap_e("%s: dump inet_sock_recv_tlv->sockaddr len=%u", __FUNCTION__, inet_sock_recv_tlv->socklen);
         return WM_SUCCESS;
     }
     memcpy((char *)&(handle->addr), (char *)inet_sock_recv_tlv->sockaddr, inet_sock_recv_tlv->socklen);

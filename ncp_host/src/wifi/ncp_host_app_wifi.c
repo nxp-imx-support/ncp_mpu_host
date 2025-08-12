@@ -592,6 +592,10 @@ static void iperf_tx_task(void *arg)
         send_total_size = iperf_msg.iperf_set.iperf_count * iperf_msg.per_size;
         /*send setting*/
         memcpy(lwiperf_txbuf_const, (char *)(&iperf_msg.iperf_set), sizeof(iperf_set_t));
+#ifdef CONFIG_MPU_INET_DUMP
+        ncp_adap_e("%s: dump %u setting buffer %u", __FUNCTION__, iperf_msg.iperf_set.iperf_type, sizeof(iperf_set_t));
+        ncp_dump_hex(lwiperf_txbuf_const, sizeof(iperf_set_t));
+#endif
         if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_TX)
         {
             ret = ncp_send(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0);
@@ -616,6 +620,10 @@ static void iperf_tx_task(void *arg)
         i = 0; // Reset index
         while (i < iperf_msg.iperf_set.iperf_count)
         {
+#ifdef CONFIG_MPU_INET_DUMP
+            ncp_adap_e("%s: [%llu] dump %u setting buffer %u", __FUNCTION__, i, iperf_msg.iperf_set.iperf_type, iperf_msg.per_size);
+            ncp_dump_hex(lwiperf_txbuf_const, 64);
+#endif
             if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_TX)
             {
                 ret = ncp_send(client_sockfd, lwiperf_txbuf_const, iperf_msg.per_size, 0);
@@ -718,6 +726,12 @@ static void iperf_rx_task(void *arg)
             }
         }
 
+        /*send setting*/
+        memcpy(lwiperf_txbuf_const, (char *)(&iperf_msg.iperf_set), sizeof(iperf_set_t));
+#ifdef CONFIG_MPU_INET_DUMP
+        ncp_adap_e("%s: dump %u setting buffer %u", __FUNCTION__, iperf_msg.iperf_set.iperf_type, sizeof(iperf_set_t));
+        ncp_dump_hex(lwiperf_txbuf_const, sizeof(iperf_set_t));
+#endif
         if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_RX)
         {
             ret = ncp_send(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0);
@@ -747,7 +761,19 @@ static void iperf_rx_task(void *arg)
             char buffer[1500];
             ret = ncp_recv(client_sockfd, buffer, iperf_msg.per_size, 0);
             if (ret < 0)
-                ncp_adap_e("[recv iperf data fail");
+            {
+                ncp_adap_e("%s: ncp_recv fail ret=%d", __FUNCTION__, ret);
+                continue;
+            }
+            if (iperf_msg.per_size > sizeof(buffer))
+            {
+                ncp_adap_e("%s: invalid recv size %u", __FUNCTION__, iperf_msg.per_size);
+                continue;
+            }
+#ifdef CONFIG_MPU_INET_DUMP
+            ncp_adap_e("%s: dump ncp_recv buffer %u ret=%d", __FUNCTION__, iperf_msg.per_size, ret);
+            ncp_dump_hex(buffer, ret);
+#endif
             recv_size += ret;
             left_size -= ret;
             pkg_num++;

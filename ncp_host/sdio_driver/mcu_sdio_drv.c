@@ -326,7 +326,6 @@ struct mcu_sdio_mmc_card {
 
 #define NCP_CMD_WLAN_SOCKET_SEND     (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000004)
 #define NCP_CMD_WLAN_SOCKET_SENDTO   (NCP_CMD_WLAN | NCP_CMD_WLAN_SOCKET | NCP_MSG_TYPE_CMD | 0x00000005)
-
 #define NCP_CMD_WLAN_INET_SENDTO    (NCP_CMD_WLAN | NCP_CMD_WLAN_INET | NCP_MSG_TYPE_CMD | 0x00000006) /* wlan-socket-sendto */
 
 #define NCP_CMD_SYSTEM_CONFIG   0x00000000
@@ -1980,8 +1979,8 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 	PRINTM_DEBUG("%s: g_last_cmd_app=0x%x\n", __FUNCTION__, g_last_cmd_app);
 
 	if ((ncp_cmd.cmd == NCP_CMD_WLAN_SOCKET_SEND) ||
-			(ncp_cmd.cmd == NCP_CMD_WLAN_SOCKET_SENDTO) ||
-			(ncp_cmd.cmd == NCP_CMD_WLAN_INET_SENDTO)) {
+		(ncp_cmd.cmd == NCP_CMD_WLAN_SOCKET_SENDTO) ||
+		(ncp_cmd.cmd == NCP_CMD_WLAN_INET_SENDTO)) {
 		max_len = MAX_DATA_PAYLOAD_SIZE - SDIO_INTF_HEADER_LEN;
 		if ((count > max_len) || (ncp_cmd.size > max_len)) {
 			PRINT_ERR("%s: max_data_len=%d : invalid ncp_cmd: cmd=0x%x size=%d !\n",

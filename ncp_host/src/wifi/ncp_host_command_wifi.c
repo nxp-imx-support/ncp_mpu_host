@@ -1854,12 +1854,14 @@ int wlan_ncp_iperf_command(int argc, char **argv)
     unsigned int time_per_pkt = 0;
     enum ncp_iperf_item item = FALSE_ITEM;
     memset((char *)&iperf_msg, 0, sizeof(iperf_msg));
+
     if (argc < 4)
     {
+        (void)printf("%s: argc=%d < 4\r\n", __func__, argc);
         (void)printf("Usage: %s handle [tcp|udp] [tx|rx]\r\n", __func__);
         return -WM_FAIL;
     }
-	iperf_msg.handle = 0;
+    iperf_msg.handle = 0;
     memcpy(iperf_msg.ip_addr, argv[1], strlen(argv[1]) + 1);
     if (!strncmp(argv[2], "tcp", 3))
     {

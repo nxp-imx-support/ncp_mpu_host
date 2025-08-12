@@ -122,7 +122,6 @@ static ncp_status_t ncp_tlv_tx_enque(ncp_tlv_qelem_t *qelem)
 {
     ncp_status_t status = NCP_STATUS_SUCCESS;
 
-    pthread_mutex_lock(&ncp_tlv_queue_mutex);
 #if 0
     if (ncp_tlv_queue_len == NCP_TLV_QUEUE_LENGTH)
     {
@@ -142,12 +141,13 @@ static ncp_status_t ncp_tlv_tx_enque(ncp_tlv_qelem_t *qelem)
         status = NCP_STATUS_ERROR;
         goto Fail;
     }
+    pthread_mutex_lock(&ncp_tlv_queue_mutex);
     ncp_tlv_queue_len++;
+    pthread_mutex_unlock(&ncp_tlv_queue_mutex);
     NCP_TLV_STATS_INC(tx0);
     ncp_adap_d("enque tlv_buf success");
 
 Fail:
-    pthread_mutex_unlock(&ncp_tlv_queue_mutex);
     ncp_adap_d("Exit ncp_tlv_tx_enque");
     return status;
 }

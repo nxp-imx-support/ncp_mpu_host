@@ -41,6 +41,7 @@
 #include "ncp_tlv_adapter.h"
 #include "ncp_cmd_node.h"
 #include "lpm.h"
+#include "ncp_inet.h"
 
 uint8_t input_buf[NCP_COMMAND_LEN];
 uint8_t recv_buf[NCP_RING_BUFFER_SIZE_ALIGN];
@@ -621,6 +622,11 @@ static void ncp_handle_input_task(void *arg)
 extern int ncp_system_app_init();
 extern int ncp_host_system_command_init();
 extern void ncp_system_app_deinit(void);
+void ncp_host_stop()
+{
+    ncp_inet_deinit();
+    ncp_adapter_deinit();
+}
 #ifndef NCP_OT_STANDALONE
 #ifdef CONFIG_MATTER_NCP
 int ncp_host_main()
@@ -775,7 +781,7 @@ int main(int argc, char **argv)
 #if CONFIG_NCP_USE_ENCRYPT && CONFIG_NCP_HOST_AUTO_TRIG_ENCRYPT
     (void) ncp_trigger_encrypted_communication();
 #endif
-
+    signal(SIGINT, ncp_host_stop);
     printf("You can input these commands:\r\n");
     printf("================================\r\n");
     help_command(0, NULL);
