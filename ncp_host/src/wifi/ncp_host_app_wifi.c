@@ -32,6 +32,7 @@
 #include "ncp_host_command_wifi.h"
 #include "ncp_tlv_adapter.h"
 #include "ncp_inet.h"
+#include <sys/syscall.h>
 
 
 
@@ -119,6 +120,7 @@ static void ping_sock_task(void *arg)
     uint64_t ping_time;
     int retry;
     ping_time_t ping_stop, temp_time;
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (1)
     {   
@@ -528,6 +530,7 @@ static void iperf_tx_task(void *arg)
 
     int                client_sockfd;
     struct sockaddr_in server_addr = {0};
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (1)
     {
@@ -682,6 +685,7 @@ static void iperf_rx_task(void *arg)
     int ret = 0;
     int                client_sockfd;
     struct sockaddr_in server_addr = {0};
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (1)
     {
@@ -779,6 +783,8 @@ static void iperf_rx_task(void *arg)
             pkg_num++;
             iperf_rx_cnt       = pkg_num;
             iperf_rx_recv_size = recv_size;
+            if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_UDP_RX && ret == 11)
+                break;
         }
         recv_size += ret;
         left_size -= ret;
@@ -1047,6 +1053,7 @@ void wifi_ncp_rx_task(void *pvParameters)
 {
     ssize_t         tlv_sz = 0;
     ncp_tlv_qelem_t *qelem = NULL;
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (pthread_mutex_trylock(&wifi_ncp_tlv_rx_thread_mutex) != 0)
     {

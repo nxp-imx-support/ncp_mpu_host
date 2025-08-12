@@ -45,7 +45,7 @@ static int ot_ncp_handle_rx_cmd_event(uint8_t *tlv_buf, int tlv_sz)
     if (recv_buf == NULL)
     {
         ncp_adap_e("failed to allocate memory for the received response");
-        return;
+        return -1;
     }
 
     memcpy(recv_buf, tlv_buf, tlv_sz);

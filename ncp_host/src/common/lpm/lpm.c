@@ -15,6 +15,7 @@
 #include "ncp_system_command.h"
 #include "lpm.h"
 #include "ncp_tlv_adapter.h"
+#include <sys/syscall.h>
 
 extern ncp_tlv_adapter_t ncp_tlv_adapter;
 
@@ -86,6 +87,8 @@ static void *device_notify_gpio_input_task(void *pvParameters)
     struct pollfd fds[1];
     int timeout_ms = 10000;
     int ret = 0;
+
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (pthread_mutex_trylock(&device_notify_gpio_thread_mutex) != 0)
     {

@@ -15,6 +15,7 @@
 #include "mbedtls_common.h"
 #include "ncp_host_command.h"
 #endif
+#include <sys/syscall.h>
 
 /*******************************************************************************
  * Definitions
@@ -73,6 +74,7 @@ static void* ncp_tlv_process(void *arg)
     ncp_tlv_qelem_t *qelem = NULL;
 
     ncp_adap_d("Start ncp_tlv_process thread");
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (pthread_mutex_trylock(&ncp_tlv_thread_mutex) != 0)
     {

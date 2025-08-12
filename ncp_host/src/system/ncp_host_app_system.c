@@ -12,6 +12,7 @@
 #include "pthread.h"
 #include "mqueue.h"
 #include "ncp_tlv_adapter.h"
+#include <sys/syscall.h>
 
 
 /*SYSTEM NCP COMMAND TASK*/
@@ -125,6 +126,7 @@ static void system_ncp_task(void *arg)
 {
     ssize_t         tlv_sz = 0;
     system_ncp_tlv_qelem_t *qelem = NULL;
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (pthread_mutex_trylock(&system_ncp_tlv_rx_thread_mutex) != 0)
     {

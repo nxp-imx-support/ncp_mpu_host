@@ -15,7 +15,7 @@
 #include "uart.h"
 
 #include "ncp_matter_ble.h"
-
+#include "ncp_host_app_ble.h"
 
 /* -------------------------------------------------------------------------- */
 /*                               Variables                                    */
@@ -84,7 +84,7 @@ void test_disconnected(uint16_t conId, uint8_t reason)
     printf("test ble disconnected, conid: %d, reason: %d \n", conId, reason);
 }
 
-int test_rx_write(uint16_t conId, void *buf, uint8_t len)
+void test_rx_write(uint16_t conId, void *buf, uint8_t len)
 {
     for (uint8_t i = 0; i < len; i++)
     {
@@ -93,12 +93,12 @@ int test_rx_write(uint16_t conId, void *buf, uint8_t len)
     printf(" -> test done. \n");
 }
 
-int test_ccc_config(uint16_t conId, uint16_t value)
+void test_ccc_config(uint16_t conId, uint16_t value)
 {
     printf("test ccc config, conid: %d, value: %d \n", conId, value);
 }
 
-int test_tx_ind_confirm(uint16_t conId, uint8_t err)
+void test_tx_ind_confirm(uint16_t conId, uint8_t err)
 {
     printf("test indcation confirm, conid: %d, err: %d \n", conId, err);;
 }

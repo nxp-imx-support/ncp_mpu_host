@@ -9,6 +9,8 @@
 #include "ncp_tlv_adapter.h"
 #include "spi_master.h"
 #include <pthread.h>
+#include <sys/syscall.h>
+
 
 /*******************************************************************************
  * Variables
@@ -26,7 +28,7 @@ static void* ncp_spi_intf_task(void *argv)
     size_t tlv_size = 0;
 
     ARG_UNUSED(argv);
-
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
     while(1)
     {
         ret = ncp_spi_receive(ncp_spi_tlvbuf, &tlv_size);

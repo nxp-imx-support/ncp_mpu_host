@@ -42,6 +42,8 @@
 #include "ncp_cmd_node.h"
 #include "lpm.h"
 #include "ncp_inet.h"
+#include <sys/syscall.h>
+
 
 uint8_t input_buf[NCP_COMMAND_LEN];
 uint8_t recv_buf[NCP_RING_BUFFER_SIZE_ALIGN];
@@ -558,6 +560,8 @@ static void ncp_handle_input_task(void *arg)
     int ret;
     char nul[2];
     nul[0] = '\n'; // only input enter
+
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (1)
     {

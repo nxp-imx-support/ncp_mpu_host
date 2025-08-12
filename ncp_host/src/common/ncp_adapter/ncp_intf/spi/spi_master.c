@@ -38,6 +38,9 @@
 #include "spi_master.h"
 #include "ncp_host_app.h"
 #include "ncp_host_command.h"
+#include <sys/types.h>
+#include <sys/syscall.h>
+
 
 #ifdef CONFIG_SPI_DEBUG
 #define SPI_DEBUG_PRINT(fmt, ...) \
@@ -55,7 +58,7 @@ static const char *spi_dev_path = SPI_DEV_PATH;
 static uint32_t spi_mode = 0;
 static uint8_t spi_bits = 8;
 static uint32_t spi_speed = NCP_SPI_MASTER_CLOCK;
-static uint16_t spi_delay = 1;
+static uint16_t spi_delay = 0;
 static pthread_mutex_t *spi_slave_rx_ready_mutex = 0;
 static pthread_mutex_t *spi_slave_rtx_sync_mutex = 0;
 static pthread_mutex_t *ncp_machine_state_mutex = 0;
@@ -70,7 +73,6 @@ static spi_gpio_signal_msg_t gpio_signal;
 
 int ncp_host_efd;
 pthread_t spi_select_loop_thread;
-pthread_t spi_state_machine_thread;
 
 static int spi_master_tx(int fd, const uint8_t *tx, size_t len)
 {
@@ -348,7 +350,8 @@ static void *spi_select_loop_func(void *arg)
     int mMaxFd = 0;
     fd_set		   mReadFdSet;	///< The read file descriptors.
     fd_set		   mWriteFdSet; ///< The write file descriptors.
-    
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
+
     while (1)
     {
         mMaxFd = ncp_host_gpio_rx_fd > ncp_host_gpio_rx_ready_fd? ncp_host_gpio_rx_fd : ncp_host_gpio_rx_ready_fd;
@@ -384,26 +387,8 @@ static void *spi_select_loop_func(void *arg)
             read(ncp_host_gpio_rx_ready_fd, &event, sizeof(event));
             gpio_signal.msg_type = GPIO_RX_READY_SIGNAL;
             SPI_DEBUG_PRINT("send gpio rx ready signal\n");
-            if ((msgsnd(ncp_host_gpio_rd_sig_msgq, &gpio_signal, sizeof(spi_gpio_signal_msg_t), 0)) < 0)
-            {
-                perror("send gpio rx ready signal fail: ");
-                continue;
-            }
+            pthread_mutex_unlock(spi_slave_rx_ready_mutex);
         }
-    }
-    return NULL;
-}
-
-static void *spi_master_sm_func(void *arg)
-{
-    while(1)
-    {
-        if (msgrcv(ncp_host_gpio_rd_sig_msgq, (void *)&gpio_signal, sizeof(spi_gpio_signal_msg_t), 0, 0) < 0)
-        {
-            perror("msgrcv failed: ");
-            continue;
-        }
-		pthread_mutex_unlock(spi_slave_rx_ready_mutex);
     }
     return NULL;
 }
@@ -598,9 +583,12 @@ int ncp_host_spi_init(void)
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
-    pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
-    
     pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+    pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
+    struct sched_param param;
+    param.sched_priority = 80;
+    pthread_attr_setschedparam(&attr, &param);
+    pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
     ret = pthread_create(&spi_select_loop_thread, &attr, (void *)spi_select_loop_func, NULL);
     if (ret)
     {
@@ -608,13 +596,6 @@ int ncp_host_spi_init(void)
         goto create_sl_thread_fail;
     }
     
-    ret = pthread_create(&spi_state_machine_thread, &attr, (void *)spi_master_sm_func, NULL);
-    if (ret)
-    {
-        printf("Failed to create spi_select_loop_thread!\r\n");
-        goto create_ms_thread_fail;
-    
-    }
     return 0;
     
 create_ms_thread_fail:
@@ -652,22 +633,10 @@ void ncp_host_spi_deinit(void)
         printf("Failed to join spi_select_loop_thread!\r\n");
     }
 
-    ret = pthread_cancel(spi_state_machine_thread);
-    if (ret < 0)
-    {
-        printf("Failed to join spi_state_machine_thread!\r\n");
-    }
-
     ret = pthread_join(spi_select_loop_thread, NULL);
     if (ret < 0)
     {
         printf("Failed to join spi_select_loop_thread!\r\n");
-    }
-
-    ret = pthread_join(spi_state_machine_thread, NULL);
-    if (ret < 0)
-    {
-        printf("Failed to join spi_state_machine_thread!\r\n");
     }
 
     pthread_mutex_destroy(spi_slave_rx_ready_mutex);

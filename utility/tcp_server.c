@@ -332,8 +332,14 @@ void *send_data(void *arg)
     struct timeval prev_time, cur_time;
     int send_interval = 1;
 	
-    if(udp_rate <= 120) 
-        send_interval = 1000; 
+    if(udp_rate <= 120)
+        send_interval = 1000;
+    else if(udp_rate <= 2 * 1000)
+        send_interval = 60;
+    else if(udp_rate <= 10 * 1000)
+        send_interval = 12;
+    else if(udp_rate <= 20 * 1000)
+        send_interval = 6;
     else if (udp_rate <= 30 * 1000) // 30Mbps
         send_interval = 4;
     else if (udp_rate <= 60 * 1000) // 60Mbps
