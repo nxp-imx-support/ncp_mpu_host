@@ -313,7 +313,7 @@ ncp_status_t config_usb(usb_device_t *usb_dev)
     if(libusb_kernel_driver_active(usb_handle, 0) == 1)
     {
         if(libusb_detach_kernel_driver(usb_handle, 0) == 0)
-            ncp_adap_e("USB: Kernel Driver Detached\n");
+            ncp_adap_d("USB: Kernel Driver Detached\n");
         else
         {
             ncp_adap_e("USB: could not detach kernel driver\n");

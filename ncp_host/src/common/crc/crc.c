@@ -30,10 +30,15 @@ void ncp_tlv_chksum_init(void)
 
 uint32_t ncp_tlv_chksum(uint8_t *buf, uint16_t len)
 {
+#if CONFIG_NCP_UART
+    /*Wait for rt1060evkb ncp-host support HW crc*/
     uint8_t *    p;
     unsigned int crc;
 
     crc = 0xffffffff;
     for (p = buf; len > 0; ++p, --len) crc = (crc << 8) ^ (crc32_table[(crc >> 24) ^ *p]);
     return ~crc;
+#else
+    return 0;
+#endif
 }

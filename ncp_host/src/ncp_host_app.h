@@ -20,6 +20,8 @@
 #define TRUE              0
 #define MAX_SEND_RECV_LEN 400
 
+#define CONFIG_INET_SOCKET 0
+
 #define MPU_HOST_INBUF_SIZE   400
 #define MPU_HOST_MAX_COMMANDS 500
 

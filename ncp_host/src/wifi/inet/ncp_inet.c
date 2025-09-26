@@ -17,11 +17,6 @@
 #include <ncp_wifi_api.h>
 #include <errno.h>
 
-#ifdef CONFIG_NCP_SPI
-#include "spi_master.h"
-#endif
-
-
 static int inet_socket_recv_queue_open(int socket, int socket_type);
 static void inet_socket_recv_queue_close(int socket);
 static struct ncp_socket_recv_t *inet_get_sock_handle(int socket);
@@ -893,7 +888,7 @@ int inet_sock_recv_send_queue_data(int socket, char *buf, int size)
         errno = ENOTCONN;
         return -1;
     }
-    ncp_adap_w("send data %d size to fifo rx fd %d on socket %d\n", size, handle->rx_fifo_fd, socket);
+    ncp_adap_d("send data %d size to fifo rx fd %d on socket %d\n", size, handle->rx_fifo_fd, socket);
 #ifdef CONFIG_MPU_INET_DUMP
     ncp_adap_e("%s: dump buf size=%u", __FUNCTION__, size);
     ncp_dump_hex(buf, size);

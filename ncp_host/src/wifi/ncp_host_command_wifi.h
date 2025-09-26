@@ -191,6 +191,7 @@ typedef struct _iperf_set_t
 	uint32_t iperf_count;
     uint32_t iperf_udp_rate;
     uint32_t iperf_udp_time;
+    uint32_t iperf_per_size;
 } iperf_set_t;
 
 typedef struct _iperf_msg_t

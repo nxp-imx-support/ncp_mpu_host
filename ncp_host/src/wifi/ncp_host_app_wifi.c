@@ -61,6 +61,8 @@ pthread_t ping_sock_thread, iperf_tx_thread, iperf_rx_thread;
 extern uint32_t last_resp_rcvd, last_cmd_sent;
 extern uint16_t last_seqno_rcvd, last_seqno_sent;
 
+int cpu_latancy_fd = 0;
+
 void bzero(void *s, size_t n);
 int usleep();
 
@@ -275,7 +277,7 @@ static void ping_sock_task(void *arg)
 extern iperf_msg_t iperf_msg;
 
 /** A const buffer to send from: we want to measure sending, not copying! */
-static uint8_t lwiperf_txbuf_const[1600] = {
+static uint8_t lwiperf_txbuf_const[3000] = {
   '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
   '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
   '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
@@ -513,7 +515,7 @@ void iperf_tcp_rx(void *arg)
     send_tlv_command(S_D);
 }
 
-#if CONFIG_USE_NEW_SOCKET
+#if CONFIG_INET_SOCKET
 static void iperf_tx_task(void *arg)
 {
     long long i               = 0;
@@ -527,14 +529,23 @@ static void iperf_tx_task(void *arg)
     long long delta = 0;
     int send_interval = 1;
     int ret = 0;
+    int32_t latency_target = 0, latency_old = 0;
 
     int                client_sockfd;
     struct sockaddr_in server_addr = {0};
     printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
+
     while (1)
     {
         sem_wait(&iperf_tx_sem);
+
+        if (cpu_latancy_fd > 0)
+        {
+            read(cpu_latancy_fd, &latency_old, sizeof(latency_old));
+            write(cpu_latancy_fd, &latency_target, sizeof(latency_target));
+        }
+
         {
             if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_TX)
             {
@@ -604,7 +615,7 @@ static void iperf_tx_task(void *arg)
             ret = ncp_send(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0);
             if (ret < 0)
             {
-                ncp_adap_e("[send iperf setting fail");
+                ncp_adap_e("[send iperf setting fail]");
                 continue;
             }
         }
@@ -613,7 +624,7 @@ static void iperf_tx_task(void *arg)
             ret = ncp_sendto(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
             if (ret < 0)
             {
-                ncp_adap_e("[send iperf setting fail");
+                ncp_adap_e("[send iperf setting fail]");
                 continue;
             }
         }
@@ -665,13 +676,23 @@ static void iperf_tx_task(void *arg)
         {
             ret = ncp_send(client_sockfd, lwiperf_end_token, NCP_IPERF_END_TOKEN_SIZE, 0);
             if (ret < 0)
-                ncp_adap_e("[send iperf finish fail");
+                ncp_adap_e("[send iperf finish fail]");
+            else
+                ncp_adap_e("[send iperf finish]");
         }
         else if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_UDP_TX)
         {
             ret = ncp_sendto(client_sockfd, lwiperf_end_token, NCP_IPERF_END_TOKEN_SIZE, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
-            ncp_adap_e("[send iperf finish fail");
+            if (ret < 0)
+                ncp_adap_e("[send iperf finish fail]");
+            else
+                ncp_adap_e("[send iperf finish]");
+
         }
+        sleep(1);
+        ncp_close(client_sockfd);
+        if (cpu_latancy_fd > 0)
+            write(cpu_latancy_fd, &latency_old, sizeof(latency_old));
     }
 
     pthread_exit(NULL);
@@ -683,6 +704,7 @@ static void iperf_rx_task(void *arg)
     long long recv_size = 0, left_size = 0;
     send_data_t *S_D = (send_data_t *)arg;
     int ret = 0;
+    int32_t latency_target = 0, latency_old = 0;
     int                client_sockfd;
     struct sockaddr_in server_addr = {0};
     printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
@@ -690,6 +712,11 @@ static void iperf_rx_task(void *arg)
     while (1)
     {
         sem_wait(&iperf_rx_sem);
+        if (cpu_latancy_fd > 0) {
+            read(cpu_latancy_fd, &latency_old, sizeof(latency_old));
+            write(cpu_latancy_fd, &latency_target, sizeof(latency_target));
+        }
+
         printf("ncp iperf rx start\r\n");
         /* connect server */
         {
@@ -748,6 +775,7 @@ static void iperf_rx_task(void *arg)
         else if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_UDP_RX)
         {
             ret = ncp_sendto(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+            if (ret < 0)
             {
                 ncp_adap_e("[send iperf setting fail");
                 continue;
@@ -762,7 +790,7 @@ static void iperf_rx_task(void *arg)
         gettimeofday(&iperf_timer_start, NULL);
         while (left_size > 0)
         {
-            char buffer[1500];
+            char buffer[3000];
             ret = ncp_recv(client_sockfd, buffer, iperf_msg.per_size, 0);
             if (ret < 0)
             {
@@ -791,6 +819,11 @@ static void iperf_rx_task(void *arg)
         gettimeofday(&iperf_timer_end, NULL);
         (void)printf("RX IPERF END\r\n");
         ncp_iperf_report(recv_size);
+        sleep(1);
+        ncp_close(client_sockfd);
+        if (cpu_latancy_fd > 0)
+            write(cpu_latancy_fd, &latency_old, sizeof(latency_old));
+
     }
 
     pthread_exit(NULL);
@@ -1266,6 +1299,10 @@ int wifi_ncp_app_task_init(void *send_data, void *recv_data)
     }
     else
         printf("Success to creat iperf_rx_thread!\r\n");
+
+    cpu_latancy_fd = open("/dev/cpu_dma_latency", O_RDWR);
+    if (cpu_latancy_fd < 0)
+        perror("open: ");
 
     return NCP_STATUS_SUCCESS;
 

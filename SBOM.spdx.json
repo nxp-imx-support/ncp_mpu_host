@@ -2,20 +2,20 @@
   "SPDXID": "SPDXRef-DOCUMENT",
   "spdxVersion": "SPDX-2.3",
   "creationInfo": {
-    "created": "2025-08-12T08:36:01Z",
+    "created": "2025-09-19T02:44:31Z",
     "creators": [
       "Organization: NXP"
     ],
     "licenseListVersion": "3.20"
   },
-  "name": "ncp_mpu_host-v1.r1.p10",
+  "name": "ncp_mpu_host-v1.r1.p11",
   "dataLicense": "CC0-1.0",
-  "documentNamespace": "https://nxp.com/spdx/106b0de8-a557-4935-9eb0-b1a004e199f0",
+  "documentNamespace": "https://nxp.com/spdx/397c7037-fc40-473a-a1c1-a44b86ed92cf",
   "packages": [
     {
-      "SPDXID": "SPDXRef-package-106b0de8-a557-4935-9eb0-b1a004e199f0",
+      "SPDXID": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "name": "ncp_mpu_host",
-      "versionInfo": "v1.r1.p10",
+      "versionInfo": "v1.r1.p11",
       "licenseConcluded": "(BSD-3-Clause)",
       "licenseDeclared": "(BSD-3-Clause)",
       "downloadLocation": "NOASSERTION",
@@ -96,6 +96,19 @@
       "filesAnalyzed": false
     },
     {
+      "SPDXID": "SPDXRef-package-2f3dbaea-7c5a-4589-b9ed-c7956629f571",
+      "name": "openthread",
+      "versionInfo": "0.1",
+      "licenseConcluded": "(BSD-3-Clause AND Apache-2.0)",
+      "licenseDeclared": "(BSD-3-Clause AND Apache-2.0)",
+      "homepage": "https://github.com/openthread/openthread",
+      "downloadLocation": "NOASSERTION",
+      "originator": "Organization: openthread",
+      "supplier": "NOASSERTION",
+      "externalRefs": [],
+      "filesAnalyzed": false
+    },
+    {
       "SPDXID": "SPDXRef-package-cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a",
       "name": "zephyr",
       "versionInfo": "v4.1.0",
@@ -108,12 +121,12 @@
       "externalRefs": [
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:zephyrproject_rtos:zephyr:4.1.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:o:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:o:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:zephyrproject_rtos:zephyr:4.1.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
@@ -129,32 +142,32 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-package-106b0de8-a557-4935-9eb0-b1a004e199f0"
+      "relatedSpdxElement": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf"
     },
     {
-      "spdxElementId": "SPDXRef-package-106b0de8-a557-4935-9eb0-b1a004e199f0",
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-package-2f3dbaea-7c5a-4589-b9ed-c7956629f571"
+    },
+    {
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-bd6ba105-69f6-4839-b234-61efd820f3e3"
     },
     {
-      "spdxElementId": "SPDXRef-package-106b0de8-a557-4935-9eb0-b1a004e199f0",
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-87476701-cd7b-494c-a778-27bd8fecc90f"
     },
     {
-      "spdxElementId": "SPDXRef-package-106b0de8-a557-4935-9eb0-b1a004e199f0",
-      "relationshipType": "DYNAMIC_LINK",
-      "relatedSpdxElement": "SPDXRef-package-bd6ba105-69f6-4839-b234-61efd820f3e3"
-    },
-    {
-      "spdxElementId": "SPDXRef-package-106b0de8-a557-4935-9eb0-b1a004e199f0",
-      "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a"
-    },
-    {
-      "spdxElementId": "SPDXRef-package-106b0de8-a557-4935-9eb0-b1a004e199f0",
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-99490dd7-f4da-4cb8-9c61-7770c570f492"
+    },
+    {
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-package-cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a"
     }
   ]
 }

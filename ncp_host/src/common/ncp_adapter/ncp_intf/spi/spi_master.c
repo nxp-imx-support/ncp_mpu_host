@@ -41,7 +41,6 @@
 #include <sys/types.h>
 #include <sys/syscall.h>
 
-
 #ifdef CONFIG_SPI_DEBUG
 #define SPI_DEBUG_PRINT(fmt, ...) \
     do { \
@@ -400,10 +399,11 @@ static void spi_master_send_signal(void)
 }
 */
 
+static uint8_t first_buf[MAX_TRANSFER_COUNT];
 int ncp_host_spi_master_tx(uint8_t *buff, uint16_t data_size)
 {
     int ret = 0;
-    uint16_t trans_len = 0, len = 0;
+    int trans_len = 0, len = 0;
     uint8_t *p   = NULL;
     static uint8_t hs_tx[4] = {'s', 'e', 'n', 'd'};
 resend:
@@ -421,17 +421,25 @@ resend:
 	pthread_mutex_lock(spi_slave_rx_ready_mutex);
 	SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
     len = data_size;
-    p   = buff;
-    trans_len = NCP_CMD_HEADER_LEN;
+    if (data_size < MAX_TRANSFER_COUNT)
+    {
+        memset(first_buf, 0, MAX_TRANSFER_COUNT);
+        memcpy(first_buf, buff, data_size);
+        p = first_buf;
+    }
+    else
+        p = buff;
+
+    trans_len = MAX_TRANSFER_COUNT;
     ret = spi_master_tx(spi_dev_fd, p, trans_len);
     if (ret < 0)
     {
         printf("spi slave tx fail");
         goto done;
     }
-    len -= NCP_CMD_HEADER_LEN;
-    p += NCP_CMD_HEADER_LEN;
-    while (len)
+    len -= MAX_TRANSFER_COUNT;
+    p = buff + MAX_TRANSFER_COUNT;
+    while (len > 0)
     {
 		pthread_mutex_lock(spi_slave_rx_ready_mutex);
 		SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
@@ -458,7 +466,7 @@ done:
 int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz)
 {
     int ret = 0;
-    uint16_t total_len = 0, resp_len = 0, trans_len = 0, len = 0;
+    int total_len = 0, resp_len = 0, trans_len = 0, len = 0;
     uint8_t *p   = buff;
 	static uint8_t hs_rx[4] = {'r', 'e', 'c', 'v'};
 
@@ -475,7 +483,7 @@ int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz)
     /* spi transfer valid data */	
 	pthread_mutex_lock(spi_slave_rx_ready_mutex);
 	SPI_DEBUG_PRINT("spi transfer complete-rx-%d\n", __LINE__);
-    trans_len = NCP_CMD_HEADER_LEN;
+    trans_len = MAX_TRANSFER_COUNT;
 	ret = spi_master_rx(spi_dev_fd, p, trans_len);
     if (ret)
     {
@@ -493,9 +501,9 @@ int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz)
         printf("Invalid tlv reponse length from ncp device.\n");
         goto done;
     }
-    len = total_len - NCP_CMD_HEADER_LEN;
-    p += NCP_CMD_HEADER_LEN;
-    while (len)
+    len = total_len - MAX_TRANSFER_COUNT;
+    p += MAX_TRANSFER_COUNT;
+    while (len > 0)
     {
 		pthread_mutex_lock(spi_slave_rx_ready_mutex);
 		SPI_DEBUG_PRINT("spi transfer complete-rx-%d\n", __LINE__);

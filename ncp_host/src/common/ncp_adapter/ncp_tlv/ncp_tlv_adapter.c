@@ -9,7 +9,6 @@
 #include "crc.h"
 #include "ncp_adapter.h"
 #include "lpm.h"
-#include "mbedtls_common.h"
 #if CONFIG_NCP_USE_ENCRYPT
 #include "mbedtls/gcm.h"
 #include "mbedtls_common.h"
@@ -46,16 +45,10 @@ ncp_tlv_adapter_t ncp_tlv_adapter;
 /* NCP adapter tx queue handler */
 mqd_t ncp_tlv_tx_msgq_handle;
 
-/* NCP adapter tx mutex for queue counter*/
-static pthread_mutex_t ncp_tlv_queue_mutex;
-
 /* NCP adapter tx task */
 static pthread_t       ncp_tlv_thread;
 static pthread_mutex_t ncp_tlv_thread_mutex;
 static void *          ncp_tlv_process(void *arg);
-
-/* NCP adapter tx queue counter */
-static int ncp_tlv_queue_len = 0;
 
 /*******************************************************************************
  * Private functions
@@ -89,10 +82,6 @@ static void* ncp_tlv_process(void *arg)
             continue;
         }
 
-        pthread_mutex_lock(&ncp_tlv_queue_mutex);
-        ncp_tlv_queue_len--;
-        pthread_mutex_unlock(&ncp_tlv_queue_mutex);
-
         if (qelem == NULL)
         {
             ncp_adap_e("%s: qelem=%p", __FUNCTION__, qelem);
@@ -124,14 +113,6 @@ static ncp_status_t ncp_tlv_tx_enque(ncp_tlv_qelem_t *qelem)
 {
     ncp_status_t status = NCP_STATUS_SUCCESS;
 
-#if 0
-    if (ncp_tlv_queue_len == NCP_TLV_QUEUE_LENGTH)
-    {
-        ncp_adap_e("ncp tlv queue is full max queue length: %d", NCP_TLV_QUEUE_LENGTH);
-        status = NCP_STATUS_QUEUE_FULL;
-        goto Fail;
-    }
-#endif
     ncp_adap_d("%s: mq_send qelem=%p: tlv_buf=%p tlv_sz=%lu", __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
 #ifdef CONFIG_MPU_IO_DUMP
     mpu_dump_hex(qelem, sizeof(ncp_tlv_qelem_t) + qelem->tlv_sz);
@@ -143,9 +124,6 @@ static ncp_status_t ncp_tlv_tx_enque(ncp_tlv_qelem_t *qelem)
         status = NCP_STATUS_ERROR;
         goto Fail;
     }
-    pthread_mutex_lock(&ncp_tlv_queue_mutex);
-    ncp_tlv_queue_len++;
-    pthread_mutex_unlock(&ncp_tlv_queue_mutex);
     NCP_TLV_STATS_INC(tx0);
     ncp_adap_d("enque tlv_buf success");
 
@@ -161,12 +139,6 @@ static ncp_status_t ncp_tlv_tx_init(void)
     pthread_attr_t     tattr;
 
     ncp_adap_d("Enter ncp_tlv_tx_init");
-    status = pthread_mutex_init(&ncp_tlv_queue_mutex, NULL);
-    if (status != 0)
-    {
-        ncp_adap_e("ERROR: pthread_mutex_init");
-        return NCP_STATUS_ERROR;
-    }
     mq_unlink(NCP_TX_QUEUE_NAME);
     qattr.mq_flags         = 0;
     qattr.mq_maxmsg        = NCP_TLV_QUEUE_LENGTH;
@@ -207,7 +179,6 @@ err_tlv_thread:
 err_tlv_attr:
     mq_close(ncp_tlv_tx_msgq_handle);
 err_tlv_tx_msgq:
-   pthread_mutex_destroy(&ncp_tlv_queue_mutex);
    return NCP_STATUS_ERROR;
 }
 
@@ -219,7 +190,6 @@ static void ncp_tlv_tx_deinit(void)
     pthread_mutex_unlock(&ncp_tlv_thread_mutex);
     pthread_join(ncp_tlv_thread, NULL);
     printf("-->\n");
-    pthread_mutex_lock(&ncp_tlv_queue_mutex);
     while (1)
     {
         qelem = NULL;
@@ -242,13 +212,6 @@ static void ncp_tlv_tx_deinit(void)
             ncp_adap_d("ncp adapter queue flush completed");
             break;
         }
-    }
-    ncp_tlv_queue_len = 0;
-    pthread_mutex_unlock(&ncp_tlv_queue_mutex);
-
-    if (pthread_mutex_destroy(&ncp_tlv_queue_mutex) != 0)
-    {
-        ncp_adap_e("ncp adapter tx deint queue mutex fail");
     }
 
     if (mq_close(ncp_tlv_tx_msgq_handle) != 0)

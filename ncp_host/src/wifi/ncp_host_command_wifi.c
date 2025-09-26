@@ -1842,7 +1842,7 @@ int wlan_process_ncp_event(uint8_t *res)
 }
 
 iperf_msg_t iperf_msg;
-#if CONFIG_USE_NEW_SOCKET
+#if CONFIG_INET_SOCKET
 int wlan_ncp_iperf_command(int argc, char **argv)
 {
     unsigned int handle      = 0;
@@ -1866,7 +1866,7 @@ int wlan_ncp_iperf_command(int argc, char **argv)
     if (!strncmp(argv[2], "tcp", 3))
     {
         type = 0;
-        if (argc == 5)
+        if (argc >= 5)
         {
             if (get_uint(argv[4], (unsigned int *)&iperf_msg.iperf_set.iperf_count, strlen(argv[4])))
             {
@@ -1876,6 +1876,17 @@ int wlan_ncp_iperf_command(int argc, char **argv)
         }
         else
             iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
+
+        if (argc >= 6)
+        {
+            if (get_uint(argv[5], (unsigned int *)&iperf_msg.iperf_set.iperf_per_size, strlen(argv[5])))
+            {
+                printf("udp per size format is error\r\n");
+                return -WM_FAIL;
+            }
+        }
+        else
+            iperf_msg.iperf_set.iperf_per_size = NCP_IPERF_PER_TCP_PKG_SIZE;
     }
     else if (!strncmp(argv[2], "udp", 3))
     {
@@ -1912,7 +1923,18 @@ int wlan_ncp_iperf_command(int argc, char **argv)
 
         if (argc >= 7)
         {
-            if (get_uint(argv[6], &iperf_msg.iperf_set.iperf_udp_time, strlen(argv[6])))
+            if (get_uint(argv[6], (unsigned int *)&iperf_msg.iperf_set.iperf_per_size, strlen(argv[6])))
+            {
+                printf("udp per size format is error\r\n");
+                return -WM_FAIL;
+            }
+        }
+        else
+            iperf_msg.iperf_set.iperf_per_size = NCP_IPERF_PER_UDP_PKG_SIZE;
+
+        if (argc >= 8)
+        {
+            if (get_uint(argv[7], (unsigned int *)&iperf_msg.iperf_set.iperf_udp_time, strlen(argv[7])))
             {
                 printf("udp time format is error\r\n");
                 return -WM_FAIL;
@@ -1949,28 +1971,28 @@ int wlan_ncp_iperf_command(int argc, char **argv)
     {
         case NCP_IPERF_TCP_TX:
             iperf_msg.iperf_set.iperf_type  = NCP_IPERF_TCP_TX;
-            iperf_msg.per_size              = NCP_IPERF_PER_TCP_PKG_SIZE;
+            iperf_msg.per_size              = iperf_msg.iperf_set.iperf_per_size;;
             if (iperf_msg.iperf_set.iperf_count == 0)
                 iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
             sem_post(&iperf_tx_sem);
             break;
         case NCP_IPERF_TCP_RX:
             iperf_msg.iperf_set.iperf_type  = NCP_IPERF_TCP_RX;
-            iperf_msg.per_size              = NCP_IPERF_PER_TCP_PKG_SIZE;
+            iperf_msg.per_size              = iperf_msg.iperf_set.iperf_per_size;;
             if (iperf_msg.iperf_set.iperf_count == 0)
                 iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
             sem_post(&iperf_rx_sem);
             break;
         case NCP_IPERF_UDP_TX:
             iperf_msg.iperf_set.iperf_type  = NCP_IPERF_UDP_TX;
-            iperf_msg.per_size              = NCP_IPERF_PER_UDP_PKG_SIZE;
+            iperf_msg.per_size              = iperf_msg.iperf_set.iperf_per_size;;
             if (iperf_msg.iperf_set.iperf_count == 0)
                 iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
             sem_post(&iperf_tx_sem);
             break;
         case NCP_IPERF_UDP_RX:
             iperf_msg.iperf_set.iperf_type  = NCP_IPERF_UDP_RX;
-            iperf_msg.per_size              = NCP_IPERF_PER_UDP_PKG_SIZE;
+            iperf_msg.per_size              = iperf_msg.iperf_set.iperf_per_size;;
             if (iperf_msg.iperf_set.iperf_count == 0)
                 iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
             sem_post(&iperf_rx_sem);
@@ -2112,28 +2134,32 @@ int wlan_ncp_iperf_command(int argc, char **argv)
     {
         case NCP_IPERF_TCP_TX:
             iperf_msg.iperf_set.iperf_type  = NCP_IPERF_TCP_TX;
-            iperf_msg.per_size              = NCP_IPERF_PER_TCP_PKG_SIZE;
+            iperf_msg.iperf_set.iperf_per_size             = NCP_IPERF_PER_TCP_PKG_SIZE;
+            iperf_msg.per_size             = iperf_msg.iperf_set.iperf_per_size;
             if (iperf_msg.iperf_set.iperf_count == 0)
                 iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
             sem_post(&iperf_tx_sem);
             break;
         case NCP_IPERF_TCP_RX:
             iperf_msg.iperf_set.iperf_type  = NCP_IPERF_TCP_RX;
-            iperf_msg.per_size              = NCP_IPERF_PER_TCP_PKG_SIZE;
+            iperf_msg.iperf_set.iperf_per_size             = NCP_IPERF_PER_TCP_PKG_SIZE;
+            iperf_msg.per_size             = iperf_msg.iperf_set.iperf_per_size;
             if (iperf_msg.iperf_set.iperf_count == 0)
                 iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
             sem_post(&iperf_rx_sem);
             break;
         case NCP_IPERF_UDP_TX:
             iperf_msg.iperf_set.iperf_type  = NCP_IPERF_UDP_TX;
-            iperf_msg.per_size              = NCP_IPERF_PER_UDP_PKG_SIZE;
+            iperf_msg.iperf_set.iperf_per_size             = NCP_IPERF_PER_UDP_PKG_SIZE;
+            iperf_msg.per_size             = iperf_msg.iperf_set.iperf_per_size;
             if (iperf_msg.iperf_set.iperf_count == 0)
                 iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
             sem_post(&iperf_tx_sem);
             break;
         case NCP_IPERF_UDP_RX:
             iperf_msg.iperf_set.iperf_type  = NCP_IPERF_UDP_RX;
-            iperf_msg.per_size              = NCP_IPERF_PER_UDP_PKG_SIZE;
+            iperf_msg.iperf_set.iperf_per_size             = NCP_IPERF_PER_UDP_PKG_SIZE;
+            iperf_msg.per_size             = iperf_msg.iperf_set.iperf_per_size;
             if (iperf_msg.iperf_set.iperf_count == 0)
                 iperf_msg.iperf_set.iperf_count = NCP_IPERF_PKG_COUNT;
             sem_post(&iperf_rx_sem);
@@ -5584,7 +5610,7 @@ const static test_cfg_param_t g_11ax_cfg_param[] = {
     {"he_mac_cap_info", 6, 6, NULL},
     {"he_phy_cap_info", 12, 11, NULL},
     {"he_mcs_nss_support", 23, 4, NULL},
-    {"pe", 27, 2, NULL},
+    {"pe", 27, 4, NULL},
 };
 
 static test_cfg_param_t g_twt_setup_cfg_param[] = {
@@ -5620,7 +5646,7 @@ static test_cfg_param_t g_twt_teardown_cfg_param[] = {
  */
 static test_cfg_table_t g_test_cfg_table_list[] = {
     /*  name         data                          total_len param_list          param_num*/
-    {"11axcfg",      (uint8_t *)&g_11axcfg_params,      29,  g_11ax_cfg_param,         8},
+    {"11axcfg",      (uint8_t *)&g_11axcfg_params,      31,  g_11ax_cfg_param,         8},
     {"twt_setup",    (uint8_t *)&g_twt_setup_params,    12,  g_twt_setup_cfg_param,    11},
     {"twt_teardown", (uint8_t *)&g_twt_teardown_params, 3,   g_twt_teardown_cfg_param, 3},
     {NULL}};

@@ -27,8 +27,13 @@ static pthread_mutex_t device_notify_gpio_thread_mutex;
 static ncp_status_t device_notify_gpio_init_fd();
 static ncp_status_t ncp_device_notify_gpio_deinit_fd();
 
+#ifndef CONFIG_NCP_OT_API_TEST
 extern power_cfg_t global_power_config;
 extern uint8_t ncp_device_status;
+#else
+power_cfg_t global_power_config;
+uint8_t ncp_device_status;
+#endif
 
 #define GPIO_DEV_PATH          "/dev/gpiochip4"
 static int lpm_gpio_fd = 0;

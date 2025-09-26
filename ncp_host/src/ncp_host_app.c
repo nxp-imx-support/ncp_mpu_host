@@ -36,6 +36,11 @@
 #include "ncp_host_app_ot.h"
 #endif
 #endif
+
+#ifdef CONFIG_NCP_MATTER_OT
+#include "ncp_ot_api.h"
+#endif
+
 #include "ncp_host_command.h"
 #include "ncp_host_command_wifi.h"
 #include "ncp_tlv_adapter.h"
@@ -704,6 +709,10 @@ int main(int argc, char **argv)
         printf("ble_ncp_app_init failed!\r\n");
         goto err_ble_ncp_app_init;
     }
+#endif
+
+#ifdef CONFIG_NCP_MATTER_OT
+    ot_api_init("interfaceport");
 #endif
 
     pthread_mutex_t *ring_lock = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));

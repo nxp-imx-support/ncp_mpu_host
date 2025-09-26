@@ -22,6 +22,7 @@ typedef struct _iperf_set_t
     uint32_t iperf_count;
     uint32_t iperf_udp_rate;
     uint32_t iperf_udp_time;
+    uint32_t iperf_per_size;
 } iperf_set_t;
 
 typedef struct _iperf_thead_data
@@ -29,7 +30,6 @@ typedef struct _iperf_thead_data
     iperf_set_t iperf_set;
     int sockfd;
     long long pkt_size;
-    int per_pkt_size;
     struct sockaddr_in *clientaddr;
     socklen_t addrlen;
 } iperf_thead_data;
@@ -50,8 +50,8 @@ enum ncp_iperf_item
 #define NCP_IPERF_TCP_PER_PKG_SIZE 1448
 #define NCP_IPERF_UDP_PER_PKG_SIZE 1472
 #define NCP_IPERF_END_TOKEN_SIZE   11
-char buf[NCP_IPERF_UDP_PER_PKG_SIZE]      = {0};
-char send_buf[NCP_IPERF_UDP_PER_PKG_SIZE] = {
+char buf[3000]      = {0};
+char send_buf[3000] = {
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2',
     '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5',
     '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8',
@@ -125,7 +125,7 @@ void *recv_data(void *arg);
 
 void start_thread(iperf_thead_data *td)
 {
-    td->pkt_size = td->iperf_set.iperf_count * td->per_pkt_size;
+    td->pkt_size = td->iperf_set.iperf_count * td->iperf_set.iperf_per_size;
     //printf("type = %d, size = %lld\n", td->iperf_set.iperf_type, td->pkt_size);
     pthread_t tx_thread, rx_thread;
     switch (td->iperf_set.iperf_type)
@@ -230,7 +230,6 @@ int start_tcp(void)
         }
 
         td.sockfd       = ncp_host_fd;
-        td.per_pkt_size = NCP_IPERF_TCP_PER_PKG_SIZE;
         start_thread(&td);
         close(ncp_host_fd);
     }
@@ -281,7 +280,6 @@ int start_udp(void)
         }
         printf("client ip:%s client port:%d\n", inet_ntoa(clientaddr.sin_addr), ntohs(clientaddr.sin_port));
         td.sockfd       = sockfd;
-        td.per_pkt_size = NCP_IPERF_UDP_PER_PKG_SIZE;
         td.clientaddr   = &clientaddr;
         td.addrlen      = addr_len;
         start_thread(&td);
@@ -320,7 +318,7 @@ void *send_data(void *arg)
     fd                    = td->sockfd;
     iperf_set_t iperf_set = td->iperf_set;
     long long pkt_size    = td->pkt_size;
-    int per_pkt_size      = td->per_pkt_size;
+    int per_pkt_size      = iperf_set.iperf_per_size;
     printf("ncp host iperf start tx\n");
     struct sockaddr_in *clientaddr = td->clientaddr;
     socklen_t *addrlen             = &td->addrlen;
@@ -338,6 +336,8 @@ void *send_data(void *arg)
         send_interval = 60;
     else if(udp_rate <= 10 * 1000)
         send_interval = 12;
+    else if(udp_rate <= 15 * 1000)
+        send_interval = 9;
     else if(udp_rate <= 20 * 1000)
         send_interval = 6;
     else if (udp_rate <= 30 * 1000) // 30Mbps
@@ -417,7 +417,7 @@ void *send_data(void *arg)
 /*recv data thread*/
 void *recv_data(void *arg)
 {
-    char buf[NCP_IPERF_UDP_PER_PKG_SIZE] = {0};
+    char buf[3000] = {0};
     int fd                               = 0;
     int ret                              = 0;
     static int iperf_running_flag        = 0;
@@ -430,7 +430,7 @@ void *recv_data(void *arg)
     fd                             = td->sockfd;
     iperf_set_t iperf_set          = td->iperf_set;
     long long pkt_size             = td->pkt_size;
-    int per_pkt_size               = td->per_pkt_size;
+    int per_pkt_size               = iperf_set.iperf_per_size;
     struct sockaddr_in *clientaddr = td->clientaddr;
     socklen_t *addrlen             = &td->addrlen;
 

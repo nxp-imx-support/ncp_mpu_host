@@ -15,7 +15,7 @@
 #define GPIO_DEV_PATH          "/dev/gpiochip4"
 
 #define MAX_TRANSFER_COUNT     1024
-#define NCP_SPI_MASTER_CLOCK   500000U
+#define NCP_SPI_MASTER_CLOCK   25000000U
 
 /*******************************************************************************
  * API
