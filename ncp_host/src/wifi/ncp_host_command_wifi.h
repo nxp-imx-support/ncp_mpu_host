@@ -602,20 +602,14 @@ typedef struct _NCP_CMD_PKT_STATS
     uint32_t fcs_error;
     /** Tx frame count */
     uint32_t tx_frame;
+    /** Reserved field */
+    uint32_t reserved;
     /** WEP ICV error count */
     uint32_t wep_icv_error[4];
     /** beacon recv count */
     uint32_t bcn_rcv_cnt;
     /** beacon miss count */
     uint32_t bcn_miss_cnt;
-    /** received amsdu count*/
-    uint32_t amsdu_rx_cnt;
-    /** received msdu count in amsdu*/
-    uint32_t msdu_in_rx_amsdu_cnt;
-    /** tx amsdu count*/
-    uint32_t amsdu_tx_cnt;
-    /** tx msdu count in amsdu*/
-    uint32_t msdu_in_tx_amsdu_cnt;
     /** Tx frag count */
     uint32_t tx_frag_cnt;
     /** Qos Tx frag count */
@@ -736,12 +730,6 @@ typedef struct _NCP_CMD_PKT_STATS
     uint32_t bigtk_micErrCnt;
     /** BIGTK MME not included count*/
     uint32_t bigtk_mmeNotFoundCnt;
-    /** RX unicast count */
-    uint32_t rx_unicast_cnt;
-    /** TX Buffer Overrun Dropped Count */
-    uint32_t tx_overrun_cnt;
-    /** RX Buffer Overrun Dropped Count */
-    uint32_t rx_overrun_cnt;
 } NCP_CMD_PKT_STATS;
 
 /** Get current rssi */
