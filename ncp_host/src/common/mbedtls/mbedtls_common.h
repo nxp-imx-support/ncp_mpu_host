@@ -28,7 +28,6 @@
 /* The ciphersuite must match with the certificates and key in key_cert.h */
 #define CONFIG_TLS_CIPHERSUITE              MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 
-
 #define NCP_MBEDTLS_RECV_BUF_LEN                (2048) /* it's enough for ECC secp192k1 */
 #define NCP_TLS_ROLE_SERVER                     (1)
 #define NCP_TLS_ROLE_CLIENT                     (0)

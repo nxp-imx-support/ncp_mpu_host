@@ -256,7 +256,7 @@ void main_o(int argc, char *argv[])
 {
     int ret;
 
-    ret = ncp_adapter_init(argv[1]);
+    ret = ncp_adapter_init(argv[1], 1);
 
     if (ret != NCP_STATUS_SUCCESS)
     {

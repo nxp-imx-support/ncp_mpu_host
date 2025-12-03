@@ -1,38 +1,19 @@
 /*
- * Copyright 2024 NXP
- * All rights reserved.
+ * Copyright 2024 - 2025 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
+ * The BSD-3-Clause license can be found at https://spdx.org/licenses/BSD-3-Clause.html
  */
 
 #ifndef __NCP_ADAPTER_H__
 #define __NCP_ADAPTER_H__
 
-#include "ncp_debug.h"
-#include <stdint.h>
-#include <stdio.h>
+#include "ncp_common.h"
 
-#define ncp_adap_e(...) ncplog_e("NCP Adap", ##__VA_ARGS__)
-#define ncp_adap_w(...) ncplog_w("NCP Adap", ##__VA_ARGS__)
-#ifdef CONFIG_NCP_DEBUG_ADAP
-#define ncp_adap_d(...) ncplog("NCP Adap", ##__VA_ARGS__)
-#else
-#define ncp_adap_d(...)
-#endif
-
-/* NCP status */
-typedef enum _ncp_status
-{
-    NCP_STATUS_ERROR      = -1,
-    NCP_STATUS_CHKSUMERR  = -2,
-    NCP_STATUS_NOMEM      = -3,
-    NCP_STATUS_QUEUE_FULL = -4,
-    NCP_STATUS_SUCCESS    = 0,
-} ncp_status_t;
-
-ncp_status_t ncp_adapter_init(char * dev_name);
+ncp_status_t ncp_adapter_init(char * dev_name, int role);
 ncp_status_t ncp_adapter_deinit(void);
 void         ncp_tlv_install_handler(uint8_t class, void *func_cb);
 void         ncp_tlv_uninstall_handler(uint8_t class);
 
+ncp_status_t ncp_tlv_send(void *tlv_buf, size_t tlv_sz);
 #endif /* __NCP_ADAPTER_H__ */

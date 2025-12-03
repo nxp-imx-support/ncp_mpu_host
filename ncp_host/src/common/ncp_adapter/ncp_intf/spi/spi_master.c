@@ -8,7 +8,7 @@
  *
  */
 
-
+#ifdef CONFIG_NCP_SPI
 #define _GNU_SOURCE
 #include <sched.h>
 #include <assert.h>
@@ -40,6 +40,7 @@
 #include "ncp_host_command.h"
 #include <sys/types.h>
 #include <sys/syscall.h>
+#include <ncp_crc.h>
 
 #ifdef CONFIG_SPI_DEBUG
 #define SPI_DEBUG_PRINT(fmt, ...) \
@@ -592,9 +593,8 @@ int ncp_host_spi_init(void)
     pthread_attr_init(&attr);
     pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
     pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
-    pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
     struct sched_param param;
-    param.sched_priority = 80;
+    param.sched_priority = 1;
     pthread_attr_setschedparam(&attr, &param);
     pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
     ret = pthread_create(&spi_select_loop_thread, &attr, (void *)spi_select_loop_func, NULL);
@@ -635,18 +635,8 @@ void ncp_host_spi_deinit(void)
     int ret = 0;
     SPI_DEBUG_PRINT("Ncp mpu spi deinit\r\n");
 
-    ret = pthread_cancel(spi_select_loop_thread);
-    if (ret < 0)
-    {
-        printf("Failed to join spi_select_loop_thread!\r\n");
-    }
-
-    ret = pthread_join(spi_select_loop_thread, NULL);
-    if (ret < 0)
-    {
-        printf("Failed to join spi_select_loop_thread!\r\n");
-    }
-
+    spi_master_gpio_deinit();
+    spi_dev_deinit();
     pthread_mutex_destroy(spi_slave_rx_ready_mutex);
     if (spi_slave_rx_ready_mutex)
     {
@@ -667,6 +657,15 @@ void ncp_host_spi_deinit(void)
         free(ncp_machine_state_mutex);
         ncp_machine_state_mutex = 0;
     }
-	spi_master_gpio_deinit();
-    spi_dev_deinit();
+    ret = pthread_cancel(spi_select_loop_thread);
+    if (ret < 0)
+    {
+        printf("Failed to join spi_select_loop_thread!\r\n");
+    }
+    ret = pthread_join(spi_select_loop_thread, NULL);
+    if (ret < 0)
+    {
+        printf("Failed to join spi_select_loop_thread!\r\n");
+    }
 }
+#endif /* CONFIG_NCP_SPI */

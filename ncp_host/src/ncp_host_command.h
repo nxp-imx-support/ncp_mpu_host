@@ -113,29 +113,6 @@ typedef struct TLVTypeHeader_t
     uint16_t size;
 } TypeHeader_t, NCP_TLV_HEADER;
 
-#define NCP_DEVICE_STATUS_ACTIVE    1
-#define NCP_DEVICE_STATUS_PRE_SLEEP 2
-#define NCP_DEVICE_STATUS_SLEEP     3
-
-typedef struct _power_cfg_t
-{
-    uint8_t enable;
-    uint8_t wake_mode;
-    uint8_t subscribe_evt;
-    uint32_t wake_duration;
-    uint8_t is_mef;
-    uint32_t wake_up_conds;
-    uint8_t is_manual;
-    uint32_t rtc_timeout;
-    uint8_t is_periodic;
-    uint8_t wakeup_host;
-} power_cfg_t;
-
-/* Host wakes up MPU device through interface */
-#define WAKE_MODE_INTF 0x1
-#define WAKE_MODE_GPIO 0x2
-#define WAKE_MODE_WIFI_NB 0x3
-
 /** Structure for registering CLI commands */
 struct mpu_host_cli_command
 {

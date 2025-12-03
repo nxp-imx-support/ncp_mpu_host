@@ -16,6 +16,9 @@
 #include <ncp_adapter.h>
 #include <ncp_wifi_api.h>
 #include <errno.h>
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_REGISTER(ncp_inet, CONFIG_LOG_NCP_INET_LEVEL);
 
 static int inet_socket_recv_queue_open(int socket, int socket_type);
 static void inet_socket_recv_queue_close(int socket);
@@ -40,11 +43,13 @@ int ncp_socket(int family, int style, int protocol)
         socket_type = IPPROTO_TCP;
     else if (style & SOCK_DGRAM)
         socket_type = IPPROTO_UDP;
+    else if (style & SOCK_RAW)
+        socket_type = IPPROTO_RAW;
 
     NCP_CMD_INET_RESP_SOCKET_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_SOCKET_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void) memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_SOCKET_CFG));
@@ -52,7 +57,7 @@ int ncp_socket(int family, int style, int protocol)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_SOCKET_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -82,9 +87,9 @@ int ncp_socket(int family, int style, int protocol)
     {
         ret = inet_socket_recv_queue_open(socket, socket_type);
         if (ret < 0)
-            ncp_adap_e("create ncp socket receive queue for socket %d fail", socket);
+            NCP_LOG_ERR("create ncp socket receive queue for socket %d fail", socket);
     }
-    ncp_adap_d("create ncp socket receive queue for socket %d", socket);
+    NCP_LOG_DBG("create ncp socket receive queue for socket %d", socket);
 
 exit:
     free(cmd_resp_buf);
@@ -110,7 +115,7 @@ int ncp_bind(int socket, const struct sockaddr *addr, socklen_t length)
     NCP_CMD_INET_RESP_BIND_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_BIND_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_BIND_CFG));
@@ -118,7 +123,7 @@ int ncp_bind(int socket, const struct sockaddr *addr, socklen_t length)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_BIND_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -164,7 +169,7 @@ int ncp_connect(int socket, const struct sockaddr *addr, socklen_t length)
     NCP_CMD_INET_RESP_CON_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_CON_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_CON_CFG));
@@ -172,7 +177,7 @@ int ncp_connect(int socket, const struct sockaddr *addr, socklen_t length)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_CON_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -201,7 +206,7 @@ int ncp_connect(int socket, const struct sockaddr *addr, socklen_t length)
         struct ncp_socket_recv_t *handle = inet_get_sock_handle(ret);
         if (!handle || handle->socket == -1)
         {
-            ncp_adap_e("%s-%d, socket %d already closed\n", __func__, __LINE__, ret);
+            NCP_LOG_ERR("%s-%d, socket %d already closed\n", __func__, __LINE__, ret);
         }
         handle->socklen = length;
         memcpy((char *)&handle->addr, (char *)addr, length);
@@ -228,7 +233,7 @@ int ncp_listen(int socket, int number)
     NCP_CMD_INET_RESP_LISTEN_CFG * cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_LISTEN_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_LISTEN_CFG));
@@ -236,7 +241,7 @@ int ncp_listen(int socket, int number)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_LISTEN_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -283,7 +288,7 @@ int ncp_accept(int socket, struct sockaddr *addr, socklen_t *length)
     NCP_CMD_INET_RESP_ACCEPT_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_ACCEPT_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_ACCEPT_CFG));
@@ -291,7 +296,7 @@ int ncp_accept(int socket, struct sockaddr *addr, socklen_t *length)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_ACCEPT_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -320,7 +325,7 @@ int ncp_accept(int socket, struct sockaddr *addr, socklen_t *length)
     {
         ret = inet_socket_recv_queue_open(accept_socket, IPPROTO_TCP);
         if (ret < 0)
-            ncp_adap_e("create ncp socket receive queue for socket %d fail", accept_socket);
+            NCP_LOG_ERR("create ncp socket receive queue for socket %d fail", accept_socket);
         else
             ret = socketfd_lwip_to_host(accept_socket);
     }
@@ -346,7 +351,7 @@ int ncp_close(int socket)
     NCP_CMD_INET_RESP_CLOSE_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_CLOSE_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_CLOSE_CFG));
@@ -354,7 +359,7 @@ int ncp_close(int socket)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_CLOSE_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -399,7 +404,7 @@ int ncp_shutdown(int socket, int how)
     NCP_CMD_INET_RESP_SHUTDOWN_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_SHUTDOWN_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_SHUTDOWN_CFG));
@@ -407,7 +412,7 @@ int ncp_shutdown(int socket, int how)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_SHUTDOWN_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -452,7 +457,7 @@ int ncp_getsockname(int socket, struct sockaddr *addr, socklen_t *length)
     NCP_CMD_INET_RESP_GETSOCKNAME_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_GETSOCKNAME_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_GETSOCKNAME_CFG));
@@ -460,7 +465,7 @@ int ncp_getsockname(int socket, struct sockaddr *addr, socklen_t *length)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_GETSOCKNAME_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -507,7 +512,7 @@ int ncp_getpeername(int socket, struct sockaddr *addr, socklen_t *length)
     NCP_CMD_INET_RESP_GETPEERNAME_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_GETPEERNAME_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_GETPEERNAME_CFG));
@@ -515,7 +520,7 @@ int ncp_getpeername(int socket, struct sockaddr *addr, socklen_t *length)
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_GETPEERNAME_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -562,7 +567,7 @@ int ncp_getsockopt(int socket, int level, int optname, void *optval, socklen_t *
     NCP_CMD_INET_RESP_GETSOCKOPT_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_GETSOCKOPT_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_GETSOCKOPT_CFG));
@@ -570,7 +575,7 @@ int ncp_getsockopt(int socket, int level, int optname, void *optval, socklen_t *
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_GETSOCKOPT_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -619,7 +624,7 @@ int ncp_setsockopt(int socket, int level, int optname, const void *optval, sockl
     NCP_CMD_INET_RESP_SETSOCKOPT_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_SETSOCKOPT_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_SETSOCKOPT_CFG));
@@ -627,7 +632,7 @@ int ncp_setsockopt(int socket, int level, int optname, const void *optval, sockl
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_SETSOCKOPT_CFG));
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -668,7 +673,7 @@ int inet_sock_send_fail_event(uint8_t *res)
     NCPCmd_DS_INET_COMMAND *evt_res = (NCPCmd_DS_INET_COMMAND *)res;
     if (evt_res->header.result != NCP_CMD_RESULT_OK)
     {
-        ncp_adap_e("%s: fail event result=0x%x", __FUNCTION__, evt_res->header.result);
+        NCP_LOG_ERR("%s: fail event result=0x%x", __FUNCTION__, evt_res->header.result);
         return -WM_FAIL;
     }
     inet_sock_recv_tlv = (NCP_CMD_INET_RESP_SEND_CFG *)&evt_res->params.wlan_inet_resp_send;
@@ -677,7 +682,7 @@ int inet_sock_send_fail_event(uint8_t *res)
     int ret = inet_sock_recv_tlv->ret;
     int errorno = inet_sock_recv_tlv->errorn;
 
-    ncp_adap_e("socket[%d] send fail ret[%d], errno[%d]", socket, ret, errorno);
+    NCP_LOG_ERR("socket[%d] send fail ret[%d], errno[%d]", socket, ret, errorno);
     //	inet_socket_recv_queue_close(socket);
     struct ncp_socket_recv_t *handle = inet_get_sock_handle(socket);
     if (!handle || handle->socket == -1)
@@ -707,13 +712,13 @@ static ssize_t ncp_common_send(int socket, const void *buffer, size_t size, int 
     int cmd_size = sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_SENDTO_CFG) + size;
     if (cmd_size > NCP_COMMAND_LEN)
     {
-        ncp_adap_e("send data size is too large\r\n");
+        NCP_LOG_ERR("send data size is too large\r\n");
         return -WM_FAIL;
     }
     NCPCmd_DS_INET_COMMAND *cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_SENDTO_CFG) + size);
     if(cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         return -WM_FAIL;
     }
     (void) memset((uint8_t *)cmd, 0, sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_SENDTO_CFG));
@@ -801,7 +806,7 @@ static int inet_socket_recv_queue_open(int socket, int socket_type)
     if (handle->rx_fifo_fd >= 0)
         goto created;
 
-    sprintf(inet_sock_recv_name, "%s-%d", INET_SOCKET_RECV_QUEUE_NAME, handle->socket);
+    sprintf(inet_sock_recv_name, "%s-%d", INET_SOCKET_RECV_QUEUE_NAME, socket);
     unlink(inet_sock_recv_name);
     if (mkfifo(inet_sock_recv_name, 0664) == -1)
     {
@@ -817,7 +822,7 @@ static int inet_socket_recv_queue_open(int socket, int socket_type)
     memcpy(handle->name, inet_sock_recv_name, sizeof(handle->name));
 
 created:
-    ncp_adap_d("create ncp socket receive queue %d for socket %d", handle->rx_fifo_fd, socket);
+    NCP_LOG_DBG("create ncp socket receive queue %d for socket %d", handle->rx_fifo_fd, socket);
     handle->socket = socket;
     handle->socket_type = socket_type;
     return WM_SUCCESS;
@@ -831,7 +836,7 @@ static void inet_socket_recv_queue_close(int socket)
 
     if (handle->rx_fifo_fd < 0)
     {
-        ncp_adap_e("ERROR: ncp socket receive queue has been release");
+        NCP_LOG_ERR("ERROR: ncp socket receive queue has been release");
         return ;
     }
 
@@ -842,6 +847,8 @@ static void inet_socket_recv_queue_close(int socket)
     handle->socket_type = IPPROTO_NONE;	
     handle->write_errorn = 0;
     memset(handle->name, '\0', sizeof(handle->name));
+
+    NCP_LOG_DBG("close ncp socket receive queue for socket %d", socket);
 }
 
 void ncp_inet_init()
@@ -888,16 +895,16 @@ int inet_sock_recv_send_queue_data(int socket, char *buf, int size)
         errno = ENOTCONN;
         return -1;
     }
-    ncp_adap_d("send data %d size to fifo rx fd %d on socket %d\n", size, handle->rx_fifo_fd, socket);
+    NCP_LOG_DBG("send data %d size to fifo rx fd %d on socket %d\n", size, handle->rx_fifo_fd, socket);
 #ifdef CONFIG_MPU_INET_DUMP
-    ncp_adap_e("%s: dump buf size=%u", __FUNCTION__, size);
-    ncp_dump_hex(buf, size);
+    NCP_LOG_ERR("%s: dump buf size=%u", __FUNCTION__, size);
+    NCP_LOG_HEXDUMP_DBG(buf, size);
 #endif
     /* enqueue buffer address to queue */
     ret = write(handle->rx_fifo_fd, buf, size);
     if (ret < 0)
     {
-        ncp_adap_e("ncp enhance receive enqueue failure, errno = %d", errno);
+        NCP_LOG_ERR("ncp enhance receive enqueue failure, errno = %d", errno);
         return -WM_FAIL;
     }
     return WM_SUCCESS;
@@ -927,13 +934,14 @@ int inet_sock_recv_event(uint8_t *res)
 
     if (!handle->rx_fifo_fd)
     {
-        ncp_adap_e("ncp socket receive rx queue isn't created");
+        NCP_LOG_ERR("ncp socket receive rx queue isn't created");
         return -WM_FAIL;
     }
 #ifdef CONFIG_MPU_INET_DUMP
-    ncp_adap_e("%s: dump inet_sock_recv_tlv", __FUNCTION__);
-    ncp_dump_hex(inet_sock_recv_tlv, sizeof(NCP_CMD_INET_RESP_RECVFROM_CFG));
+    NCP_LOG_ERR("%s: dump inet_sock_recv_tlv", __FUNCTION__);
+    NCP_LOG_HEXDUMP_DBG(inet_sock_recv_tlv, sizeof(NCP_CMD_INET_RESP_RECVFROM_CFG));
 #endif
+    NCP_LOG_DBG("socket[%d] recv size[%d] errorn[%d]", socket, inet_sock_recv_tlv->recv_size, inet_sock_recv_tlv->errorn);
     handle->read_errorn = inet_sock_recv_tlv->errorn;
     if (inet_sock_recv_tlv->ret < 0)
     {
@@ -941,7 +949,7 @@ int inet_sock_recv_event(uint8_t *res)
     }
     if (inet_sock_recv_tlv->socklen <= 0)
     {
-        ncp_adap_e("%s: dump inet_sock_recv_tlv->sockaddr len=%u", __FUNCTION__, inet_sock_recv_tlv->socklen);
+        NCP_LOG_ERR("%s: dump inet_sock_recv_tlv->sockaddr len=%u", __FUNCTION__, inet_sock_recv_tlv->socklen);
         return WM_SUCCESS;
     }
     memcpy((char *)&(handle->addr), (char *)inet_sock_recv_tlv->sockaddr, inet_sock_recv_tlv->socklen);
@@ -950,7 +958,7 @@ int inet_sock_recv_event(uint8_t *res)
     /* send to ncp socket enhance receive queue */
     if (handle->socket_type == IPPROTO_TCP)
         inet_sock_recv_send_queue_data(handle->socket, inet_sock_recv_tlv->recv_data, inet_sock_recv_tlv->recv_size);
-    else if (handle->socket_type == IPPROTO_UDP)
+    else if (handle->socket_type == IPPROTO_UDP || handle->socket_type == IPPROTO_RAW)
         inet_sock_recv_send_queue_data(handle->socket, (char *)inet_sock_recv_tlv, sizeof(NCP_CMD_INET_RESP_RECVFROM_CFG) - 1 + inet_sock_recv_tlv->recv_size);
 
     return WM_SUCCESS;
@@ -963,18 +971,21 @@ static ssize_t ncp_common_recv(int socket, void *buffer, size_t size, int flags,
     struct ncp_socket_recv_t *handle = inet_get_sock_handle(socket);
     if (!handle || handle->socket == -1)
     {
-        ncp_adap_e("%s ncp socket receive get queue fail", __func__);
+        NCP_LOG_ERR("%s ncp socket receive get queue fail", __func__);
         ret = -WM_FAIL;
         goto exit;
     }
 
     if (handle->read_errorn)
     {
-        errno = handle->read_errorn;
+        NCP_LOG_ERR("%s ncp socket receive read errorn %d", __func__, handle->read_errorn);
+        handle->read_errorn = 0;
+        ret = -WM_FAIL;
+        goto exit;
     }
     if (handle->rx_fifo_fd < 0)
     {
-        ncp_adap_e("%s ncp socket receive rx queue isn't created", __func__);
+        NCP_LOG_ERR("%s ncp socket receive rx queue isn't created", __func__);
         ret = -WM_FAIL;
         goto exit;
     }
@@ -986,6 +997,7 @@ static ssize_t ncp_common_recv(int socket, void *buffer, size_t size, int flags,
         if (ret < 0)
         {
             perror("read: ");
+            NCP_LOG_ERR("%s ncp socket receive read data fail", __func__);
         }
         if (length)
         {
@@ -1000,14 +1012,37 @@ static ssize_t ncp_common_recv(int socket, void *buffer, size_t size, int flags,
         /* recv_data need one byte. */
         ret = read(read_fd, buf, sizeof(NCP_CMD_INET_RESP_RECVFROM_CFG) - 1);
         if(ret == -1)
-            perror("read: ");
+            perror("read recvfrom header: ");
         else
         {
             NCP_CMD_INET_RESP_RECVFROM_CFG *inet_sock_recv_tlv = (NCP_CMD_INET_RESP_RECVFROM_CFG *)buf;
             ret = read(read_fd, buffer, inet_sock_recv_tlv->recv_size);
             if(ret == -1)
             {
-                perror("read: ");
+                perror("read recvfrom buffer: ");
+            }
+            /* for udp, every packet addr isn't fixed */
+            else if (length)
+            {
+                memcpy(addr, inet_sock_recv_tlv->sockaddr, inet_sock_recv_tlv->socklen);
+                *length = inet_sock_recv_tlv->socklen;
+            }
+        }
+    }
+    else if (handle->socket_type == IPPROTO_RAW)
+    {
+        char buf[256];
+        /* recv_data need one byte. */
+        ret = read(read_fd, buf, sizeof(NCP_CMD_INET_RESP_RECVFROM_CFG) - 1);
+        if(ret == -1)
+            perror("read recvfrom header: ");
+        else
+        {
+            NCP_CMD_INET_RESP_RECVFROM_CFG *inet_sock_recv_tlv = (NCP_CMD_INET_RESP_RECVFROM_CFG *)buf;
+            ret = read(read_fd, buffer, inet_sock_recv_tlv->recv_size);
+            if(ret == -1)
+            {
+                perror("read recvfrom buffer: ");
             }
             /* for udp, every packet addr isn't fixed */
             else if (length)
@@ -1019,7 +1054,7 @@ static ssize_t ncp_common_recv(int socket, void *buffer, size_t size, int flags,
     }
     else
     {
-        ncp_adap_e("don't support this socket type %d", handle->socket_type);
+        NCP_LOG_ERR("don't support this socket type %d", handle->socket_type);
     }
 
 exit:
@@ -1055,7 +1090,7 @@ int ncp_ioctl(int fd, long cmd, void *argp)
     NCP_CMD_INET_RESP_IOCTL_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_IOCTL_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_IOCTL_CFG));
@@ -1063,7 +1098,7 @@ int ncp_ioctl(int fd, long cmd, void *argp)
     NCPCmd_DS_INET_COMMAND *tlv_cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_IOCTL_CFG));
     if(tlv_cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -1117,7 +1152,7 @@ int ncp_fcntl(int fd, int cmd, int val)
     NCP_CMD_INET_RESP_FCNTL_CFG * cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_FCNTL_CFG));
     if(cmd_resp_buf == NULL)
     {
-        ncp_adap_e("failed to malloc cmd_resp_buf!\r\n");
+        NCP_LOG_ERR("failed to malloc cmd_resp_buf!\r\n");
         return -WM_FAIL;
     }
     (void)memset((uint8_t *)cmd_resp_buf, 0, sizeof(NCP_CMD_INET_RESP_FCNTL_CFG));
@@ -1125,7 +1160,7 @@ int ncp_fcntl(int fd, int cmd, int val)
     NCPCmd_DS_INET_COMMAND *tlv_cmd = malloc(sizeof(NCP_COMMAND) + sizeof(NCP_CMD_INET_FCNTL_CFG));
     if(tlv_cmd == NULL)
     {
-        ncp_adap_e("failed to malloc cmd buff.\r\n");
+        NCP_LOG_ERR("failed to malloc cmd buff.\r\n");
         free(cmd_resp_buf);
         return -WM_FAIL;
     }
@@ -1225,7 +1260,7 @@ int ncp_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, s
     }
     else if (ret == 0)
     {
-        ncp_adap_w("ncp socket read timeout\n");
+        NCP_LOG_WRN("ncp socket read timeout\n");
         return ret;
     }
     for (int i = 0; i < max_fd + 1; i++)
@@ -1236,7 +1271,7 @@ int ncp_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, s
             {
                 int socket = inet_get_socket_by_fifo(i);
                 if (socket < 0)
-                    ncp_adap_w("ncp socket get fifo fail\n");
+                    NCP_LOG_WRN("ncp socket get fifo fail\n");
                 else
                     FD_SET(socketfd_lwip_to_host(socket), readfds);
             }

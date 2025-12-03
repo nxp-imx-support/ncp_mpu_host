@@ -26,7 +26,6 @@
 /*NCP include */
 #include <ncp_ot_api.h>
 #include <ncp_adapter.h>
-#include <ncp_debug.h>
 #include <ncp_tlv_adapter.h>
 #include <uart.h>
 

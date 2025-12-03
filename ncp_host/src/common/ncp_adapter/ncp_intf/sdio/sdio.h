@@ -14,13 +14,13 @@
 
 typedef struct
 {
-    uint8_t         *instance;
-    int32_t         fd;
+    uint8_t *instance;
+    int32_t fd;
 } sdio_device_t;
 
-ncp_status_t  sdio_init(sdio_device_t *dev);
-ncp_status_t  sdio_send(sdio_device_t *dev, uint8_t *buf, uint32_t len);
-ncp_status_t  sdio_receive(sdio_device_t *dev, uint8_t *buf, uint32_t len, size_t *nb_bytes);
+int sdio_init(sdio_device_t *dev);
+int sdio_send(sdio_device_t *dev, uint8_t *buf, uint32_t len);
+int sdio_receive(sdio_device_t *dev, uint8_t *buf, uint32_t len, size_t *nb_bytes);
 void sdio_deinit(sdio_device_t *dev);
 
 #endif /* SDIO_H_ */

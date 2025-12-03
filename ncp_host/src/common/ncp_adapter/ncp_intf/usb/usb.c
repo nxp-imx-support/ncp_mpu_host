@@ -5,16 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#if CONFIG_NCP_USB
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <semaphore.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <sched.h>
+#include "fsl_os_abstraction.h"
 
 #include "ncp_adapter.h"
 #include "ncp_intf_usb.h"
 #include "usb.h"
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_DEFINE(usb, CONFIG_LOG_NCP_INTF_LEVEL);
+NCP_LOG_MODULE_REGISTER(usb, CONFIG_LOG_NCP_INTF_LEVEL);
 
 /*******************************************************************************
  * Defines
@@ -40,7 +47,7 @@ static void* usb_handle_event(void *argv)
 {
     usb_device_t *dev = (usb_device_t *)argv;
 
-    while(pthread_mutex_trylock(&usb_event_thread_mutex) != 0) 
+    while(pthread_mutex_trylock(&usb_event_thread_mutex) != 0)
 	{
 		libusb_handle_events(dev->context);
     }
@@ -52,10 +59,10 @@ static void* usb_handle_lpm(void *argv)
     while (1)
     {
         sem_wait(&usb_lpm_sem);
-        ncp_adap_d("ncp_usb_deinit \r\n");
         ncp_usb_deinit(NULL);
+        NCP_LOG_DBG("ncp_usb_deinit\r\n");
         ncp_usb_init(NULL);
-        ncp_adap_d("ncp_usb_init \r\n");
+        NCP_LOG_DBG("ncp_usb_init \r\n");
     }
 
     pthread_exit(NULL);
@@ -65,12 +72,12 @@ static int usb_hotplugCB(libusb_context *libusbCtx, libusb_device *dev, libusb_h
 {
     if(event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED)
     {
-        ncp_adap_d("LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED\r\n");
+        NCP_LOG_DBG("LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED\r\n");
         sem_post(&usb_lpm_sem);
     }
     else if(event == LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT)
     {
-        ncp_adap_d("LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT\r\n");
+        NCP_LOG_DBG("LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT\r\n");
     }
     return 0;
 }
@@ -84,7 +91,7 @@ int usb_lpm_init()
     
     if (sem_init(&usb_lpm_sem, 0, 1) == -1)
     {
-        ncp_adap_e("Failed to init usb_lpm_sem!\r\n");
+        NCP_LOG_ERR("Failed to init usb_lpm_sem!\r\n");
         return NCP_STATUS_ERROR;
     }
     sem_wait(&usb_lpm_sem);
@@ -93,7 +100,7 @@ int usb_lpm_init()
     if (usb_lpm_thread != 0)
     {
         sem_destroy(&usb_lpm_sem);
-        ncp_adap_e("Failed to creat usb_lpm_thread \n");
+        NCP_LOG_ERR("Failed to creat usb_lpm_thread \n");
 
         return NCP_STATUS_ERROR;
     }
@@ -118,7 +125,7 @@ ncp_status_t usb_init(usb_device_t *dev)
 
     if (config_usb(dev) == NCP_STATUS_ERROR )
     {
-        ncp_adap_e("USB: Could not configure usb device properly \n");
+        NCP_LOG_ERR("USB: Could not configure usb device properly \n");
 
         return NCP_STATUS_ERROR;
     }
@@ -128,14 +135,14 @@ ncp_status_t usb_init(usb_device_t *dev)
 
 	if (!dev->handle)
     {
-        ncp_adap_e("Unable to open USB device with request parameters \n");
+        NCP_LOG_ERR("Unable to open USB device with request parameters \n");
 
 		return NCP_STATUS_ERROR;
 	}
     
     if (!libusb_has_capability(LIBUSB_CAP_HAS_HOTPLUG)) 
     {
-        ncp_adap_e("Don't support hotplug feature");
+        NCP_LOG_ERR("Don't support hotplug feature");
         return NCP_STATUS_ERROR;
     }
     
@@ -143,16 +150,17 @@ ncp_status_t usb_init(usb_device_t *dev)
     
     if(ret)
     {
-        ncp_adap_e("libusb_hotplug_register_callback falied\n");
+        NCP_LOG_ERR("libusb_hotplug_register_callback falied\n");
         return NCP_STATUS_ERROR;
     }
 
     pthread_mutex_init(&usb_event_thread_mutex, NULL);
     pthread_mutex_lock(&usb_event_thread_mutex);    
+
     ret = pthread_create(&usb_event_thread, NULL, (void *)usb_handle_event, dev);
     if (ret != 0)
     {
-        ncp_adap_e("ERROR usb_event_thread creat \n");
+        NCP_LOG_ERR("ERROR usb_event_thread creat \n");
         pthread_mutex_unlock(&usb_event_thread_mutex);
         pthread_mutex_destroy(&usb_event_thread_mutex);
         libusb_hotplug_deregister_callback(dev->context, usb_cb_Handle);
@@ -182,7 +190,7 @@ ncp_status_t usb_receive(usb_device_t *dev, int8_t *buf, uint32_t len, size_t *n
     }
     else
     {
-        //ncp_adap_e("USB: Error while reading \n");
+        //NCP_LOG_ERR("USB: Error while reading \n");
         
         return NCP_STATUS_ERROR;
     }
@@ -222,7 +230,7 @@ void usb_deinit(usb_device_t *dev)
     pthread_mutex_unlock(&usb_event_thread_mutex);
     libusb_hotplug_deregister_callback(dev->context, usb_cb_Handle);
     pthread_join(usb_event_thread, NULL);
-    
+
 	if (dev->handle)
     {
         libusb_release_interface (dev->handle, 0);
@@ -245,7 +253,7 @@ ncp_status_t config_usb(usb_device_t *usb_dev)
     count_devs = libusb_get_device_list(NULL, &usb_devices);
     if (count_devs < 0)
     {
-        ncp_adap_e("No usb found on the system\n");
+        NCP_LOG_ERR("No usb found on the system\n");
 
         return NCP_STATUS_ERROR;
     }
@@ -255,7 +263,7 @@ ncp_status_t config_usb(usb_device_t *usb_dev)
         ret = libusb_get_device_descriptor(dev, &device_desc);
         if (ret < 0)
         {
-            ncp_adap_e("Failed to get device descriptor\n");
+            NCP_LOG_ERR("Failed to get device descriptor\n");
             libusb_free_device_list(usb_devices, 1);
             libusb_close(usb_handle);
 
@@ -265,7 +273,7 @@ ncp_status_t config_usb(usb_device_t *usb_dev)
         get_result = libusb_open(dev, &usb_handle);
         if (get_result < 0)
         {
-            ncp_adap_e("Error opening USB device\n");
+            NCP_LOG_ERR("Error opening USB device\n");
             libusb_free_device_list(usb_devices, 1);
             libusb_close(usb_handle);
 
@@ -300,7 +308,7 @@ ncp_status_t config_usb(usb_device_t *usb_dev)
 
     if(found_dev == 0)
     {
-        ncp_adap_e("Requested USB device not found\n");
+        NCP_LOG_ERR("Requested USB device not found\n");
         libusb_free_device_list(usb_devices, 1);
         libusb_close(usb_handle);
 
@@ -313,10 +321,10 @@ ncp_status_t config_usb(usb_device_t *usb_dev)
     if(libusb_kernel_driver_active(usb_handle, 0) == 1)
     {
         if(libusb_detach_kernel_driver(usb_handle, 0) == 0)
-            ncp_adap_d("USB: Kernel Driver Detached\n");
+            NCP_LOG_DBG("USB: Kernel Driver Detached\n");
         else
         {
-            ncp_adap_e("USB: could not detach kernel driver\n");
+            NCP_LOG_ERR("USB: could not detach kernel driver\n");
             libusb_free_device_list(usb_devices, 1);
             libusb_close(usb_handle);
 
@@ -327,7 +335,7 @@ ncp_status_t config_usb(usb_device_t *usb_dev)
     get_result = libusb_claim_interface(usb_handle, 0);
     if(get_result < 0)
     {
-        ncp_adap_e("USB: couldn't claim USB requested interface\n");
+        NCP_LOG_ERR("USB: couldn't claim USB requested interface\n");
         libusb_free_device_list(usb_devices, 1);
         libusb_close(usb_handle);
 
@@ -391,4 +399,4 @@ void set_IntfEndpoints(struct libusb_device *req_device, usb_device_t *usb_dev, 
 
     libusb_free_config_descriptor(NULL);
 }
-
+#endif /* CONFIG_NCP_USB */

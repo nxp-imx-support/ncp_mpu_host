@@ -1,237 +1,75 @@
 /*
- * Copyright 2024 NXP
+ * Copyright 2024 - 2025 NXP
  * All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ncp_tlv_adapter.h"
-#include "crc.h"
-#include "ncp_adapter.h"
-#include "lpm.h"
+#include <string.h>
+#include "fsl_os_abstraction.h"
 #if CONFIG_NCP_USE_ENCRYPT
 #include "mbedtls/gcm.h"
 #include "mbedtls_common.h"
 #include "ncp_host_command.h"
 #endif
-#include <sys/syscall.h>
+
+#include "ncp_tlv_adapter.h"
+#include "ncp_crc.h"
+#include "ncp_pm.h"
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_REGISTER(ncp_adapter, CONFIG_LOG_NCP_ADAPTER_LEVEL);
 
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
-#define NCP_TX_QUEUE_NAME "/ncp_tx_queue"
+
+#define NCP_TLV_STATS_INC(x) NCP_STATS_INC(tlvq.x)
+
+/*******************************************************************************
+ * Prototypes
+ ******************************************************************************/
+
+extern const ncp_intf_ops_t *ncp_intf_get_ops(void);
+
+static void ncp_tlv_process(osa_task_param_t arg);
 
 /*******************************************************************************
  * Variables
  ******************************************************************************/
 
-#ifdef CONFIG_NCP_UART
-extern ncp_intf_ops_t ncp_uart_ops;
-#elif defined(CONFIG_NCP_SDIO)
-extern ncp_intf_ops_t ncp_sdio_ops;
-#elif defined(CONFIG_NCP_USB)
-extern ncp_intf_ops_t ncp_usb_ops;
-#elif defined(CONFIG_NCP_SPI)
-extern ncp_intf_ops_t ncp_spi_ops;
-#endif
+static ncp_tlv_adapter_t ncp_tlv_adapter;
+static uint32_t s_ncp_adap_seqnum = 0;
 
+#if CONFIG_NCP_DEBUG
 /* Global variable containing NCP internal statistics */
-#ifdef CONFIG_NCP_DEBUG
 ncp_stats_t ncp_stats;
 #endif
 
-ncp_tlv_adapter_t ncp_tlv_adapter;
-
-/* NCP adapter tx queue handler */
-mqd_t ncp_tlv_tx_msgq_handle;
+/* NCP adapter TX variable*/
+/* NCP adapter tx event group */
+OSA_EVENT_HANDLE_DEFINE(ncp_tx_event_handle);
+/* NCP adapter tx data queue */
+OSA_MSGQ_HANDLE_DEFINE(ncp_tlv_data_msgq_handle, NCP_TLV_DATA_QUEUE_LENGTH,  sizeof(ncp_tlv_data_qelem_t *));
+/* NCP adapter tx ctrl queue */
+OSA_MSGQ_HANDLE_DEFINE(ncp_tlv_ctrl_msgq_handle, NCP_TLV_CTRL_QUEUE_LENGTH,  sizeof(ncp_tlv_ctrl_qelem_t *));
 
 /* NCP adapter tx task */
-static pthread_t       ncp_tlv_thread;
-static pthread_mutex_t ncp_tlv_thread_mutex;
-static void *          ncp_tlv_process(void *arg);
+#define NCP_TLV_TX_TASK_STACK_SIZE 1024
+OSA_TASK_HANDLE_DEFINE(ncp_tlv_thread);
+OSA_TASK_DEFINE(ncp_tlv_process, OSA_PRIORITY_NORMAL, 1, NCP_TLV_TX_TASK_STACK_SIZE, 0);
+
+static const ncp_pm_tx_if_t s_ncp_pm_tx_if = {
+    .send_msg   = ncp_tlv_ctrl_send,
+    .post_event = ncp_tlv_tx_set_event,
+};
+
+static bool ncp_initialized = false;
 
 /*******************************************************************************
- * Private functions
+ * Code
  ******************************************************************************/
-
-static void ncp_tlv_cb(void *arg)
-{
-#ifdef CONFIG_NCP_SDIO
-    device_pm_enter(arg);
-#endif
-}
-
-static void* ncp_tlv_process(void *arg)
-{
-    ssize_t         recv_sz = 0;
-    ncp_tlv_qelem_t *qelem = NULL;
-
-    ncp_adap_d("Start ncp_tlv_process thread");
-    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
-
-    while (pthread_mutex_trylock(&ncp_tlv_thread_mutex) != 0)
-    {
-        qelem = NULL;
-        recv_sz = mq_receive(ncp_tlv_tx_msgq_handle, (char *)&qelem, NCP_TLV_QUEUE_MSG_SIZE, NULL);
-
-        ncp_adap_d("%s: mq_receive qelem=%p recv_sz=%ld", __FUNCTION__, qelem, recv_sz);
-        if (recv_sz == -1)
-        {
-            ncp_adap_e("%s: mq_receive failed", __FUNCTION__);
-            NCP_TLV_STATS_INC(err_tx);
-            continue;
-        }
-
-        if (qelem == NULL)
-        {
-            ncp_adap_e("%s: qelem=%p", __FUNCTION__, qelem);
-            NCP_TLV_STATS_INC(err_tx);
-            continue;
-        }
-
-        ncp_adap_d("%s: intf send qelem=%p: tlv_buf=%p tlv_sz=%lu",
-                    __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
-#ifdef CONFIG_MPU_IO_DUMP
-        mpu_dump_hex(qelem, sizeof(ncp_tlv_qelem_t) + qelem->tlv_sz);
-#endif
-        NCP_TLV_STATS_INC(tx1);
-        /* sync send data */
-        ncp_tlv_adapter.intf_ops->send(qelem->tlv_buf, qelem->tlv_sz, ncp_tlv_cb);
-        ncp_adap_d("%s: free qelem %p", __FUNCTION__, qelem);
-        free(qelem);
-    }
-
-    pthread_mutex_unlock(&ncp_tlv_thread_mutex);
-    ncp_adap_d("Exit ncp_tlv_process thread");
-    return NULL;
-}
-
-/*
- * Enqueue the qelement to ncp tx queue
- */
-static ncp_status_t ncp_tlv_tx_enque(ncp_tlv_qelem_t *qelem)
-{
-    ncp_status_t status = NCP_STATUS_SUCCESS;
-
-    ncp_adap_d("%s: mq_send qelem=%p: tlv_buf=%p tlv_sz=%lu", __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
-#ifdef CONFIG_MPU_IO_DUMP
-    mpu_dump_hex(qelem, sizeof(ncp_tlv_qelem_t) + qelem->tlv_sz);
-#endif
-    if (mq_send(ncp_tlv_tx_msgq_handle, (char *)&qelem, NCP_TLV_QUEUE_MSG_SIZE, 0) != 0)
-    {
-        ncp_adap_e("ncp tlv enqueue failure");
-        NCP_TLV_STATS_INC(err_tx);
-        status = NCP_STATUS_ERROR;
-        goto Fail;
-    }
-    NCP_TLV_STATS_INC(tx0);
-    ncp_adap_d("enque tlv_buf success");
-
-Fail:
-    ncp_adap_d("Exit ncp_tlv_tx_enque");
-    return status;
-}
-
-static ncp_status_t ncp_tlv_tx_init(void)
-{
-    int                status = NCP_STATUS_SUCCESS;
-    struct mq_attr     qattr;
-    pthread_attr_t     tattr;
-
-    ncp_adap_d("Enter ncp_tlv_tx_init");
-    mq_unlink(NCP_TX_QUEUE_NAME);
-    qattr.mq_flags         = 0;
-    qattr.mq_maxmsg        = NCP_TLV_QUEUE_LENGTH;
-    qattr.mq_msgsize       = NCP_TLV_QUEUE_MSG_SIZE;
-    qattr.mq_curmsgs       = 0;
-    ncp_tlv_tx_msgq_handle = mq_open(NCP_TX_QUEUE_NAME, O_RDWR | O_CREAT, 0644, &qattr);
-    if ((int)ncp_tlv_tx_msgq_handle == -1)
-    {
-        ncp_adap_e("ERROR: ncp tx msg queue create fail");
-        goto err_tlv_tx_msgq;
-    }
-
-    /* initialized with default attributes */
-    status = pthread_attr_init(&tattr);
-    if (status != 0)
-    {
-        ncp_adap_e("ERROR: pthread_attr_init");
-        goto err_tlv_attr;
-    }
-
-    pthread_mutex_init(&ncp_tlv_thread_mutex, NULL);
-    pthread_mutex_lock(&ncp_tlv_thread_mutex);
-
-    status = pthread_create(&ncp_tlv_thread, &tattr, &ncp_tlv_process, NULL);
-    if (status != 0)
-    {
-        ncp_adap_e("ERROR: pthread_create");
-        goto err_tlv_thread;
-    }
-
-    ncp_adap_d("ncp tx init success");
-    ncp_adap_d("Exit ncp_tlv_tx_init");
-    return status;
-
-err_tlv_thread:
-    pthread_mutex_unlock(&ncp_tlv_thread_mutex);
-    pthread_mutex_destroy(&ncp_tlv_thread_mutex);
-err_tlv_attr:
-    mq_close(ncp_tlv_tx_msgq_handle);
-err_tlv_tx_msgq:
-   return NCP_STATUS_ERROR;
-}
-
-static void ncp_tlv_tx_deinit(void)
-{
-    ssize_t         tlv_sz;
-    ncp_tlv_qelem_t *qelem = NULL;
-
-    pthread_mutex_unlock(&ncp_tlv_thread_mutex);
-    pthread_join(ncp_tlv_thread, NULL);
-    printf("-->\n");
-    while (1)
-    {
-        qelem = NULL;
-        if ((tlv_sz = mq_receive(ncp_tlv_tx_msgq_handle, (char *)&qelem, NCP_TLV_QUEUE_MSG_SIZE, NULL)) != -1)
-        {
-            if (qelem == NULL)
-            {
-                ncp_adap_e("%s: qelem=%p", __FUNCTION__, qelem);
-                continue;
-            }
-            ncp_adap_d("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
-                            __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
-            ncp_adap_d("%s: free qelem %p", __FUNCTION__, qelem);
-            free(qelem);
-            qelem = NULL;
-            continue;
-        }
-        else
-        {
-            ncp_adap_d("ncp adapter queue flush completed");
-            break;
-        }
-    }
-
-    if (mq_close(ncp_tlv_tx_msgq_handle) != 0)
-    {
-        ncp_adap_e("ncp adapter tx deint MsgQ fail");
-    }
-    mq_unlink(NCP_TX_QUEUE_NAME);
-
-    if (pthread_mutex_destroy(&ncp_tlv_thread_mutex) != 0)
-    {
-        ncp_adap_e("ncp adapter tx deint thread mutex fail");
-    }
-}
-
-/*******************************************************************************
- * Public functions
- ******************************************************************************/
-
 #if CONFIG_NCP_USE_ENCRYPT
-
 int ncp_tlv_adapter_encrypt_init(const uint8_t *key_enc, const uint8_t *key_dec, 
                                  const uint8_t *iv_enc, const uint8_t *iv_dec,
                                  uint16_t key_len, uint16_t iv_len)
@@ -376,7 +214,7 @@ static ncp_status_t ncp_tlv_encrypt(void *input, void *output, size_t input_len)
                         NULL, 0, input, output, sizeof(tag_buf), tag_buf);
     if (ret != 0)
     {
-        ncp_adap_e("mbedtls_gcm_crypt_and_tag err %d\r\n", ret);
+        NCP_LOG_ERR("mbedtls_gcm_crypt_and_tag err %d\r\n", ret);
         return NCP_STATUS_ERROR;
     }
 
@@ -419,50 +257,337 @@ static ncp_status_t ncp_tlv_decrypt(void *input, size_t input_len)
 
     return NCP_STATUS_SUCCESS;
 }
-
 #endif  /* CONFIG_NCP_USE_ENCRYPT */
 
-ncp_status_t ncp_adapter_init(char * dev_name)
+/**
+ * @brief Get the TLV adapter instance
+ *
+ * @return Pointer to the TLV adapter instance
+ * @retval Non-NULL Pointer to the valid TLV adapter instance
+ * @retval NULL     Should never occur in normal operation
+ */
+const ncp_tlv_adapter_t *ncp_tlv_adapter_get(void)
+{
+    return &ncp_tlv_adapter;
+}
+
+/**
+ * @brief Set TX event for TLV adapter
+ *
+ * This function sets an event flag to notify the TX task about pending
+ * operations. The TX task waits on these events and processes them
+ * accordingly (e.g., data ready, control messages).
+ *
+ * @param[in] event Event bitmask to be set (NCP_TX_EVENT_*)
+ *                  - NCP_TX_EVENT_DATA_READY: Data queued for transmission
+ *                  - NCP_TX_EVENT_CTRL_PRE:   Control message before data
+ *                  - NCP_TX_EVENT_CTRL_POST:  Control message after data
+ *
+ * @warning Ensure ncp_tx_event_handle is initialized before calling this function.
+ */
+void ncp_tlv_tx_set_event(uint32_t event)
+{
+    /* Set the event flag to wake up TX task */
+    if (OSA_EventSet(ncp_tx_event_handle, event) != KOSA_StatusSuccess)
+    {
+        NCP_LOG_ERR("[%s] Failed to set event: 0x%08x", __func__, event);
+        NCP_TLV_STATS_INC(err);
+    }
+    else
+    {
+        NCP_LOG_DBG("[%s] Event set successfully: 0x%08x", __func__, event);
+    }
+}
+
+/**
+ * @brief Enqueue TLV data message for transmission
+ *
+ * This function enqueues a TLV data queue element to the transmission queue
+ * and sets the data ready event to notify the TX task.
+ *
+ * @param[in] qelem Pointer to the data queue element to be enqueued
+ *
+ * @retval NCP_STATUS_SUCCESS Successfully enqueued the data message
+ * @retval NCP_STATUS_ERROR   Failed to enqueue the data message
+ */
+static ncp_status_t ncp_tlv_tx_data_enqueue(ncp_tlv_data_qelem_t *qelem)
+{
+    if (OSA_MsgQPutBlock(ncp_tlv_data_msgq_handle, &qelem, osaWaitForever_c) != KOSA_StatusSuccess)
+    {
+        NCP_LOG_ERR("[%s] Failed to enqueue TLV data: size=%lu", __func__, qelem->tlv_sz);
+        NCP_TLV_STATS_INC(err_tx);
+        NCP_TLV_STATS_INC(drop);
+        return NCP_STATUS_ERROR;
+    }
+
+    NCP_TLV_STATS_INC(tx);
+    OSA_EventSet(ncp_tx_event_handle, NCP_TX_EVENT_DATA_READY);
+
+    NCP_LOG_DBG("enqueue data success");
+
+    return NCP_STATUS_SUCCESS;
+}
+
+/**
+ * @brief Enqueue TLV control message for transmission
+ * @param qelem Control queue element pointer
+ * @return Status code
+ */
+static ncp_status_t ncp_tlv_tx_ctrl_enqueue(ncp_tlv_ctrl_qelem_t *qelem)
+{
+    if (OSA_MsgQPutBlock(ncp_tlv_ctrl_msgq_handle, &qelem, osaWaitForever_c) != KOSA_StatusSuccess)
+    {
+        NCP_LOG_ERR("[%s] Failed to enqueue TLV control message: qelem=%p, size=%lu, event=0x%08x, seqnum=%u",
+                    __func__, qelem, qelem->ctrl_sz, qelem->event, qelem->seqnum);
+        NCP_TLV_STATS_INC(err);
+        NCP_TLV_STATS_INC(drop);
+        return NCP_STATUS_ERROR;
+    }
+
+    NCP_TLV_STATS_INC(tx);
+    OSA_EventSet(ncp_tx_event_handle, qelem->event);
+
+    NCP_LOG_DBG("enqueue ctrl success, event: 0x%08x, seqnum: %u", qelem->event, qelem->seqnum);
+
+    return NCP_STATUS_SUCCESS;
+}
+
+/**
+ * @brief Free TLV data queue element
+ * @param qbuf Pointer to queue element pointer
+ */
+static void ncp_tlv_free_data_elmt(ncp_tlv_data_qelem_t **qbuf)
+{
+    OSA_MemoryFree(*qbuf);
+    *qbuf = NULL;
+}
+
+/**
+ * @brief Dequeue and send all TLV data messages
+ */
+static void ncp_tlv_tx_data_dequeue(void)
+{
+    ncp_tlv_data_qelem_t *msg = NULL;
+
+    do {
+        if (ncp_tlv_adapter.pm_ops->tx_data_action())
+        {
+            NCP_LOG_DBG("TX data action done");
+            break;
+        }
+
+        if (OSA_MsgQGet(ncp_tlv_data_msgq_handle, &msg, osaWaitNone_c) != KOSA_StatusSuccess)
+        {
+            break;
+        }
+
+        NCP_LOG_DBG("%s: send Data =%p: tlv_buf=%p tlv_sz=%lu",
+                    __FUNCTION__, msg, msg->tlv_buf, msg->tlv_sz);
+#ifdef CONFIG_MPU_IO_DUMP
+        NCP_LOG_HEXDUMP_DBG(msg, sizeof(ncp_tlv_data_qelem_t) + msg->tlv_sz);
+#endif
+        NCP_TLV_STATS_INC(tx1);
+
+        ncp_tlv_adapter.intf_ops->send(msg->tlv_buf, msg->tlv_sz, NULL);
+        /* free element */
+        ncp_tlv_free_data_elmt(&msg);
+    } while (1);
+}
+
+/**
+ * @brief Dequeue and send all TLV control messages
+ */
+static void ncp_tlv_tx_ctrl_dequeue(void)
+{
+    ncp_tlv_ctrl_qelem_t *msg = NULL;
+
+    while (OSA_MsgQGet(ncp_tlv_ctrl_msgq_handle, &msg, osaWaitNone_c) == KOSA_StatusSuccess)
+    {
+        NCP_LOG_DBG("%s: send Control msg=%p: ctrl_buf=%p ctrl_sz=%lu",
+                    __FUNCTION__, msg, msg->ctrl_buf, msg->ctrl_sz);
+        ncp_tlv_adapter.intf_ops->send(msg->ctrl_buf, msg->ctrl_sz, NULL);
+        OSA_MemoryFree(msg);
+        msg = NULL;
+    }
+
+    ncp_tlv_adapter.pm_ops->tx_ctrl_action();
+}
+
+/**
+ * @brief TLV adapter TX task main loop
+ * @param arg Task parameter (unused)
+ */
+static void ncp_tlv_process(osa_task_param_t arg)
+{
+    uint32_t events = 0U;
+
+    while (1)
+    {
+        (void)OSA_EventWait(ncp_tx_event_handle, NCP_TX_EVENT_ALL, 0, osaWaitForever_c, &events);
+
+        ncp_tlv_adapter.pm_ops->enter_critical();
+
+        /** Event: handle control messages prior to sending data frames */
+        if (events & NCP_TX_EVENT_CTRL_PRE)
+        {
+            NCP_LOG_DBG("Processing CTRL_PRE event");
+            ncp_tlv_tx_ctrl_dequeue();
+        }
+
+        if (events & NCP_TX_EVENT_DATA_READY)
+        {
+            ncp_tlv_tx_data_dequeue();
+        }
+
+        /** Event: handle control messages after data frames have been sent */
+        if (events & NCP_TX_EVENT_CTRL_POST)
+        {
+            NCP_LOG_DBG("Processing CTRL_POST event");
+            ncp_tlv_tx_ctrl_dequeue();
+        }
+
+        ncp_tlv_adapter.pm_ops->exit_critical();
+    }
+}
+
+
+static ncp_status_t ncp_tlv_tx_init(void)
+{
+    struct {
+        unsigned event_group : 1;
+        unsigned data_msgq   : 1;
+        unsigned ctrl_msgq   : 1;
+        unsigned tx_task     : 1;
+    } created = {0};
+
+    ncp_status_t status = NCP_STATUS_ERROR;
+
+    do {
+        if (OSA_EventCreate((osa_event_handle_t)ncp_tx_event_handle, 1) != KOSA_StatusSuccess) {
+            NCP_LOG_ERR("ncp tx event group create fail");
+            break;
+        }
+        created.event_group = 1;
+
+        if (OSA_MsgQCreate((osa_msgq_handle_t)ncp_tlv_data_msgq_handle,
+                           NCP_TLV_DATA_QUEUE_LENGTH,
+                           sizeof(ncp_tlv_data_qelem_t *)) != KOSA_StatusSuccess) {
+            NCP_LOG_ERR("ncp tlv data msg queue create fail");
+            break;
+        }
+        created.data_msgq = 1;
+
+        if (OSA_MsgQCreate((osa_msgq_handle_t)ncp_tlv_ctrl_msgq_handle,
+                           NCP_TLV_CTRL_QUEUE_LENGTH,
+                           sizeof(ncp_tlv_ctrl_qelem_t *)) != KOSA_StatusSuccess) {
+            NCP_LOG_ERR("ncp tlv ctrl msg queue create fail");
+            break;
+        }
+        created.ctrl_msgq = 1;
+
+        if (OSA_TaskCreate((osa_task_handle_t)ncp_tlv_thread,
+                           OSA_TASK(ncp_tlv_process),
+                           NULL) != KOSA_StatusSuccess) {
+            NCP_LOG_ERR("ncp tlv process task create fail");
+            break;
+        }
+        created.tx_task = 1;
+
+        NCP_LOG_DBG("ncp tx init success");
+        return NCP_STATUS_SUCCESS;
+
+    } while (0);
+
+    if (created.tx_task) {
+        OSA_TaskDestroy((osa_task_handle_t)ncp_tlv_thread);
+    }
+    if (created.ctrl_msgq) {
+        OSA_MsgQDestroy((osa_msgq_handle_t)ncp_tlv_ctrl_msgq_handle);
+    }
+    if (created.data_msgq) {
+        OSA_MsgQDestroy((osa_msgq_handle_t)ncp_tlv_data_msgq_handle);
+    }
+    if (created.event_group) {
+        OSA_EventDestroy((osa_event_handle_t)ncp_tx_event_handle);
+    }
+
+    return status;
+}
+
+static void ncp_tlv_tx_deinit(void)
+{
+    ncp_tlv_data_qelem_t *data_msg = NULL;
+    ncp_tlv_ctrl_qelem_t *ctrl_msg = NULL;
+
+    if (OSA_TaskDestroy((osa_task_handle_t)ncp_tlv_thread) != KOSA_StatusSuccess) {
+        NCP_LOG_ERR("ncp adapter tx deinit task fail");
+    }
+
+    while (OSA_MsgQGet(ncp_tlv_data_msgq_handle, &data_msg, 0) == KOSA_StatusSuccess) {
+        /* free element */
+        ncp_tlv_free_data_elmt(&data_msg);
+    }
+    NCP_LOG_DBG("ncp adapter tx deinit: data queue flushed");
+
+    if (OSA_MsgQDestroy((osa_msgq_handle_t)ncp_tlv_data_msgq_handle) != KOSA_StatusSuccess) {
+        NCP_LOG_ERR("ncp adapter tx deinit: data queue destroy failed");
+    }
+
+    while (OSA_MsgQGet(ncp_tlv_ctrl_msgq_handle, &ctrl_msg, 0) == KOSA_StatusSuccess)
+    {
+        OSA_MemoryFree(ctrl_msg);
+        ctrl_msg = NULL;
+    }
+    NCP_LOG_DBG("ncp adapter tx deinit: ctrl queue flushed");
+
+    if (OSA_MsgQDestroy((osa_msgq_handle_t)ncp_tlv_ctrl_msgq_handle) != KOSA_StatusSuccess) {
+        NCP_LOG_ERR("ncp adapter tx deinit: ctrl queue destroy failed");
+    }
+
+    if (OSA_EventDestroy((osa_event_handle_t)ncp_tx_event_handle) != KOSA_StatusSuccess) {
+        NCP_LOG_ERR("ncp adapter tx deinit: event group destroy failed");
+    }
+
+    NCP_LOG_DBG("ncp adapter tx deinit: completed");
+}
+
+ncp_status_t ncp_adapter_init(char * dev_name, int role)
 {
     ncp_status_t status = NCP_STATUS_SUCCESS;
 
-#ifdef CONFIG_NCP_UART
-    ncp_tlv_adapter.intf_ops = &ncp_uart_ops;
-#elif defined(CONFIG_NCP_SDIO)
-    ncp_tlv_adapter.intf_ops = &ncp_sdio_ops;
-#elif defined(CONFIG_NCP_USB)
-    ncp_tlv_adapter.intf_ops = &ncp_usb_ops;
-#elif defined(CONFIG_NCP_SPI)
-    ncp_tlv_adapter.intf_ops = &ncp_spi_ops;
-#endif
+    if (ncp_initialized == true)
+    {
+        return status;
+    }
+
     /* Init CRC32 */
     ncp_tlv_chksum_init();
     status = ncp_tlv_tx_init();
     if (status != NCP_STATUS_SUCCESS)
     {
-        ncp_adap_e("ncp adapater init fail: ncp_tlv_tx_init");
         return status;
     }
+
     /* Init interface */
+    ncp_tlv_adapter.intf_ops = ncp_intf_get_ops();
     status = (ncp_status_t)ncp_tlv_adapter.intf_ops->init((void *)dev_name);
     if (status != NCP_STATUS_SUCCESS)
     {
-        ncp_adap_e("ncp adapater init fail: intf_ops->init");
+        NCP_LOG_ERR("ncp adapter init fail");
         ncp_tlv_tx_deinit();
         return status;
     }
 
-    ncp_lpm_gpio_init();
-#if defined(CONFIG_NCP_USB) || defined(CONFIG_NCP_SDIO)
-	status = device_notify_gpio_init();
+    /* Init PM state machine */
+    ncp_tlv_adapter.pm_ops = ncp_pm_get_ops();
+    status = (ncp_status_t)ncp_tlv_adapter.pm_ops->init(role, &s_ncp_pm_tx_if);
     if (status != NCP_STATUS_SUCCESS)
     {
-        ncp_adap_e("ERROR device_notify_gpio_init \r\n");
-        ncp_tlv_adapter.intf_ops->deinit((void *)dev_name);
-        ncp_tlv_tx_deinit();
-        return NCP_STATUS_ERROR;
+        NCP_LOG_ERR("ncp pm init fail");
+        return status;
     }
-#endif
+
+    ncp_initialized = true;
 
     return status;
 }
@@ -470,15 +595,16 @@ ncp_status_t ncp_adapter_init(char * dev_name)
 ncp_status_t ncp_adapter_deinit(void)
 {
     ncp_status_t status = NCP_STATUS_SUCCESS;
-#if defined(CONFIG_NCP_USB) || defined(CONFIG_NCP_SDIO)
-    device_notify_gpio_deinit();
-#endif
+
+    ncp_initialized = false;
+
+    status = (ncp_status_t)ncp_tlv_adapter.pm_ops->deinit();
+    ncp_tlv_adapter.pm_ops = NULL;
     /* Deinit interface */
-    status                   = (ncp_status_t)ncp_tlv_adapter.intf_ops->deinit(NULL);
+    status = (ncp_status_t)ncp_tlv_adapter.intf_ops->deinit(NULL);
     ncp_tlv_adapter.intf_ops = NULL;
 
     ncp_tlv_tx_deinit();
-
     return status;
 }
 
@@ -499,22 +625,33 @@ void ncp_tlv_uninstall_handler(uint8_t class)
 
 void ncp_tlv_dispatch(void *tlv, size_t tlv_sz)
 {
-    ncp_status_t status         = NCP_STATUS_SUCCESS;
-    uint32_t     local_checksum = 0, remote_checksum = 0;
+    ncp_status_t status = NCP_STATUS_SUCCESS;
+    uint32_t local_checksum = 0, remote_checksum = 0;
     uint8_t class = 0;
 
-    ncp_adap_d("%s: tlv_sz=%lu", __FUNCTION__, tlv_sz);
+    NCP_TLV_STATS_INC(rx);
+
+    NCP_LOG_DBG("%s: tlv=%p tlv_sz=%lu", __FUNCTION__, tlv, tlv_sz);
+
+    if (ncp_tlv_adapter.pm_ops->rx_action(tlv, tlv_sz))
+    {
+        return;
+    }
+
+    NCP_LOG_DBG("Receive TLV command, dispatch it!");
 
     /* check CRC */
     remote_checksum = NCP_GET_PEER_CHKSUM((uint8_t *)tlv, tlv_sz);
     local_checksum  = ncp_tlv_chksum(tlv, tlv_sz);
-    ncp_adap_d("%s: checksum: remote=0x%x local=0x%x", __FUNCTION__, remote_checksum, local_checksum);
     if (remote_checksum != local_checksum)
     {
         status = NCP_STATUS_CHKSUMERR;
-        ncp_adap_e("Checksum validation failed: remote=0x%x local=0x%x", remote_checksum, local_checksum);
+        NCP_TLV_STATS_INC(err);
+        NCP_TLV_STATS_INC(drop);
+        NCP_LOG_ERR("Checksum validation failed: remote=0x%x local=0x%x", remote_checksum, local_checksum);
+        return;
     }
-    
+
 #if CONFIG_NCP_USE_ENCRYPT
     if ((ncp_tlv_adapter.crypt) && (ncp_tlv_adapter.crypt->flag != 0)
                               && (tlv_sz > TLV_CMD_HEADER_LEN))
@@ -525,60 +662,118 @@ void ncp_tlv_dispatch(void *tlv, size_t tlv_sz)
             status = ncp_tlv_decrypt(tlv + TLV_CMD_HEADER_LEN, tlv_sz - TLV_CMD_HEADER_LEN);
             if (status != NCP_STATUS_SUCCESS)
             {
-                ncp_adap_e("ncp tlv decrypt err %d", (int)status);
+                NCP_LOG_ERR("ncp tlv decrypt err %d", (int)status);
                 return;
             }
         }
     }
 #endif /* CONFIG_NCP_USE_ENCRYPT */
 
+
     /* TLV command class */
-    class = NCP_GET_CLASS(tlv);
-
+    class = NCP_GET_CLASS(*((uint32_t *)tlv));
     if (ncp_tlv_adapter.tlv_handler[class])
-    {
-        ncp_adap_d("Call tlv_handler callback ");
         ncp_tlv_adapter.tlv_handler[class](tlv, tlv_sz, status);
-    }
-
-    ncp_adap_d("Exit tlv_handler callback ");
 }
 
-/*
-    qbuf_len = sizeof(ncp_tlv_qelem_t) + sdio_intf_head + tlv_sz + chksum_len
-    qbuf_tlv = qbuf + sizeof(ncp_tlv_qelem_t)
-    memcpy_buf = qbuf + sizeof(ncp_tlv_qelem_t) + sdio_intf_head
-    chksum_buf = qbuf + sizeof(ncp_tlv_qelem_t) + sdio_intf_head + tlv_sz
-    sdio_intf_head: reserved length for sdio interface header
-*/
-ncp_status_t ncp_tlv_send(void *tlv_buf, size_t tlv_sz)
+/**
+ * @brief Send TLV control message
+ * @param event Event code
+ * @param ctrl_buf Control buffer pointer
+ * @param ctrl_sz Control buffer size
+ * @return Status code
+ */
+int ncp_tlv_ctrl_send(uint32_t event, void *ctrl_buf, size_t ctrl_sz)
 {
-    ncp_status_t     status   = NCP_STATUS_SUCCESS;
-    ncp_tlv_qelem_t *qbuf     = NULL;
-    uint8_t *        qbuf_tlv = NULL, *chksum_buf = NULL;
-    uint32_t         qlen = 0;
-    uint8_t          chksum_len = 4;
-    uint32_t         chksum      = 0;
-    uint32_t         header_size = sizeof(ncp_tlv_qelem_t);
+    ncp_status_t status = NCP_STATUS_SUCCESS;
+    ncp_tlv_ctrl_qelem_t *qelem = NULL;
+    uint8_t * qbuf = NULL;
+    uint16_t qlen = 0;
+    uint32_t chksum = 0;
+    uint8_t *chksum_buf = NULL;
 
-    ncp_adap_d("Enter %s: input tlv_buf=%p tlv_sz=%lu", __FUNCTION__, tlv_buf, tlv_sz);
-#ifdef CONFIG_MPU_IO_DUMP
-    mpu_dump_hex(tlv_buf, tlv_sz);
-#endif
-    qlen = header_size + tlv_sz + chksum_len;
-    qbuf = (ncp_tlv_qelem_t *)malloc(qlen);
+    qlen = sizeof(ncp_tlv_ctrl_qelem_t) + ctrl_sz + NCP_CHKSUM_LEN;
+    qbuf = (uint8_t *)OSA_MemoryAllocate(qlen);
     if (!qbuf)
     {
-        ncp_adap_e("failed to allocate memory for tlv queue element");
+        NCP_TLV_STATS_INC(err);
+        NCP_TLV_STATS_INC(drop);
+        NCP_LOG_ERR("%s: failed to allocate memory for tlv ctrl queue element qlen=%u", __FUNCTION__, qlen);
         return NCP_STATUS_NOMEM;
     }
-    ncp_adap_d("%s: malloc qelem %p %d", __FUNCTION__, qbuf, qlen);
-    memset(qbuf, 0x00, qlen);
+
+    qelem = (ncp_tlv_ctrl_qelem_t *)qbuf;
+    qelem->ctrl_buf = qbuf + sizeof(ncp_tlv_ctrl_qelem_t);
+    qelem->event = event;
+    qelem->seqnum = s_ncp_adap_seqnum;
+    qelem->ctrl_sz = ctrl_sz + NCP_CHKSUM_LEN;
+
+    if (ctrl_buf != NULL && ctrl_sz > 0)
+    {
+        (void)memcpy(qelem->ctrl_buf, ctrl_buf, ctrl_sz);
+    }
+
+    chksum = ncp_tlv_chksum(qelem->ctrl_buf, (uint16_t)ctrl_sz);
+    chksum_buf = qelem->ctrl_buf + ctrl_sz;
+    for (int i = 0; i < sizeof(chksum); i++) {
+        chksum_buf[i] = (uint8_t)(chksum >> (8 * i));
+    }
+
+    NCP_LOG_DBG("%s: ctrl_buf=%p ctrl_sz=%lu", __FUNCTION__, qelem->ctrl_buf, qelem->ctrl_sz);
+    status = ncp_tlv_tx_ctrl_enqueue(qelem);
+    if(status != NCP_STATUS_SUCCESS)
+    {
+        NCP_TLV_STATS_INC(err);
+        NCP_TLV_STATS_INC(drop);
+        NCP_LOG_ERR("ncp tlv ctrl enqueue element fail");
+        if (qbuf)
+        {
+            OSA_MemoryFree(qbuf);
+            qbuf = NULL;
+        }
+
+        return status;
+    }
+
+    s_ncp_adap_seqnum++;
+    return status;
+}
+
+/**
+ * @brief Send TLV data message (copy mode)
+ *
+ * qbuf_len = sizeof(ncp_tlv_data_qelem_t) + sdio_intf_head + tlv_sz + chksum_len
+ * qbuf_tlv = qbuf + sizeof(ncp_tlv_data_qelem_t)
+ * memcpy_buf = qbuf + sizeof(ncp_tlv_data_qelem_t) + sdio_intf_head
+ * chksum_buf = qbuf + sizeof(ncp_tlv_data_qelem_t) + sdio_intf_head + tlv_sz
+ * sdio_intf_head: reserved length for sdio interface header
+ *
+ * @param tlv_buf TLV buffer pointer
+ * @param tlv_sz TLV buffer size
+ * @return Status code
+ */
+ncp_status_t ncp_tlv_send(void *tlv_buf, size_t tlv_sz)
+{
+    ncp_status_t status = NCP_STATUS_SUCCESS;
+    ncp_tlv_data_qelem_t *qbuf = NULL;
+    uint8_t *qbuf_tlv = NULL, *chksum_buf = NULL;
+    uint16_t qlen = 0, chksum_len = 4;
+    uint32_t chksum = 0;
+
+    qlen = sizeof(ncp_tlv_data_qelem_t) + tlv_sz + chksum_len;
+    qbuf = (ncp_tlv_data_qelem_t *)OSA_MemoryAllocate(qlen);
+    if (!qbuf)
+    {
+        NCP_TLV_STATS_INC(err);
+        NCP_TLV_STATS_INC(drop);
+        NCP_LOG_ERR("%s: failed to allocate memory for tlv queue element qlen=%u", __FUNCTION__, qlen);
+        return NCP_STATUS_NOMEM;
+    }
+
     qbuf->tlv_sz = tlv_sz + chksum_len;
     qbuf->priv   = NULL;
+    qbuf_tlv = (uint8_t *)qbuf + sizeof(ncp_tlv_data_qelem_t);
 
-    qbuf_tlv = (uint8_t *)qbuf + header_size;
-    
 #if !CONFIG_NCP_USE_ENCRYPT
     (void) memcpy(qbuf_tlv, tlv_buf, tlv_sz);
 #else
@@ -604,7 +799,7 @@ ncp_status_t ncp_tlv_send(void *tlv_buf, size_t tlv_sz)
                 if (status != NCP_STATUS_SUCCESS)
                 {
                     NCP_TLV_STATS_INC(drop);
-                    ncp_adap_e("ncp tlv encrypt err %d", (int)status);
+                    NCP_LOG_ERR("ncp tlv encrypt err %d", (int)status);
                     return NCP_STATUS_ERROR;
                 }
             }
@@ -612,37 +807,32 @@ ncp_status_t ncp_tlv_send(void *tlv_buf, size_t tlv_sz)
     }
 #endif /* CONFIG_NCP_USE_ENCRYPT */
 
-    qbuf->tlv_buf = qbuf_tlv;
-    chksum        = ncp_tlv_chksum(qbuf_tlv, (uint16_t)tlv_sz);
-    chksum_buf    = qbuf_tlv + tlv_sz;
-    chksum_buf[0] = chksum & 0xff;
-    chksum_buf[1] = (chksum & 0xff00) >> 8;
-    chksum_buf[2] = (chksum & 0xff0000) >> 16;
-    chksum_buf[3] = (chksum & 0xff000000) >> 24;
 
-    status = ncp_tlv_tx_enque(qbuf);
-    if (status != NCP_STATUS_SUCCESS)
-    {
-        ncp_adap_d("%s: free qelem %p", __FUNCTION__, qbuf);
-        free(qbuf);
-        ncp_adap_e("ncp tlv enque element fail");
+    qbuf->tlv_buf = qbuf_tlv;
+    chksum = ncp_tlv_chksum(qbuf_tlv, (uint16_t)tlv_sz);
+    chksum_buf = qbuf_tlv + tlv_sz;
+    for (int i = 0; i < sizeof(chksum); i++) {
+        chksum_buf[i] = (uint8_t)(chksum >> (8 * i));
     }
-    ncp_adap_d("Exit ncp_tlv_send");
+
+    NCP_LOG_DBG("%s: tlv_buf=%p tlv_sz=%lu", __FUNCTION__, qbuf->tlv_buf, qbuf->tlv_sz);
+#if CONFIG_WIFI_IO_DUMP
+    NCP_LOG_ERR("%s: qbuf %p %u (%p %ld)", __FUNCTION__, qbuf, qlen, qbuf->tlv_buf, qbuf->tlv_sz);
+    NCP_LOG_HEXDUMP_DBG(qbuf->tlv_buf, MIN(qbuf->tlv_sz, 128));
+#endif
+
+    status = ncp_tlv_tx_data_enqueue(qbuf);
+    if(status != NCP_STATUS_SUCCESS)
+    {
+        NCP_TLV_STATS_INC(err);
+        NCP_TLV_STATS_INC(drop);
+        NCP_LOG_ERR("ncp tlv data enque element fail");
+        if (qbuf)
+        {
+            OSA_MemoryFree(qbuf);
+            qbuf = NULL;
+        }
+    }
+
     return status;
 }
-
-void ncp_dump_hex(const void *data, unsigned int len)
-{
-    printf("********** Dump @ %p   Length:  %d **********\r\n", data, len);
-
-    const uint8_t *Data = (const uint8_t *)data;
-    for (int i = 0; i < len;)
-    {
-        printf("%02x ", Data[i++]);
-        if (i % NCP_DUMP_WRAPAROUND == 0)
-            printf("\r\n");
-    }
-
-    printf("\r\n**********  End Dump **********\r\n");
-}
-

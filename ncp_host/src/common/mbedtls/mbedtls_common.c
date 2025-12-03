@@ -8,7 +8,6 @@
  *
  */
 
-#include "ncp_debug.h"
 #include "ncp_tlv_adapter.h"
 #if CONFIG_NCP_USE_ENCRYPT
 #include "key_cert.h"
@@ -18,6 +17,10 @@
 // #include "ncp_host_command_wifi.h"
 #include "ncp_host_command_ble.h"
 #include <time.h>
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_DEFINE(ncp_mbedtls, CONFIG_LOG_NCP_MBEDTLS_LEVEL);
+NCP_LOG_MODULE_REGISTER(ncp_mbedtls, CONFIG_LOG_NCP_MBEDTLS_LEVEL);
 
 /* TODO: remove this private definition and use the definition in header file */
 #define _NCP_CMD_WLAN                0x00000000
@@ -51,7 +54,7 @@ static void* port_mbedtls_calloc(size_t blk_num, size_t blk_size)
     void *p = calloc(blk_num, blk_size);
     if (!p)
     {
-        ncp_e("**** calloc %d bytes failed\r\n", blk_num * blk_size);
+        NCP_LOG_ERR("**** calloc %d bytes failed\r\n", blk_num * blk_size);
     }
     return p;
 }
@@ -94,7 +97,7 @@ static int port_mbedtls_entropy_read(unsigned char *buf, size_t buf_len)
 
     if (buf_len > MBEDTLS_ENTROPY_BLOCK_SIZE)
     {
-        ncp_d("**** error read size is too large %d", buf_len);
+        NCP_LOG_DBG("**** error read size is too large %d", buf_len);
         return 0;
     }
     
@@ -109,7 +112,7 @@ static int port_mbedtls_entropy_write(unsigned char *buf, size_t buf_len)
 
     if (buf_len > MBEDTLS_ENTROPY_BLOCK_SIZE)
     {
-        ncp_e("**** write size is too large %d\n", buf_len);
+        NCP_LOG_ERR("**** write size is too large %d\n", buf_len);
         return 0;
     }
     
@@ -145,10 +148,10 @@ static int port_mbedtls_export_keys(void *ctx, const unsigned char *master,
         _verify_num += *(uint32_t*)&iv1[i];
     }
 
-    // ncp_dump_hex(key1, keylen);
-    // ncp_dump_hex(key2, keylen);
-    // ncp_dump_hex(iv1, iv_copy_len);
-    // ncp_dump_hex(iv2, iv_copy_len);
+    // NCP_LOG_HEXDUMP_DBG(key1, keylen);
+    // NCP_LOG_HEXDUMP_DBG(key2, keylen);
+    // NCP_LOG_HEXDUMP_DBG(iv1, iv_copy_len);
+    // NCP_LOG_HEXDUMP_DBG(iv2, iv_copy_len);
 
     if (_mbedtls->is_server)
     {
@@ -160,10 +163,10 @@ static int port_mbedtls_export_keys(void *ctx, const unsigned char *master,
     }
     if (ret != NCP_STATUS_SUCCESS)
     {
-        ncp_e("ncp_tlv_adapter_encrypt_init err %d", ret);
+        NCP_LOG_ERR("ncp_tlv_adapter_encrypt_init err %d", ret);
     }
 
-    ncp_d("*** export key %d\r\n", ret);
+    NCP_LOG_DBG("*** export key %d\r\n", ret);
 
     return 0;
 }
@@ -196,7 +199,7 @@ int ncp_encrypt_init_mbedtls(void)
     mbedtls_ssl_conf_export_keys_cb(&_mbedtls->conf, &port_mbedtls_export_keys, NULL);
     if (psa_crypto_init() != PSA_SUCCESS)
     {
-        ncp_e("psa_crypto_init err\n");
+        NCP_LOG_ERR("psa_crypto_init err\n");
         ret = -TLS_ERR_PSA_INIT;
         goto exit;
     }
@@ -231,7 +234,7 @@ int ncp_encrypt_init_mbedtls(void)
                     MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret != 0)
     {
-        ncp_e("mbedtls_ssl_config_defaults err %d\n\n", ret);
+        NCP_LOG_ERR("mbedtls_ssl_config_defaults err %d\n\n", ret);
         ret = -TLS_ERR_SSL_INIT;
         goto exit;
     }
@@ -241,14 +244,14 @@ int ncp_encrypt_init_mbedtls(void)
     ret = mbedtls_ssl_conf_own_cert(&_mbedtls->conf, &_mbedtls->own_cert, &_mbedtls->pkey);
     if (ret != 0)
     {
-        ncp_e("mbedtls_ssl_conf_own_cert err %d\n\n", ret);
+        NCP_LOG_ERR("mbedtls_ssl_conf_own_cert err %d\n\n", ret);
         ret = -TLS_ERR_CFG_CERT;
         goto exit;
     }
     ret = mbedtls_ssl_setup(&_mbedtls->ssl, &_mbedtls->conf);
     if (ret != 0)
     {
-        ncp_e("mbedtls_ssl_setup err %d\n\n", ret);
+        NCP_LOG_ERR("mbedtls_ssl_setup err %d\n\n", ret);
         ret = -TLS_ERR_SSL_SETUP;
         goto exit;
     }
@@ -259,7 +262,7 @@ int ncp_encrypt_init_mbedtls(void)
     ret = TLS_OK;
      
 exit:    
-    ncp_d("*** mbedtls init exit with %d\n", ret);
+    NCP_LOG_DBG("*** mbedtls init exit with %d\n", ret);
     return ret;
 }
 
@@ -267,19 +270,19 @@ int ncp_encrypt_setup(uint8_t is_server)
 {
     int ret = 0;
 
-    ncp_d("**** ncp_encrypt_setup called\r\n");
+    NCP_LOG_DBG("**** ncp_encrypt_setup called\r\n");
 
     ret = sem_init(&evt_recv_sem, 0, 1);
     if (ret == -1)
     {
-        ncp_e("Failed to create encryptrecv semaphore: %d", ret);
+        NCP_LOG_ERR("Failed to create encryptrecv semaphore: %d", ret);
         return -TLS_ERR_CRETAE_SEM;
     }
 
     _mbedtls = (mbedtls_ctx_t*)calloc(1, sizeof(mbedtls_ctx_t));
     if (!_mbedtls)
     {
-        ncp_e("Failed to alloc mem for _mbedtls");
+        NCP_LOG_ERR("Failed to alloc mem for _mbedtls");
         return -TLS_ERR_ALLOC_MEM;
     }
     (void) memset(_mbedtls, 0, sizeof(*_mbedtls));
@@ -288,11 +291,11 @@ int ncp_encrypt_setup(uint8_t is_server)
     ret = ncp_encrypt_init_mbedtls();
     if (ret != 0)
     {
-        ncp_e("mbedtls init fail %d", ret);
+        NCP_LOG_ERR("mbedtls init fail %d", ret);
         return -TLS_ERR_INIT_TLS;
     }
 
-    ncp_d("**** ncp_encrypt_setup exit succ\r\n");
+    NCP_LOG_DBG("**** ncp_encrypt_setup exit succ\r\n");
     return TLS_OK;
 }
 
@@ -317,7 +320,7 @@ int ncp_encrypt_teardown(void)
 
     (void) sem_destroy(&evt_recv_sem);
 
-    ncp_d("**** ncp_encrypt_teardown\r\n");
+    NCP_LOG_DBG("**** ncp_encrypt_teardown\r\n");
     return ret;
 }
 
@@ -330,13 +333,13 @@ int ncp_encrypt_process_handshake_data(uint8_t *data, uint16_t len)
 
     if (!_mbedtls)
     {
-        ncp_w("ncp encrypt _mbedtls is NULL");
+        NCP_LOG_WRN("ncp encrypt _mbedtls is NULL");
         return -TLS_ERR_HANDSHAKING_NOT_START;
     }
 
     if (!data || !len)
     {
-        ncp_e("data or len is 0");
+        NCP_LOG_ERR("data or len is 0");
         return -TLS_ERR_INVALID_PARAM;
     }
 
@@ -345,13 +348,13 @@ int ncp_encrypt_process_handshake_data(uint8_t *data, uint16_t len)
     recv_buf_free_len = NCP_MBEDTLS_RECV_BUF_LEN - recv_data_cnt - 1;
     if (!recv_buf_free_len)
     {
-        ncp_w("ncp encrypt handshake data, recv_buf_free_len %d", recv_buf_free_len);
+        NCP_LOG_WRN("ncp encrypt handshake data, recv_buf_free_len %d", recv_buf_free_len);
         return -TLS_ERR_RINGBUF_FULL;
     }
 
     if (recv_buf_free_len < len) 
     {
-        ncp_w("ncp mbedtls recv drop data %d - %d", len, recv_buf_free_len);
+        NCP_LOG_WRN("ncp mbedtls recv drop data %d - %d", len, recv_buf_free_len);
         len = recv_buf_free_len;
     }
 

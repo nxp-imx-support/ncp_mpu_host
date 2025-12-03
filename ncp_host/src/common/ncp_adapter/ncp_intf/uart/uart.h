@@ -1,28 +1,30 @@
 /*
- * Copyright 2024 NXP
- * All rights reserved.
+ * Copyright 2024 - 2025 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
+ * The BSD-3-Clause license can be found at https://spdx.org/licenses/BSD-3-Clause.html
  */
+
+#ifndef _UART_H_
+#define _UART_H_
 
 #include <stdint.h>
 #include <termios.h>
 #include <unistd.h>
-
-#ifndef UART_H_
-#define UART_H_
+#include <errno.h>
 
 typedef struct
 {
-    uint8_t         *instance;
+    const char     *instance;
     uint32_t        rate;
     int32_t         fd;
     struct termios *tty;
+    uint8_t         flow_control;
 } uart_device_t;
 
-ncp_status_t  uart_init(uart_device_t *dev);
-ncp_status_t  uart_send(uart_device_t *dev, uint8_t *buf, uint32_t len);
-ncp_status_t  uart_receive(uart_device_t *dev, uint8_t *buf, uint32_t len, size_t *nb_bytes);
+int uart_init(uart_device_t *dev);
+int uart_send(uart_device_t *dev, uint8_t *buf, uint32_t len);
+int uart_receive(uart_device_t *dev, uint8_t *buf, uint32_t len, size_t *nb_bytes);
 void uart_deinit(uart_device_t *dev);
 
-#endif /* UART_H_ */
+#endif /* _UART_H_ */

@@ -16,6 +16,9 @@
 #include "ncp_host_command_wifi.h"
 #include "ncp_tlv_adapter.h"
 #include "ncp_wifi_api.h"
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_DECLARE(ncp_wifi);
 
 /** Create a g_scan_result_info at ncp host side to save scan result, so that matter can get it when it wants*/
 NCP_CMD_SCAN_NETWORK_INFO g_scan_result_info;
@@ -305,7 +308,7 @@ bool wlan_ncp_add_network(char * ssid, char * key, int8_t mode, int8_t frequency
         /* copy the PSK phrase */
         if (security_tlv->password_len < WLAN_PSK_MIN_LENGTH || security_tlv->password_len >= WLAN_PSK_MAX_LENGTH)
         {
-            ncp_e("Error: Invalid passphrase length %lu (expected ASCII characters: 8..63)\r\n", key_len);
+            NCP_LOG_ERR("Error: Invalid passphrase length %d (expected ASCII characters: 8..63)\r\n", key_len);
             free(cmd_resp_buf);
             free(network_add_command);
             return NCP_STATUS_ERROR;

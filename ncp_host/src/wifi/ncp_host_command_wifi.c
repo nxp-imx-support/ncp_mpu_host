@@ -23,6 +23,10 @@
 #include "ncp_tlv_adapter.h"
 #include "ncp_inet.h"
 #include <sys/ioctl.h>
+#include "ncp_pm.h"
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_DECLARE(ncp_wifi);
 
 static uint8_t broadcast_mac[NCP_WLAN_MAC_ADDR_LENGTH] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 static int mdns_result_num;
@@ -38,15 +42,12 @@ extern ping_msg_t ping_msg;
 extern sem_t ping_res_sem;
 extern ping_res_t ping_res;
 extern int ping_sock_handle;
-extern pthread_mutex_t gpio_wakeup_mutex;
 
 extern sem_t global_sem_dad;
 extern sem_t iperf_tx_sem;
 extern sem_t iperf_rx_sem;
 
 extern uint8_t cmd_buf[NCP_COMMAND_LEN];
-
-power_cfg_t global_power_config;
 
 wlan_csi_config_params_t g_csi_params;
 
@@ -353,6 +354,8 @@ static void dump_wlan_reset_command(const char *str)
 int wlan_reset_command(int argc, char **argv)
 {
     int option;
+    ncp_pm_cfg_t *power_cfg = ncp_pm_get_config();
+
     option = atoi(argv[1]);
     if (argc != 2 || (option != 0 && option != 1 && option != 2))
     {
@@ -364,7 +367,7 @@ int wlan_reset_command(int argc, char **argv)
     {
         (void)memset((void*)&g_csi_params, 0, sizeof(g_csi_params));
         (void)memset((void*)&g_net_monitor_param, 0, sizeof(g_net_monitor_param));
-        (void)memset((void*)&global_power_config, 0, sizeof(global_power_config));
+        (void)memset(power_cfg, 0, sizeof(ncp_pm_cfg_t));
     }
 
     NCPCmd_DS_COMMAND *wlan_reset_command = mpu_host_get_wifi_command_buffer();
@@ -478,12 +481,18 @@ int wlan_uap_prov_set_uapcfg(int argc, char **argv)
 
 	NCP_CMD_UAP_PROV_SET_UAPCFG *set_uap_cfg = (NCP_CMD_UAP_PROV_SET_UAPCFG *)&uap_prov_set_uap_cfg_command->params.prov_set_uap_cfg;
     if(argc >= 2)
+    {
         strncpy(set_uap_cfg->ssid, argv[1], strlen(argv[1]));
+    }
 	if(argc >= 4)
-	    strncpy(set_uap_cfg->uapPass, argv[3], strlen(argv[3]));
+    {
+        strncpy(set_uap_cfg->uapPass, argv[3], strlen(argv[3]));
+    }
 	if (argc >= 3)
+    {
         set_uap_cfg->security_type = atoi(argv[2]);
-		
+    }
+
     /*cmd size*/
     uap_prov_set_uap_cfg_command->header.size += sizeof(NCP_CMD_UAP_PROV_SET_UAPCFG);
 
@@ -1845,7 +1854,6 @@ iperf_msg_t iperf_msg;
 #if CONFIG_INET_SOCKET
 int wlan_ncp_iperf_command(int argc, char **argv)
 {
-    unsigned int handle      = 0;
     unsigned int type        = -1;
     unsigned int direction   = -1;
 
@@ -2344,11 +2352,6 @@ int wlan_process_response(uint8_t *res)
         case NCP_RSP_WLAN_POWERMGMT_WOWLAN_CFG:
             ret = wlan_process_wakeup_condition_response(res);
             break;
-#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
-        case NCP_RSP_WLAN_POWERMGMT_SUSPEND:
-            ret = wlan_process_suspend_response(res);
-            break;
-#endif
         case NCP_RSP_11AX_CFG:
             ret = wlan_process_11axcfg_response(res);
             break;
@@ -5150,8 +5153,6 @@ int wlan_process_rssi_response(uint8_t *res)
     return TRUE;
 }
 
-uint8_t ncp_device_status = NCP_DEVICE_STATUS_ACTIVE;
-
 static void dump_wlan_multi_mef_command(const char *str)
 {
     printf("Usage: %s <type> <action>\r\n", str);
@@ -5259,6 +5260,7 @@ int wlan_wakeup_condition_command(int argc, char **argv)
     NCPCmd_DS_COMMAND *wowlan_cfg_cmd = mpu_host_get_wifi_command_buffer();
     uint8_t is_mef                    = false;
     uint32_t wake_up_conds            = 0;
+    ncp_pm_cfg_t *power_cfg           = ncp_pm_get_config();
 
     if (argc < 2 || argc > 3)
     {
@@ -5304,8 +5306,8 @@ int wlan_wakeup_condition_command(int argc, char **argv)
     wowlan_config->wake_up_conds                = wake_up_conds;
     wowlan_cfg_cmd->header.size += sizeof(NCP_CMD_POWERMGMT_WOWLAN_CFG);
 
-    global_power_config.is_mef        = is_mef;
-    global_power_config.wake_up_conds = wake_up_conds;
+    power_cfg->is_mef        = is_mef;
+    power_cfg->wake_up_conds = wake_up_conds;
 
     return WM_SUCCESS;
 }
@@ -5314,6 +5316,7 @@ int wlan_process_wakeup_condition_response(uint8_t *res)
 {
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     uint16_t result            = cmd_res->header.result;
+    ncp_pm_cfg_t *power_cfg    = ncp_pm_get_config();
 
     if (result == NCP_CMD_RESULT_OK)
         printf("Wowlan cfg is successful!\r\n");
@@ -5321,91 +5324,12 @@ int wlan_process_wakeup_condition_response(uint8_t *res)
     {
         printf("Wowlan cfg is failed!\r\n");
         /* Clear corresponding setting if failed */
-        global_power_config.is_mef        = 0;
-        global_power_config.wake_up_conds = 0;
+        power_cfg->is_mef        = 0;
+        power_cfg->wake_up_conds = 0;
     }
 
     return WM_SUCCESS;
 }
-
-int wlan_process_mcu_sleep_response(uint8_t *res)
-{
-    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    uint16_t result            = cmd_res->header.result;
-
-    if (result == NCP_CMD_RESULT_OK)
-    {
-        printf("mcu sleep cfg is success!\r\n");
-        /* Clear previous power configs if mcu sleep is disabled */
-        if (global_power_config.enable == 0)
-            (void)memset(&global_power_config, 0x0, sizeof(global_power_config));
-    }
-    else
-        printf("mcu sleep cfg is fail!\r\n");
-
-    return WM_SUCCESS;
-}
-
-#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
-int wlan_suspend_command(int argc, char **argv)
-{
-    NCPCmd_DS_COMMAND *suspend_command = mpu_host_get_wifi_command_buffer();
-    int mode                           = 0;
-
-    if (!global_power_config.is_manual)
-    {
-        printf("Suspend command is not allowed because manual method is not selected\r\n");
-        return -WM_FAIL;
-    }
-    if (argc != 2)
-    {
-        printf("Error: invalid number of arguments\r\n");
-        printf("Usage:\r\n");
-        printf("    wlan-suspend <power mode>\r\n");
-        printf("    1:PM1 2:PM2\r\n");
-        printf("Example:\r\n");
-        printf("    wlan-suspend 2\r\n");
-        return -WM_FAIL;
-    }
-    mode = atoi(argv[1]);
-    if (mode < 1 || mode > 3)
-    {
-        printf("Invalid low power mode\r\n");
-        printf("Only PM1/PM2 supported here\r\n");
-        return -WM_FAIL;
-    }
-
-    suspend_command->header.cmd               = NCP_CMD_WLAN_POWERMGMT_SUSPEND;
-    suspend_command->header.size              = NCP_CMD_HEADER_LEN;
-    suspend_command->header.result            = NCP_CMD_RESULT_OK;
-    NCP_CMD_POWERMGMT_SUSPEND *suspend_config = (NCP_CMD_POWERMGMT_SUSPEND *)&suspend_command->params.suspend_config;
-    suspend_config->mode                      = mode;
-    suspend_command->header.size += sizeof(NCP_CMD_POWERMGMT_SUSPEND);
-
-    return WM_SUCCESS;
-}
-
-int wlan_process_suspend_response(uint8_t *res)
-{
-    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
-    uint16_t result            = cmd_res->header.result;
-
-    if (result == NCP_CMD_RESULT_ERROR)
-    {
-        printf("suspend command is failed\r\n");
-        printf("PM1/2 allowed with INTF mode\r\n");
-        printf("If NCP device is RDRW612:\r\n");
-        printf("    PM1/2/3 allowed with GPIO mode\r\n");
-        printf("If NCP device is FRDMRW612:\r\n");
-        printf("    PM1/2 allowed with GPIO mode\r\n");
-        printf("    PM1/2/3 allowed with WIFI-NB mode\r\n");
-    }
-    else
-        printf("suspend command is successful\r\n");
-
-    return WM_SUCCESS;
-}
-#endif
 
 int wlan_set_wmm_uapsd_command(int argc, char **argv)
 {
@@ -8620,7 +8544,7 @@ static void ncp_inet_tcp_server_test(char *addr, int port)
 	// converts an Internet address (either IPv4 or IPv6) from presentation (textual) to network (binary) format.
 	if (inet_pton(NET_AF_INET, addr, &dest_addr) == 0)
 	{
-		ncp_adap_e( "Invalid <dest_addr>");
+		NCP_LOG_ERR( "Invalid <dest_addr>");
 	}
 
 
@@ -8659,12 +8583,12 @@ static void ncp_inet_tcp_server_test(char *addr, int port)
 	server_sockfd = ncp_socket(NET_PF_INET, (SOCK_STREAM | SOCK_CLOEXEC), IPPROTO_TCP);
 	if (server_sockfd <0)
 	{
-		ncp_adap_e("socket() -- socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("socket() -- socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 	else
 	{
-	    ncp_adap_w("[OK] socket Created");
+	    NCP_LOG_WRN("[OK] socket Created");
 	}
 
 	// Structure describing an Internet socket address. (see <netinet/in.h>)
@@ -8686,42 +8610,42 @@ static void ncp_inet_tcp_server_test(char *addr, int port)
 	// Description: assigns an address to the created socket. 'addr' and 'length' arguments specify the address.
 	if (ncp_bind(server_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
 	{
-		ncp_adap_e("bind() -- Can't assign an address to the socket! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("bind() -- Can't assign an address to the socket! -- errno=%d => '%s'", errno, strerror(errno));
 		ncp_close(server_sockfd);
 		exit(EXIT_FAILURE);
 	}
 	else
 	{
-	    ncp_adap_w("[OK] bind");
+	    NCP_LOG_WRN("[OK] bind");
 	}
 
 	// Function: int listen (int socket, int n)
 	if (ncp_listen(server_sockfd, 1))
 	{
-		ncp_adap_e("listen() -- listen failed!\nCan't enable socket to accept connections! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("listen() -- listen failed!\nCan't enable socket to accept connections! -- errno=%d => '%s'", errno, strerror(errno));
 		ncp_close(server_sockfd);
 		exit(EXIT_FAILURE);
 	}
 	else
 	{
-	    ncp_adap_w("[OK] Listen"); }
-        ncp_adap_w("[...Blocked--Waiting for Connection Request...]");
+	    NCP_LOG_WRN("[OK] Listen"); }
+        NCP_LOG_WRN("[...Blocked--Waiting for Connection Request...]");
 
 	// Function: int accept (int socket, struct sockaddr *addr, socklen_t *length_ptr)
 	client_addr_size = sizeof(client_addr);
 	client_sockfd = ncp_accept(server_sockfd, (struct sockaddr *) &client_addr, &client_addr_size);
 	if (client_sockfd  < 0)
 	{
-		ncp_adap_e("accept() -- accept failed!\nCan't accept the connection request! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("accept() -- accept failed!\nCan't accept the connection request! -- errno=%d => '%s'", errno, strerror(errno));
 		ncp_close(server_sockfd);
 		exit(EXIT_FAILURE);
 	}
 	else
 	{
-	    ncp_adap_w("[OK] Client Connected");
+	    NCP_LOG_WRN("[OK] Client Connected");
 	}
 
-	ncp_adap_w("[...Blocked--Waiting for RX data...]");
+	NCP_LOG_WRN("[...Blocked--Waiting for RX data...]");
 
     fd_set readfds;
     for (int i = 0; i < 2; i++)
@@ -8731,13 +8655,13 @@ static void ncp_inet_tcp_server_test(char *addr, int port)
 
         if (ncp_select(client_sockfd + 1, &readfds, NULL, NULL, NULL) < 0)
         {
-            ncp_adap_e("select failed!");
+            NCP_LOG_ERR("select failed!");
         }
 
         // Function: ssize_t recv (int socket, void *buffer, size_t size, int flags)
         if ((nBytesRX = ncp_recv(client_sockfd, buffer, sizeof(buffer), 0)) < 0)
         {
-            ncp_adap_e("recv() -- data received failed! -- errno=%d => '%s'", errno, strerror(errno));
+            NCP_LOG_ERR("recv() -- data received failed! -- errno=%d => '%s'", errno, strerror(errno));
             ncp_close(client_sockfd);
             ncp_close(server_sockfd);
             exit(EXIT_FAILURE);
@@ -8755,7 +8679,7 @@ static void ncp_inet_tcp_server_test(char *addr, int port)
             theClientPort = ntohs(client_addr.sin_port); // converts the uint16_t integer hostshort from network byte order to host byte order
 #endif
 
-            ncp_adap_w("[OK] Data Received: (%ld Bytes) '%s' from @ '[%s]:%d'", nBytesRX, buffer, theClientIP, theClientPort);
+            NCP_LOG_WRN("[OK] Data Received: (%ld Bytes) '%s' from @ '[%s]:%d'", nBytesRX, buffer, theClientIP, theClientPort);
         }
     }
 	//__________________________________________________
@@ -8766,23 +8690,23 @@ static void ncp_inet_tcp_server_test(char *addr, int port)
 	// Function: int close (int socket)
 	if (ncp_close(client_sockfd) < 0)
 	{
-		ncp_adap_e("close() -- client socket closing failed! -- 'errno'=%d", errno);
+		NCP_LOG_ERR("close() -- client socket closing failed! -- 'errno'=%d", errno);
 		exit(EXIT_FAILURE);
 	}
 	else
 	{
-		ncp_adap_w("[OK] client socket Closed");
+		NCP_LOG_WRN("[OK] client socket Closed");
 	}
 
 	// Function: int close (int socket)
 	if (ncp_close(server_sockfd) < 0)
 	{
-		ncp_adap_e("close() -- server socket closing failed! -- 'errno'=%d", errno);
+		NCP_LOG_ERR("close() -- server socket closing failed! -- 'errno'=%d", errno);
 		exit(EXIT_FAILURE);
 	}
 	else
 	{
-		ncp_adap_w("[OK] server socket Closed");
+		NCP_LOG_WRN("[OK] server socket Closed");
 	}
 }
 
@@ -8798,9 +8722,9 @@ static void ncp_inet_tcp_client_test(char *addr, int port)
 
 	client_sockfd = ncp_socket(NET_PF_INET, (SOCK_STREAM | SOCK_CLOEXEC), IPPROTO_TCP);
 	if (client_sockfd < 0)
-	    ncp_adap_e("socket creation failed!");
+	    NCP_LOG_ERR("socket creation failed!");
 	else
-	    ncp_adap_w("[OK] socket Created");
+	    NCP_LOG_WRN("[OK] socket Created");
 
 	
 	// Structure describing an Internet socket address. (see <netinet/in.h>)
@@ -8819,25 +8743,25 @@ static void ncp_inet_tcp_client_test(char *addr, int port)
 	// Function: int connect (int socket, struct sockaddr *addr, socklen_t length)
 	if (ncp_connect(client_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
 	{
-	    ncp_adap_e("connect to server failed!");
+	    NCP_LOG_ERR("connect to server failed!");
 	    ncp_close(client_sockfd);
 	}
 	else
-        ncp_adap_w("[OK] Connected to Server");
+        NCP_LOG_INF("[OK] Connected to Server");
     char ioctl_example_buffer[128];
 	if (ncp_ioctl(client_sockfd, SIOCGIFADDR, ioctl_example_buffer) < 0)
 	{
-	    ncp_adap_e("ioctl failed!");
+	    NCP_LOG_ERR("ioctl failed!");
 	}
 	if (ncp_fcntl(client_sockfd, F_GETFL, 0) < 0)
 	{
-	    ncp_adap_e("fcntl failed!");
+	    NCP_LOG_ERR("fcntl failed!");
 	}
 
 	// Function: ssize_t send (int socket, const void *buffer, size_t size, int flags)
 	if ((nBytesTX = ncp_send(client_sockfd, buffer, strlen(buffer), 0)) < 0)
 	{
-	    ncp_adap_e("data send failed!");
+	    NCP_LOG_ERR("data send failed!");
 		ncp_close(client_sockfd);
 	}
 	else
@@ -8848,7 +8772,7 @@ static void ncp_inet_tcp_client_test(char *addr, int port)
 		// Reading the Address of the client Socket
 		if (ncp_getsockname(client_sockfd, (struct sockaddr *) &myAddr, &lenAddr))
 		{
-			ncp_adap_e("getsockname() -- Reading the Address of a Socket failed! -- errno=%d => '%s'", errno, strerror(errno));
+			NCP_LOG_ERR("getsockname() -- Reading the Address of a Socket failed! -- errno=%d => '%s'", errno, strerror(errno));
 			ncp_close(client_sockfd);
 
 		}
@@ -8865,14 +8789,14 @@ static void ncp_inet_tcp_client_test(char *addr, int port)
 			myPort = ntohs(myAddr.sin_port); // converts the uint16_t integer hostshort from network byte order to host byte order
 #endif
 
-			ncp_adap_w("[OK] Data Sent: (%ld Bytes) '%s' to @ '[%s]:%d'", nBytesTX, buffer, myIP, myPort);
+			NCP_LOG_WRN("[OK] Data Sent: (%ld Bytes) '%s' to @ '[%s]:%d'", nBytesTX, buffer, myIP, myPort);
 		}
 	}
 	
 	// Function: int close (int socket)
 	if (ncp_close(client_sockfd) < 0)
 	{
-		ncp_adap_e("close() -- Client socket closing failed! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("close() -- Client socket closing failed! -- errno=%d => '%s'", errno, strerror(errno));
 	} 
 }
 
@@ -8892,7 +8816,7 @@ static int ncp_inet_udp_client_test(char *addr, int port)
 
 	if (inet_pton(NET_AF_INET, addr, &dest_addr) == 0)
 	{
-		ncp_adap_e( "Invalid <dest_addr>");
+		NCP_LOG_ERR( "Invalid <dest_addr>");
 	}
 
 	//....................Main Processing Loop..........>>>
@@ -8930,11 +8854,11 @@ static int ncp_inet_udp_client_test(char *addr, int port)
 	client_sockfd = ncp_socket(NET_PF_INET, (SOCK_DGRAM | SOCK_CLOEXEC), IPPROTO_UDP);
 	if (client_sockfd < 0)
 	{
-		ncp_adap_e("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
 	}
 	else
 	{
-		ncp_adap_w("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
+		NCP_LOG_WRN("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
 	}
 
 	
@@ -8968,7 +8892,7 @@ static int ncp_inet_udp_client_test(char *addr, int port)
 	// Description: send data on a datagram socket to the specified destination address
 	if ((nBytesTX = ncp_sendto(client_sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&server_addr, sizeof(server_addr))) < 0)
 	{
-		ncp_adap_e("sendto() -- data send failed! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("sendto() -- data send failed! -- errno=%d => '%s'", errno, strerror(errno));
 		ncp_close(client_sockfd);
 	}
 	else
@@ -8983,7 +8907,7 @@ static int ncp_inet_udp_client_test(char *addr, int port)
 		inet_ntop (NET_AF_INET, &server_addr.sin_addr, str_addr, NET_ADDRSTRLEN);
 		s_port = ntohs(server_addr.sin_port);
 #endif
-		ncp_adap_w("[OK] Data Sent: (%ld Bytes) '%s' to @ '[%s]:%d'", nBytesTX, buffer, str_addr, s_port);
+		NCP_LOG_WRN("[OK] Data Sent: (%ld Bytes) '%s' to @ '[%s]:%d'", nBytesTX, buffer, str_addr, s_port);
 	}
 
 	//__________________________________________________
@@ -9026,7 +8950,7 @@ static int ncp_inet_udp_server_test(char *addr, int port)
 
 	if (inet_pton(NET_AF_INET, addr, &dest_addr) == 0)
 	{
-		ncp_adap_e( "Invalid <dest_addr>");
+		NCP_LOG_ERR( "Invalid <dest_addr>");
 	}
 
 
@@ -9034,12 +8958,12 @@ static int ncp_inet_udp_server_test(char *addr, int port)
     server_sockfd = ncp_socket(NET_PF_INET, (SOCK_DGRAM | SOCK_CLOEXEC), IPPROTO_UDP);
     if (server_sockfd < 0)
     {
-        ncp_adap_e("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+        NCP_LOG_ERR("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
     else
     {
-        ncp_adap_w("[OK] socket Created: server_sockfd=%d", server_sockfd);
+        NCP_LOG_WRN("[OK] socket Created: server_sockfd=%d", server_sockfd);
     }
 
 #ifdef NET_IPV6
@@ -9059,16 +8983,16 @@ static int ncp_inet_udp_server_test(char *addr, int port)
 	// Description: assigns an address to the created socket. 'server_addr' specifies the address.
 	if (ncp_bind(server_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)))
 	{
-		ncp_adap_e("bind() -- Can't assign an address to the socket! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("bind() -- Can't assign an address to the socket! -- errno=%d => '%s'", errno, strerror(errno));
 		ncp_close(server_sockfd);
 		exit(EXIT_FAILURE);
 	}
 	else
 	{
-		ncp_adap_w("[OK] bind");
+		NCP_LOG_WRN("[OK] bind");
 	}
 
-	ncp_adap_w("[...Blocked--Waiting for RX data...]");
+	NCP_LOG_WRN("[...Blocked--Waiting for RX data...]");
 
 	// Function:	ssize_t recvfrom (int socket, void *buffer, size_t size, int flags, struct sockaddr *addr, socklen_t *length-ptr)
 	// Description: reads a packet from a datagram socket and also tells you where it was sent from
@@ -9078,7 +9002,7 @@ static int ncp_inet_udp_server_test(char *addr, int port)
         memset(buffer, 0, sizeof(buffer));
         if ((nBytesRX = ncp_recvfrom(server_sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &client_addr_size)) < 0)
         {
-            ncp_adap_e("recvfrom() -- data received failed! -- errno=%d => '%s'", errno, strerror(errno));
+            NCP_LOG_ERR("recvfrom() -- data received failed! -- errno=%d => '%s'", errno, strerror(errno));
             ncp_close(server_sockfd);
             sleep(1);
             exit(EXIT_FAILURE);
@@ -9094,7 +9018,7 @@ static int ncp_inet_udp_server_test(char *addr, int port)
             inet_ntop (NET_AF_INET, &client_addr.sin_addr, str_addr, NET_ADDRSTRLEN);
             r_port = ntohs(server_addr.sin_port);
 #endif
-            ncp_adap_w("[OK] Data Received: (%ld Bytes) '%s' from @ '[%s]:%d'", nBytesRX, buffer, str_addr, r_port);
+            NCP_LOG_WRN("[OK] Data Received: (%ld Bytes) '%s' from @ '[%s]:%d'", nBytesRX, buffer, str_addr, r_port);
         }
     }
 	//__________________________________________________
@@ -9105,12 +9029,12 @@ static int ncp_inet_udp_server_test(char *addr, int port)
 	// Function: int close (int socket)
 	if (ncp_close(server_sockfd) < 0)
 	{
-		ncp_adap_e("close() -- socket closing failed! -- errno=%d => '%s'", errno, strerror(errno));
+		NCP_LOG_ERR("close() -- socket closing failed! -- errno=%d => '%s'", errno, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 	else
 	{
-		ncp_adap_w("[OK] socket Closed");
+		NCP_LOG_WRN("[OK] socket Closed");
 	}
 
 	sleep(1);
@@ -9232,9 +9156,6 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
     {"wlan-uapsd-qosinfo", NULL, wlan_wmm_uapsd_qosinfo_command},
     {"wlan-uapsd-sleep-period", NULL, wlan_uapsd_sleep_period_command},
     {"wlan-wakeup-condition", NULL, wlan_wakeup_condition_command},
-#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
-    {"wlan-suspend", NULL, wlan_suspend_command},
-#endif
     {"wlan-set-11axcfg", NULL, wlan_set_11axcfg_command},
     {"wlan-bcast-twt", "<set/get>", wlan_bcast_twt_command},
     {"wlan-twt-setup", NULL, wlan_twt_setup_command},

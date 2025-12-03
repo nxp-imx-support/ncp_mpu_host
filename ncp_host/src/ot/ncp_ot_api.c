@@ -11,10 +11,13 @@
 #include "ncp_ot_api.h"
 #include <arpa/inet.h>
 #include <stddef.h>
-
+#include <mqueue.h>
 #include <ncp_adapter.h>
-#include <ncp_debug.h>
 #include <ncp_tlv_adapter.h>
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_DEFINE(ncp_ot_api, CONFIG_LOG_NCP_OT_LEVEL);
+NCP_LOG_MODULE_REGISTER(ncp_ot_api, CONFIG_LOG_NCP_OT_LEVEL);
 
 // OT RX queue
 static pthread_t ot_ncp_tlv_rx_thread;
@@ -174,7 +177,7 @@ void ot_api_init(char *dev_name) {
   /*NCP adapter init*/
   int ret;
 
-  ret = ncp_adapter_init(dev_name);
+  ret = ncp_adapter_init(dev_name, 1);
 
   if (ret != 0) {
     printf("ERROR: ncp_adapter_init \n");
@@ -194,7 +197,7 @@ void ot_api_init(char *dev_name) {
   }
 
   qattr.mq_flags = 0;
-  qattr.mq_maxmsg = NCP_TLV_QUEUE_LENGTH;
+  qattr.mq_maxmsg = NCP_TLV_DATA_QUEUE_LENGTH;
   qattr.mq_msgsize = NCP_TLV_QUEUE_MSG_SIZE;
   qattr.mq_curmsgs = 0;
   ot_ncp_tlv_rx_msgq_handle =
@@ -259,7 +262,7 @@ err_sem:
 
 /*Callback function for ot*/
 void ot_ncp_callback(void *tlv, size_t tlv_sz, int status) {
-  ncp_tlv_qelem_t *qelem = NULL;
+  ncp_tlv_data_qelem_t *qelem = NULL;
   uint8_t *qelem_pld = NULL;
 
   pthread_mutex_lock(&ot_ncp_tlv_rx_queue_mutex);
@@ -267,18 +270,18 @@ void ot_ncp_callback(void *tlv, size_t tlv_sz, int status) {
     goto Fail;
   }
 
-  if (ot_ncp_tlv_rx_queue_len == NCP_TLV_QUEUE_LENGTH) {
+  if (ot_ncp_tlv_rx_queue_len == NCP_TLV_DATA_QUEUE_LENGTH) {
     goto Fail;
   }
 
-  qelem = (ncp_tlv_qelem_t *)malloc(sizeof(ncp_tlv_qelem_t) + tlv_sz);
+  qelem = (ncp_tlv_data_qelem_t *)malloc(sizeof(ncp_tlv_data_qelem_t) + tlv_sz);
   if (!qelem) {
     goto Fail;
   }
 
   qelem->tlv_sz = tlv_sz;
   qelem->priv = NULL;
-  qelem_pld = (uint8_t *)qelem + sizeof(ncp_tlv_qelem_t);
+  qelem_pld = (uint8_t *)qelem + sizeof(ncp_tlv_data_qelem_t);
   memcpy(qelem_pld, tlv, tlv_sz);
   qelem->tlv_buf = qelem_pld;
 
@@ -297,7 +300,7 @@ Fail:
 /*This function will handle response from the device side */
 void handle_response(void *arg) {
   ssize_t tlv_sz = 0;
-  ncp_tlv_qelem_t *qelem = NULL;
+  ncp_tlv_data_qelem_t *qelem = NULL;
 
   while (1) {
     qelem = NULL;
@@ -1826,7 +1829,7 @@ void ot_ncp_send_command(uint8_t *userinputcmd, uint16_t userinputcmd_len) {
   cmd_buf = (uint8_t *)malloc(total_len);
 
   if (cmd_buf == NULL) {
-    ncp_adap_e("failed to allocate memory for command");
+    NCP_LOG_ERR("failed to allocate memory for command");
     return;
   }
 

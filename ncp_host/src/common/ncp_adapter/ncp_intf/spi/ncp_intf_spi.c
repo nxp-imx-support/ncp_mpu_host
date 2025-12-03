@@ -5,11 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#if CONFIG_NCP_SPI
 #include "ncp_intf_spi.h"
 #include "ncp_tlv_adapter.h"
 #include "spi_master.h"
 #include <pthread.h>
 #include <sys/syscall.h>
+
+#include "ncp_log.h"
+#include "ncp_pm.h"
+
+NCP_LOG_MODULE_DEFINE(ncp_spi, CONFIG_LOG_NCP_INTF_LEVEL);
+NCP_LOG_MODULE_REGISTER(ncp_spi, CONFIG_LOG_NCP_INTF_LEVEL);
+#if CONFIG_NCP_DEBUG
+#define NCP_SPI_STATS_INC(x) NCP_STATS_INC(uart.x)
+#else
+#define NCP_SPI_STATS_INC(x)
+#endif
 
 
 /*******************************************************************************
@@ -38,7 +50,7 @@ static void* ncp_spi_intf_task(void *argv)
         }
         else
         {
-            ncp_adap_e("Failed to receive TLV command!");
+            NCP_LOG_ERR("Failed to receive TLV command!");
         }
     }
     pthread_exit(NULL);
@@ -58,7 +70,7 @@ ncp_status_t ncp_spi_init(void *argv)
     ret = pthread_create(&ncp_spi_intf_thread, NULL, &ncp_spi_intf_task, NULL);
     if (ret != 0)
     {
-        ncp_adap_e("ERROR pthread_create \n");
+        NCP_LOG_ERR("ERROR pthread_create \n");
 		ncp_host_spi_deinit();
         return NCP_STATUS_ERROR;
     }
@@ -67,9 +79,9 @@ ncp_status_t ncp_spi_init(void *argv)
 
 ncp_status_t ncp_spi_deinit(void *argv)
 {
+	ncp_host_spi_deinit();
 	pthread_cancel(ncp_spi_intf_thread);
 	pthread_join(ncp_spi_intf_thread, NULL);
-	ncp_host_spi_deinit();
 	return NCP_STATUS_SUCCESS;
 }
 
@@ -109,10 +121,40 @@ ncp_status_t ncp_spi_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t c
     return NCP_STATUS_SUCCESS;
 }
 
-ncp_intf_ops_t ncp_spi_ops = {
+static int ncp_spi_pm_enter(unsigned char pm_state)
+{
+    /* TODO: NCP uart pm */
+	ARG_UNUSED(pm_state);
+    return 0;
+}
+
+static int ncp_spi_pm_exit(unsigned char pm_state)
+{
+    /* TODO: NCP uart pm */
+	ARG_UNUSED(pm_state);
+    return 0;
+}
+
+static ncp_intf_pm_ops_t ncp_spi_pm_ops =
+{
+    .init  = NULL,
+    .prep  = NULL,
+    .enter = ncp_spi_pm_enter,
+    .exit  = ncp_spi_pm_exit,
+};
+
+
+ncp_intf_ops_t ncp_intf_ops = {
     .init   = ncp_spi_init,
     .deinit = ncp_spi_deinit,
     .send   = ncp_spi_send,
     .recv   = ncp_spi_receive,
+    .pm_ops = &ncp_spi_pm_ops,
 };
 
+const ncp_intf_ops_t *ncp_intf_get_ops(void)
+{
+    return &ncp_intf_ops;
+}
+
+#endif /* CONFIG_NCP_SPI */

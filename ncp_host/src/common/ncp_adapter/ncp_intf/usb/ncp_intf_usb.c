@@ -5,13 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#if CONFIG_NCP_USB
+#include <string.h>
+#include "fsl_os_abstraction.h"
 #include "ncp_intf_usb.h"
 #include "ncp_tlv_adapter.h"
 #include "usb.h"
-#include "lpm.h"
-
+#include "ncp_log.h"
+#include "ncp_pm.h"
 #include <pthread.h>
+#include <sched.h>
 #include <sys/types.h>
+
+NCP_LOG_MODULE_DEFINE(ncp_usb, CONFIG_LOG_NCP_INTF_LEVEL);
+NCP_LOG_MODULE_REGISTER(ncp_usb, CONFIG_LOG_NCP_INTF_LEVEL);
 
 
 /*******************************************************************************
@@ -20,6 +27,16 @@
 
 #define NCP_USB_BUFFER_SIZE    256
 #define HS_HID_GENERIC_INTERRUPT_OUT_PACKET_SIZE 4096
+
+#if CONFIG_NCP_DEBUG && CONFIG_NCP_USB
+#define NCP_USB_STATS_INC(x) NCP_STATS_INC(usb.x)
+#else
+#define NCP_USB_STATS_INC(x)
+#endif
+
+/*******************************************************************************
+ * Prototypes
+ ******************************************************************************/
 
 /*******************************************************************************
  * Variables
@@ -35,14 +52,6 @@ static pthread_mutex_t ncp_usb_intf_thread_mutex;
 
 static usb_device_t usb_device;
 
-ncp_intf_ops_t ncp_usb_ops = {
-    .init   = ncp_usb_init,
-    .deinit = ncp_usb_deinit,
-    .send   = ncp_usb_send,
-    .recv   = ncp_usb_receive,
-    .lpm_exit = NULL,
-};
-
 /*******************************************************************************
  * Private functions
  ******************************************************************************/
@@ -52,7 +61,7 @@ static void* ncp_usb_intf_task(void *argv)
     size_t tlv_size = 0;
 
     ARG_UNUSED(argv);
-
+    
     while (pthread_mutex_trylock(&ncp_usb_intf_thread_mutex) != 0)
     {
         ret = ncp_usb_receive(ncp_usb_tlvbuf, &tlv_size);
@@ -62,7 +71,7 @@ static void* ncp_usb_intf_task(void *argv)
         }
         else
         {
-            //ncp_adap_e("Failed to receive TLV command!");
+            //NCP_LOG_ERR("Failed to receive TLV command!");
         }
     }
     pthread_exit(NULL);
@@ -75,13 +84,13 @@ ncp_status_t ncp_usb_init(void *argv)
 {
     int ret;
 
-    ncp_adap_d("Enter ncp_usb_init");
+    NCP_LOG_DBG("Enter ncp_usb_init");
 
     ARG_UNUSED(argv);
 
     if (usb_init(&usb_device) != 0)
     {
-        ncp_adap_e("ERROR ncp_usb_init \n");
+        NCP_LOG_ERR("ERROR ncp_usb_init \n");
         return NCP_STATUS_ERROR;
     }
 
@@ -91,7 +100,7 @@ ncp_status_t ncp_usb_init(void *argv)
     ret = pthread_create(&ncp_usb_intf_thread, NULL, &ncp_usb_intf_task, NULL);
     if (ret != 0)
     {
-        ncp_adap_e("ERROR pthread_create \n");
+        NCP_LOG_ERR("Failed to create usb intf task\n");
         pthread_mutex_unlock(&ncp_usb_intf_thread_mutex);
         pthread_mutex_destroy(&ncp_usb_intf_thread_mutex);
         usb_deinit(&usb_device);
@@ -100,11 +109,11 @@ ncp_status_t ncp_usb_init(void *argv)
 
     if(usb_lpm_init() != NCP_STATUS_SUCCESS)
     {
-        ncp_adap_e("usb_lpm_init failed\r\n");
+        NCP_LOG_ERR("usb_lpm_init failed\r\n");
         goto err_usb_lpm_init;
     }
     
-    ncp_adap_d("Exit ncp_usb_init");
+    NCP_LOG_DBG("Exit ncp_usb_init");
     return NCP_STATUS_SUCCESS;
     
 err_usb_lpm_init:   
@@ -161,7 +170,7 @@ ncp_status_t ncp_usb_receive(uint8_t *tlv_buf, size_t *tlv_sz)
         (void)memset(tlv_buf, 0, TLV_CMD_BUF_SIZE);
         total = 0;
 
-        ncp_adap_e("Failed to receive TLV Header!");
+        NCP_LOG_ERR("Failed to receive TLV Header!");
         NCP_ASSERT(0);
 
         return NCP_STATUS_ERROR;
@@ -184,7 +193,7 @@ ncp_status_t ncp_usb_receive(uint8_t *tlv_buf, size_t *tlv_sz)
                 (void)memset(tlv_buf, 0, TLV_CMD_BUF_SIZE);
                 total = 0;
 
-                ncp_adap_e("NCP usb interface ring buffer overflow!");
+                NCP_LOG_ERR("NCP usb interface ring buffer overflow!");
                 NCP_ASSERT(0);
 
                 return NCP_STATUS_ERROR;
@@ -203,7 +212,7 @@ ncp_status_t ncp_usb_receive(uint8_t *tlv_buf, size_t *tlv_sz)
     return NCP_STATUS_SUCCESS;
 }
 
-ncp_status_t ncp_usb_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t cb)
+static ncp_status_t ncp_usb_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t cb)
 {
     int ret;
 
@@ -222,3 +231,17 @@ ncp_status_t ncp_usb_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t c
     return NCP_STATUS_SUCCESS;
 }
 
+static ncp_intf_ops_t ncp_intf_ops = {
+    .init   = ncp_usb_init,
+    .deinit = ncp_usb_deinit,
+    .send   = ncp_usb_send,
+    .recv   = ncp_usb_receive,
+    .pm_ops = NULL,
+};
+
+const ncp_intf_ops_t *ncp_intf_get_ops(void)
+{
+    return &ncp_intf_ops;
+}
+
+#endif /* CONFIG_NCP_USB */

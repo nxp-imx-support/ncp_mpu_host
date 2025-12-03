@@ -26,6 +26,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+
+#include "fsl_os_abstraction.h"
 #include "ncp_host_app.h"
 #include "ncp_host_app_wifi.h"
 #ifdef CONFIG_NCP_BLE
@@ -43,22 +45,26 @@
 
 #include "ncp_host_command.h"
 #include "ncp_host_command_wifi.h"
-#include "ncp_tlv_adapter.h"
+#include "ncp_adapter.h"
 #include "ncp_cmd_node.h"
-#include "lpm.h"
 #include "ncp_inet.h"
 #include <sys/syscall.h>
 
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_REGISTER(ncp_host_app, CONFIG_LOG_NCP_HOST_APP_LEVEL);
 
 uint8_t input_buf[NCP_COMMAND_LEN];
 uint8_t recv_buf[NCP_RING_BUFFER_SIZE_ALIGN];
 uint8_t resp_buf[NCP_RESPONSE_LEN];
 uint8_t cmd_buf[NCP_COMMAND_LEN];
 uint8_t temp_buf[NCP_RESPONSE_LEN];
+
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 uint16_t g_cmd_seqno = 1;
 /** command semaphore*/
 sem_t cmd_sem;
+
 uint32_t last_resp_rcvd, last_cmd_sent;
 uint16_t last_seqno_rcvd, last_seqno_sent;
 
@@ -67,14 +73,6 @@ uint16_t last_seqno_rcvd, last_seqno_sent;
 send_data_t *service_S_D = NULL;
 #endif
 
-#if CONFIG_NCP_UART
-#define UART_WAKEUP_MAGIC_PATTERN (0xABCDEF8987FEDCBAU)
-uint64_t magic_pattern = UART_WAKEUP_MAGIC_PATTERN;
-#endif
-
-pthread_mutex_t gpio_wakeup_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t ncp_device_status_mutex = PTHREAD_MUTEX_INITIALIZER;
-extern power_cfg_t global_power_config;
 extern uint8_t ncp_device_status;
 
 #if defined(CONFIG_NCP_BLE)
@@ -160,22 +158,6 @@ int get_mac(const char *arg, char *dest, char sep)
 
     return 0;
 }
-
-void mpu_dump_hex(const void *data, unsigned int len)
-{
-    printf("********** Dump @ %p   Length:  %d **********\r\n", data, len);
-
-    const uint8_t *Data = (const uint8_t *)data;
-    for (int i = 0; i < len;)
-    {
-        printf("%02x ", Data[i++]);
-        if (i % MPU_DUMP_WRAPAROUND == 0)
-            printf("\r\n");
-    }
-
-    printf("\r\n**********  End Dump **********\r\n");
-}
-
 
 static int handle_input(uint8_t *inbuf)
 {
@@ -389,69 +371,6 @@ uint8_t hexc2bin(char chr)
     return chr;
 }
 
-static int lpm_check_device_status(void)
-{
-    int ret = TRUE;
-#ifdef CONFIG_NCP_SDIO
-    NCP_COMMAND wakeup_buf;
-#endif
-
-    if (ncp_device_status != NCP_DEVICE_STATUS_ACTIVE)
-    {
-        switch(global_power_config.wake_mode) {
-            case WAKE_MODE_WIFI_NB:
-                ncp_e("Command is not allowed when wake mode is WIFI-NB and device is sleeping.");
-                ncp_e("With WIFI-NB mode, host is not able to wakeup device.");
-                ncp_e("Please send command after device wakes up.");
-                ret = FALSE;
-                break;
-            case WAKE_MODE_INTF:
-                pthread_mutex_lock(&ncp_device_status_mutex);
-                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
-                {
-                    usleep(10000); // Wait 10ms to make sure NCP device enters low power.
-                }
-                pthread_mutex_unlock(&ncp_device_status_mutex);
-#if defined(CONFIG_NCP_SDIO)
-                memset(&wakeup_buf, 0x0, sizeof(NCP_COMMAND));
-                wakeup_buf.size = NCP_CMD_HEADER_LEN - 1;
-                //write(S_D->serial_fd, &wakeup_buf, NCP_CMD_HEADER_LEN);
-                ncp_d("%s: send wakeup_buf", __FUNCTION__);
-                ncp_tlv_send(&wakeup_buf, NCP_CMD_HEADER_LEN);
-#elif defined(CONFIG_NCP_UART)
-                /* Send the magic pattern to wakeup the NCP device */
-                ncp_tlv_send(&magic_pattern, sizeof(magic_pattern));
-                /* Block here to wait for NCP device complete the PM2 exit process */
-                pthread_mutex_lock(&gpio_wakeup_mutex);
-                /* Release semaphore here to make sure software can get it successfully when receiving sleep enter event for next sleep loop. */
-                pthread_mutex_unlock(&gpio_wakeup_mutex);
-#endif
-                ret = TRUE;
-                break;
-            case WAKE_MODE_GPIO:
-                pthread_mutex_lock(&ncp_device_status_mutex);
-                while (ncp_device_status != NCP_DEVICE_STATUS_SLEEP)
-                {
-                    usleep(10000); // Wait 10ms to make sure NCP device enters low power.
-                }
-                pthread_mutex_unlock(&ncp_device_status_mutex);
-
-                set_lpm_gpio_value(0);
-                pthread_mutex_lock(&gpio_wakeup_mutex);
-                set_lpm_gpio_value(1);
-                pthread_mutex_unlock(&gpio_wakeup_mutex);
-                ret = TRUE;
-                break;
-            default:
-                ncp_d("%s: invalid wakeup mode", __FUNCTION__);
-                ret = FALSE;
-                break;
-        }
-    }
-
-    return ret;
-}
-
 void send_tlv_command(send_data_t *S_D)
 {
 #if 0
@@ -466,11 +385,11 @@ void send_tlv_command(send_data_t *S_D)
     header->seqnum = g_cmd_seqno;
     transfer_len   = header->size;
 
-    ncp_adap_d("%s Enter: cmd_buf=%p transfer_len=%d", __FUNCTION__, cmd_buf, transfer_len);
+    NCP_LOG_DBG("%s Enter: cmd_buf=%p transfer_len=%d", __FUNCTION__, cmd_buf, transfer_len);
     if (transfer_len == 0)
     {
 #ifdef CONFIG_MPU_IO_DUMP
-        mpu_dump_hex(cmd_buf, 64);
+        NCP_LOG_HEXDUMP_DBG(cmd_buf, 64);
 #endif
         ret = FALSE;
         goto out_clear;
@@ -480,20 +399,15 @@ void send_tlv_command(send_data_t *S_D)
     {
         printf("%s: Invalid transfer_len=%d!\r\n", __FUNCTION__, transfer_len);
 #ifdef CONFIG_MPU_IO_DUMP
-        mpu_dump_hex(cmd_buf, 64);
+        NCP_LOG_HEXDUMP_DBG(cmd_buf, 64);
 #endif
         ret = FALSE;
         goto out_clear;
     }
 
-    /* Wake up ncp_device if it is in low power mode */
-    ret = lpm_check_device_status();
-    if (ret == FALSE)
-        goto out_clear;
-
 #ifdef CONFIG_MPU_IO_DUMP
-    printf("Send command:\r\n");
-    mpu_dump_hex(cmd_buf, transfer_len);
+    NCP_LOG_DBG("Send command:\r\n");
+    NCP_LOG_HEXDUMP_DBG(cmd_buf, transfer_len);
 #endif
     if (ncp_tlv_send(header, transfer_len) != NCP_STATUS_SUCCESS)
     {
@@ -505,7 +419,7 @@ void send_tlv_command(send_data_t *S_D)
     last_cmd_sent   = header->cmd;
     last_seqno_sent = header->seqnum;
     g_cmd_seqno++;
-    ncp_adap_d("%s: last_cmd_sent=0x%x last_seqno_sent=0x%x", __FUNCTION__, last_cmd_sent, last_seqno_sent);
+    NCP_LOG_DBG("%s: last_cmd_sent=0x%x last_seqno_sent=0x%x", __FUNCTION__, last_cmd_sent, last_seqno_sent);
 
 out_clear:
     clear_mpu_host_command_buffer();
@@ -523,34 +437,7 @@ out_clear:
         printf("send_tlv_command, put command semaphore\r\n");
 #endif
     }
-    ncp_adap_d("%s Exit", __FUNCTION__);
-}
-
-/**
- * @brief      Waiting for input
- *
- * @return     Set successfully: TRUE  else: FALSE
- */
-int keyboard_hit()
-{
-    struct termios oldt, newt;
-    int ch, oldf;
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_cflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, F_GETFL, 0);
-    oldf = fcntl(STDIN_FILENO, F_SETFL, 0);
-    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
-    ch = getchar();
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-    fcntl(STDIN_FILENO, F_SETFL, oldf);
-    if (ch != EOF)
-    {
-        ungetc(ch, stdin);
-        return TRUE;
-    }
-
-    return FALSE;
+    NCP_LOG_DBG("%s Exit", __FUNCTION__);
 }
 
 /**
@@ -563,60 +450,106 @@ static void ncp_handle_input_task(void *arg)
 {
     send_data_t *S_D = (send_data_t *)arg;
     int ret;
-    char nul[2];
-    nul[0] = '\n'; // only input enter
+    int i = 0;
+    char ch;
 
     printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
+
+    struct termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
     while (1)
     {
         if (pthread_mutex_lock(&mutex) == 0)
         {
-            while (keyboard_hit() == TRUE)
-            {
-                fgets((char *)S_D->data_buf, MAX_SEND_RECV_LEN, stdin);
-                if (!strncmp((char *)S_D->data_buf, nul, 1))
-                    continue;
-                S_D->data_buf[strlen((char *)S_D->data_buf) - 1] = '\0';
+            i = 0;
+            memset(S_D->data_buf, 0, MAX_SEND_RECV_LEN);
+            printf("> ");
+            fflush(stdout);
 
-                if (sem_trywait(&cmd_sem) == -1)
+            while (i < MAX_SEND_RECV_LEN - 1)
+            {
+                ch = getchar();
+                if (ch == '\n' || ch == '\r')
                 {
-                    printf("Please wait for the previous command to complete!\r\n");
+                    printf("\n");
                     break;
                 }
-#ifdef CONFIG_MPU_IO_DUMP
-                printf("got command semaphore\r\n");
-#endif
-#if defined(CONFIG_NCP_HTS) || defined(CONFIG_NCP_HTC) || defined(CONFIG_NCP_HRS) || defined(CONFIG_NCP_HRC) || defined(CONFIG_NCP_BAS)
-                if (service_S_D == NULL)
+                else if (ch == 0x08 || ch == 0x7F || ch == 127)
                 {
-                    service_S_D = (send_data_t *)arg;
+                    if (i > 0)
+                    {
+                        i--;
+                        S_D->data_buf[i] = '\0';
+                        printf("\b \b");
+                        fflush(stdout);
+                    }
                 }
-#endif
-                ret = handle_input(S_D->data_buf);
-                if(string_equal("help", S_D->data_buf))
+                else if (ch == 0x03)
                 {
-                    sem_post(&cmd_sem);
-                    continue;
+                    printf("\n");
+                    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+                    exit(0);
                 }
-                if (ret != TRUE)
+                else if (ch >= 32 && ch < 127)
                 {
-                    printf("Failed to send command. Please input command again.\r\n");
-                    clear_mpu_host_command_buffer();
-                    sem_post(&cmd_sem);
-                    printf("put command semaphore\r\n");
-                }
-                else
-                {
-                    ncp_d("%s: input cmd send", __FUNCTION__);
-                    send_tlv_command(S_D);
+                    S_D->data_buf[i] = ch;
+                    i++;
+                    putchar(ch);
+                    fflush(stdout);
                 }
             }
+            
+            S_D->data_buf[i] = '\0';
+
+            if (i == 0)
+            {
+                pthread_mutex_unlock(&mutex);
+                continue;
+            }
+            
+            if (sem_trywait(&cmd_sem) == -1)
+            {
+                printf("Please wait for the previous command to complete!\r\n");
+                pthread_mutex_unlock(&mutex);
+                continue;
+            }
+            
+#ifdef CONFIG_MPU_IO_DUMP
+            printf("got command semaphore\r\n");
+#endif
+
+#if defined(CONFIG_NCP_HTS) || defined(CONFIG_NCP_HTC) || defined(CONFIG_NCP_HRS) || defined(CONFIG_NCP_HRC) || defined(CONFIG_NCP_BAS)
+            if (service_S_D == NULL)
+            {
+                service_S_D = (send_data_t *)arg;
+            }
+#endif
+            
+            ret = handle_input(S_D->data_buf);
+            
+            if (ret != TRUE)
+            {
+                printf("Failed to send command. Please input command again.\r\n");
+                clear_mpu_host_command_buffer();
+                sem_post(&cmd_sem);
+                printf("put command semaphore\r\n");
+            }
+            else
+            {
+                NCP_LOG_DBG("%s: input cmd send", __FUNCTION__);
+                send_tlv_command(S_D);
+            }
+            
             pthread_mutex_unlock(&mutex);
         }
         usleep(10);
     }
 
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     pthread_exit(NULL);
 }
 
@@ -648,22 +581,25 @@ int main(int argc, char **argv)
     send_data_t send_data;
     send_data.data_buf      = input_buf;
     ring_buffer_t *ring_buf = NULL;
+
+    /* Initialize OSA */
+    OSA_Init();
+
 #ifdef CONFIG_MATTER_NCP
     char* dev_name = getenv("NCP_PORT");
-    if (ncp_adapter_init(dev_name) != NCP_STATUS_SUCCESS)
+    if (ncp_adapter_init(dev_name, 1) != NCP_STATUS_SUCCESS)
 #else
-    if (ncp_adapter_init(argv[1]) != NCP_STATUS_SUCCESS)
+    if (ncp_adapter_init(argv[1], 1) != NCP_STATUS_SUCCESS)
 #endif
     {
         printf("ncp_adapter_init failed!\r\n");
         goto err_adapter_init;
     }
-	if (ncp_system_app_init() != NCP_STATUS_SUCCESS)
+    if (ncp_system_app_init() != NCP_STATUS_SUCCESS)
     {
         printf("ncp_adapter_init failed!\r\n");
         goto err_system_init;
     }
-
 
 #ifdef CONFIG_NCP_WIFI
     if (wifi_ncp_init() != NCP_STATUS_SUCCESS)
@@ -741,6 +677,7 @@ int main(int argc, char **argv)
         printf("Failed to init cmd_node mutex!\r\n");
         goto err_cmd_node_list;
     }
+
 #ifndef CONFIG_MATTER_NCP
     send_thread = pthread_create(&send_thread, NULL, (void *)ncp_handle_input_task, (void *)&send_data);
     if (send_thread != 0)

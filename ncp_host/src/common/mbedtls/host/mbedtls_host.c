@@ -8,7 +8,6 @@
  *
  */
 
-#include "ncp_debug.h"
 #include "ncp_host_command.h"
 #include "ncp_system_command.h"
 #include "ncp_host_command_wifi.h"
@@ -20,11 +19,13 @@
 // #include "ncp_cmd_wifi.h"
 #include <string.h>
 #include <pthread.h>
-
+#include "ncp_log.h"
 
 #if CONFIG_NCP_USE_ENCRYPT
 
 #include "mbedtls_common.h"
+
+NCP_LOG_MODULE_DECLARE(ncp_mbedtls);
 
 static void ncp_encrypt_handshake_task(void *pvParameters);
 static pthread_t ncp_encrypt_handshake_thread;
@@ -48,7 +49,7 @@ int port_mbedtls_send(void *ctx, const unsigned char *buf, size_t len)
 
     if (cmd->header.size > NCP_COMMAND_LEN)
     {
-        ncp_e("cmd->header.size(%d) > NCP_COMMAND_LEN(%d)", 
+        NCP_LOG_ERR("cmd->header.size(%d) > NCP_COMMAND_LEN(%d)", 
                     cmd->header.size, NCP_COMMAND_LEN);
         return 0;
     }
@@ -75,7 +76,7 @@ static int ncp_encrypt_verify(void)
     cmd->params.encrypt.action = NCP_CMD_ENCRYPT_ACTION_VERIFY;
 
     cmd->params.encrypt.arg = _verify_num;
-    ncp_d("ncp encrypt num send is %d 0x%08X\r\n", _verify_num, _verify_num);
+    NCP_LOG_DBG("ncp encrypt num send is %d 0x%08X\r\n", _verify_num, _verify_num);
 
     send_tlv_command(NULL);
 
@@ -86,45 +87,45 @@ static void ncp_encrypt_handshake_task(void *pvParameters)
 {
     int ret = 0;
 
-    ncp_d("**** encrypt init task called\r\n");
+    NCP_LOG_DBG("**** encrypt init task called\r\n");
 
     ret = ncp_encrypt_setup(NCP_TLS_ROLE_CLIENT);
     if (ret != TLS_OK)
     {
-        ncp_e("ncp_encrypt_setup fail %d", ret);
+        NCP_LOG_ERR("ncp_encrypt_setup fail %d", ret);
         goto exit;
     }
    
-    ncp_d("**** next call mbedtls_ssl_handshake\r\n");
+    NCP_LOG_DBG("**** next call mbedtls_ssl_handshake\r\n");
     ret = mbedtls_ssl_handshake(&_mbedtls->ssl);
     if (ret != 0)
     {
-        ncp_e("mbedtls mbedtls_ssl_handshake fail %d", ret);
-        ncp_e("%s", mbedtls_high_level_strerr(ret));
+        NCP_LOG_ERR("mbedtls mbedtls_ssl_handshake fail %d", ret);
+        NCP_LOG_ERR("%s", mbedtls_high_level_strerr(ret));
         goto exit;
     }
-    ncp_d("**** mbedtls_ssl_handshake succ\r\n");
+    NCP_LOG_DBG("**** mbedtls_ssl_handshake succ\r\n");
 
 
     ret = ncp_tlv_adapter_encrypt_enable();
     if (ret != 0)
     {
-        ncp_e("ncp_tlv_adapter_encrypt_enable err %d", ret);
+        NCP_LOG_ERR("ncp_tlv_adapter_encrypt_enable err %d", ret);
     }
     else
     {
-        ncp_d("\r\nncp encrypt communication is started\r\n\r\n");
+        NCP_LOG_DBG("\r\nncp encrypt communication is started\r\n\r\n");
 
         ret = ncp_encrypt_verify();
         if (ret != NCP_SUCCESS)
         {
-            ncp_e("ncp_encrypt_verify error %d", ret);
+            NCP_LOG_ERR("ncp_encrypt_verify error %d", ret);
         }
     }
 
 exit:
     (void) ncp_encrypt_teardown();
-    ncp_d("**** exit with %d", ret);
+    NCP_LOG_DBG("**** exit with %d", ret);
     (void) pthread_exit(NULL);
 }
 
@@ -155,7 +156,7 @@ int ncp_process_encrypt_response(uint8_t *res)
 
     if (result != NCP_CMD_RESULT_OK)
     {
-        ncp_e("NCP device encrypt cmd resp result error %d, action %d\r\n", 
+        NCP_LOG_ERR("NCP device encrypt cmd resp result error %d, action %d\r\n", 
             result, cmd_res->params.encrypt.action);
         return -NCP_FAIL;
     }
@@ -167,7 +168,7 @@ int ncp_process_encrypt_response(uint8_t *res)
             int ret = pthread_create(&ncp_encrypt_handshake_thread, NULL, (void *)ncp_encrypt_handshake_task, NULL);
             if (ret != 0)
             {
-                ncp_e("Failed to creat Send Thread, err %d!\r\n", ret);
+                NCP_LOG_ERR("Failed to creat Send Thread, err %d!\r\n", ret);
                 return -NCP_FAIL;
             }
         }
@@ -180,7 +181,7 @@ int ncp_process_encrypt_response(uint8_t *res)
     else if (cmd_res->params.encrypt.action == NCP_CMD_ENCRYPT_ACTION_VERIFY)
     {
         uint32_t num_recv = cmd_res->params.encrypt.arg;
-        ncp_d("NCP encrypt verify %s\r\n", _verify_num == num_recv ? "succ" : "fail");
+        NCP_LOG_DBG("NCP encrypt verify %s\r\n", _verify_num == num_recv ? "succ" : "fail");
         (void) printf("NCP encryption verify succ\r\n");
     }
     else if (cmd_res->params.encrypt.action == NCP_CMD_ENCRYPT_ACTION_STOP)
@@ -189,7 +190,7 @@ int ncp_process_encrypt_response(uint8_t *res)
     }
     else
     {
-        ncp_e("ncp encrypt cmd resp unkonwn action %d", cmd_res->params.encrypt.action);
+        NCP_LOG_ERR("ncp encrypt cmd resp unkonwn action %d", cmd_res->params.encrypt.action);
     }
 
     return NCP_SUCCESS;
@@ -198,17 +199,17 @@ int ncp_process_encrypt_response(uint8_t *res)
 int ncp_encrypt_command(int argc, char **argv)
 {
     SYSTEM_NCPCmd_DS_COMMAND *cmd = NULL;
-    ncp_d("**** start encrypt init\r\n");
+    NCP_LOG_DBG("**** start encrypt init\r\n");
 
     if (_mbedtls)
     {
-        ncp_w("tls handshake is ongoing");
+        NCP_LOG_WRN("tls handshake is ongoing");
         return -NCP_FAIL;
     }
 
     if (ncp_tlv_adapter_is_encrypt_mode())
     {
-        ncp_w("already is encrypted mode");
+        NCP_LOG_WRN("already is encrypted mode");
         return NCP_SUCCESS;
     }
 
@@ -224,17 +225,17 @@ int ncp_encrypt_command(int argc, char **argv)
 int ncp_dbg_encrypt_stop_command(int argc, char **argv)
 {
     SYSTEM_NCPCmd_DS_COMMAND *cmd = NULL;
-    ncp_d("**** stop encrypt communication\r\n");
+    NCP_LOG_DBG("**** stop encrypt communication\r\n");
 
     if (_mbedtls)
     {
-        ncp_w("tls handshake is ongoing");
+        NCP_LOG_WRN("tls handshake is ongoing");
         return -NCP_FAIL;
     }
 
     if (!ncp_tlv_adapter_is_encrypt_mode())
     {
-        ncp_w("current is NOT encrypted mode");
+        NCP_LOG_WRN("current is NOT encrypted mode");
         return NCP_SUCCESS;
     }
 

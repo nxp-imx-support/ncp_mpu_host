@@ -3247,12 +3247,6 @@ int wlan_process_wakeup_condition_response(uint8_t *res);
 
 int wlan_process_mcu_sleep_response(uint8_t *res);
 
-#if (defined CONFIG_NCP_WIFI) && (!defined CONFIG_NCP_BLE) && (!defined CONFIG_NCP_OT)
-int wlan_suspend_command(int argc, char **argv);
-
-int wlan_process_suspend_response(uint8_t *res);
-#endif
-
 int wlan_process_sleep_status(uint8_t *res);
 
 int wlan_set_11axcfg_command(int argc, char **argv);

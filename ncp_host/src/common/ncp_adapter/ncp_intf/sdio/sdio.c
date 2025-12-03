@@ -5,28 +5,31 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#if CONFIG_NCP_SDIO
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "ncp_adapter.h"
 #include "sdio.h"
+#include "ncp_log.h"
+#include <errno.h>
+
+NCP_LOG_MODULE_DECLARE(ncp_sdio);
 
 /*******************************************************************************
- * Public functions
+ * Code
  ******************************************************************************/
 /*
  * Init SDIO instance.
  */
-ncp_status_t sdio_init(sdio_device_t *dev)
+int sdio_init(sdio_device_t *dev)
 {
-    int             fd;
+    int fd;
 
     fd = open((char *)(dev->instance), O_RDWR | O_NOCTTY);
     if (fd < 0)
     {
-        ncp_adap_e("Failed to open SDIO instance \n");
-        return NCP_STATUS_ERROR;
+        NCP_LOG_ERR("Failed to open SDIO instance: %s", strerror(errno));
+        return -1;
     }
 
 #if 0
@@ -45,53 +48,56 @@ ncp_status_t sdio_init(sdio_device_t *dev)
 
     dev->fd  = fd;
 
-    return NCP_STATUS_SUCCESS;
+    return 0;
 }
 
 /*
  * Receive SDIO data.
  */
-ncp_status_t sdio_receive(sdio_device_t *dev, uint8_t *buf, uint32_t len, size_t *nb_bytes)
+int sdio_receive(sdio_device_t *dev, uint8_t *buf, uint32_t len, size_t *nb_bytes)
 {
-    ssize_t ret = 0;
+    ssize_t bytes_read = 0;
 
-    ret = read(dev->fd, buf, len);
-    if (ret <= 0)
+    bytes_read = read(dev->fd, buf, len);
+    if (bytes_read <= 0)
     {
-        if (ret < 0)
+        if (bytes_read < 0)
         {
-            ncp_adap_e("%s: Failed to read SDIO data ret=%ld", __FUNCTION__, ret);
+           NCP_LOG_ERR("%s: Failed to read SDIO data ret=%ld", __FUNCTION__, bytes_read);
         }
-        return NCP_STATUS_ERROR;
+        return -1;
     }
     else
     {
-        ncp_adap_d("%s: read SDIO data ret=%ld", __FUNCTION__, ret);
+        NCP_LOG_DBG("%s: read SDIO data ret=%ld", __FUNCTION__, bytes_read);
     }
-    *nb_bytes = ret;
 
-    return NCP_STATUS_SUCCESS;
+    *nb_bytes = bytes_read;
+
+    return 0;
 }
 
 /*
  * Send SDIO data.
  */
-ncp_status_t sdio_send(sdio_device_t *dev, uint8_t *buf, uint32_t len)
+int sdio_send(sdio_device_t *dev, uint8_t *buf, uint32_t len)
 {
-    ssize_t ret = 0;
+    ssize_t bytes_written;
 
-    ret = write(dev->fd, buf, len);
-    if (ret <= 0)
+    NCP_LOG_DBG("SDIO sending %u bytes", len);
+
+    bytes_written = write(dev->fd, buf, len);
+    if (bytes_written <= 0)
     {
-        ncp_adap_e("%s: Failed to write SDIO data ret=%ld", __FUNCTION__, ret);
-        return NCP_STATUS_ERROR;
+        NCP_LOG_ERR("%s: Failed to write SDIO data ret=%ld", __FUNCTION__, bytes_written);
+        return -1;
     }
     else
     {
-        ncp_adap_d("%s: write SDIO data ret=%ld", __FUNCTION__, ret);
+        NCP_LOG_DBG("%s: write SDIO data ret=%ld", __FUNCTION__, bytes_written);
     }
 
-    return NCP_STATUS_SUCCESS;
+    return 0;
 }
 
 /*
@@ -101,3 +107,4 @@ void sdio_deinit(sdio_device_t *dev)
 {
     close(dev->fd);
 }
+#endif /* CONFIG_NCP_SDIO */

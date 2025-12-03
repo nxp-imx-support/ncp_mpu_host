@@ -57,6 +57,9 @@
 
 #define RETRY_CNT					1
 
+/** Max retry number of IO write */
+#define MAX_WRITE_IOMEM_RETRY       10
+
 #define SDIO_SET_RE_ENUM				1
 #define SDIO_SET_DIS_INT_IRQ			2
 #define SDIO_SET_DIS_INT_IRQ_TEST	3
@@ -541,23 +544,40 @@ static int mcu_sdio_write_data_sync(struct mcu_sdio_mmc_card *card,
 {
 	struct sdio_func *func = card->func;
 	u32 aligned_size = ALIGN(len, func->cur_blksize);
+	u32 retry = 0;
 	int ret;
 
-	if (len) {
-		sdio_claim_host(func);
-		PRINTM_DEBUG("%s: port=0x%x buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
-		ret = sdio_writesb(func, port, buf, aligned_size);
+	if (len)
+	{
+		do
+		{
+			sdio_claim_host(func);
+			PRINTM_DEBUG("%s: port=0x%x buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
+			ret = sdio_writesb(func, port, buf, aligned_size);
 
-		if (ret) {
-			PRINT_ERR("cmd53 write error=%d\n", ret);
-			/* issue abort cmd52 command through F0*/
-			sdio_f0_writeb(func, 0x01, SDIO_CCCR_ABORT, &ret);
-		}
-		sdio_release_host(func);
-	} else {
+			if (ret) {
+				retry++;
+				PRINT_ERR("cmd53 read error=%d retry interate=%d \n", ret, retry);
+				/* issue abort cmd52 command through F0*/
+				sdio_f0_writeb(func, 0x01, SDIO_CCCR_ABORT, NULL);
+				sdio_writeb(func, HOST_TO_CARD_EVENT_REG, HOST_TERM_CMD53, NULL);
+
+				if (retry > MAX_WRITE_IOMEM_RETRY)
+				{
+					sdio_release_host(func);
+					goto exit;
+				}
+
+			}
+			sdio_release_host(func);
+		} while (ret != 0);
+	}
+	else
+	{
 		ret = 0;
 	}
 
+exit:
 	return ret;
 }
 
@@ -576,22 +596,40 @@ static int mcu_sdio_read_data_sync(struct mcu_sdio_mmc_card *card,
 {
 	struct sdio_func *func = card->func;
 	u32 aligned_size = ALIGN(len, func->cur_blksize);
+	u32 retry = 0;
 	int ret;
 
-	if (len) {
-		sdio_claim_host(func);
-		PRINTM_DEBUG("%s: port=0x%x buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
-		ret = sdio_readsb(func, buf, port, aligned_size);
-		if (ret) {
-			PRINT_ERR("cmd53 read error=%d\n", ret);
-			/* issue abort cmd52 command through F0*/
-			sdio_f0_writeb(func, 0x01, SDIO_CCCR_ABORT, &ret);
-		}
-		sdio_release_host(func);
-	} else {
+	if (len)
+	{
+		do
+		{
+			sdio_claim_host(func);
+
+			PRINTM_DEBUG("%s: port=0x%x buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
+			ret = sdio_readsb(func, buf, port, aligned_size);
+			if (ret) {
+				retry++;
+				PRINT_ERR("cmd53 read error=%d retry interate=%d \n", ret, retry);
+				/* issue abort cmd52 command through F0*/
+				sdio_f0_writeb(func, 0x01, SDIO_CCCR_ABORT, NULL);
+				sdio_writeb(func, HOST_TO_CARD_EVENT_REG, HOST_TERM_CMD53, NULL);
+
+				if (retry > MAX_WRITE_IOMEM_RETRY)
+				{
+					sdio_release_host(func);
+					goto exit;
+				}
+			}
+
+			sdio_release_host(func);
+		} while (ret != 0);
+	}
+	else
+	{
 		ret = 0;
 	}
 
+exit:
 	return ret;
 }
 

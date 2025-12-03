@@ -20,7 +20,7 @@
 #define TRUE              0
 #define MAX_SEND_RECV_LEN 400
 
-#define CONFIG_INET_SOCKET 0
+#define CONFIG_INET_SOCKET 1
 
 #define MPU_HOST_INBUF_SIZE   400
 #define MPU_HOST_MAX_COMMANDS 500
@@ -31,11 +31,6 @@
 #define NCP_CMD_SIZE_HIGH_BYTES     5
 #define NCP_CMD_SEQUENCE_LOW_BYTES  6
 #define NCP_CMD_SEQUENCE_HIGH_BYTES 7
-
-#define MPU_DUMP_WRAPAROUND 16
-
-#define CRC32_POLY   0x04c11db7
-#define CHECKSUM_LEN 4
 
 #define mpu_in_range(c, lo, up) ((uint8_t)(c) >= (lo) && (uint8_t)(c) <= (up))
 #define mpu_isdigit(c)          mpu_in_range((c), '0', '9')
@@ -141,9 +136,6 @@ uint8_t hexc2bin(char chr);
  * into a 6-byte array 'dest' such that dest = {0xAA,0xBB,0xCC,0xDD,0xEE,0xFF}
  * set 'sep' accordingly. */
 int get_mac(const char *arg, char *dest, char sep);
-
-/*Dump buffer in hex format on console.*/
-void mpu_dump_hex(const void *data, unsigned int len);
 
 extern ring_buffer_t *ring_buf;
 extern sem_t cmd_sem;

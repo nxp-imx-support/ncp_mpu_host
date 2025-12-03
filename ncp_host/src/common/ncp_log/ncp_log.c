@@ -1,0 +1,10 @@
+/*
+ * Copyright 2024 - 2025 NXP
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ * The BSD-3-Clause license can be found at https://spdx.org/licenses/BSD-3-Clause.html
+ */
+#include "ncp_log.h"
+
+// NCP_LOG_MODULE_DEFINE(ncp, CONFIG_LOG_NCP_LEVEL);
+// NCP_LOG_MODULE_REGISTER(ncp, CONFIG_LOG_NCP_LEVEL);

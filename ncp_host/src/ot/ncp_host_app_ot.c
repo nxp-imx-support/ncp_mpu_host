@@ -16,13 +16,18 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <semaphore.h>
-
+#include <mqueue.h>
+#include <fcntl.h>
 #include <ncp_host_command_ble.h>
 #include <ncp_host_app.h>
 #include <ncp_tlv_adapter.h>
 #include "ncp_host_app_ot.h"
 #include "otopcode.h"
 #include "otopcode_private.h"
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_DEFINE(ncp_ot_app, CONFIG_LOG_NCP_OT_LEVEL);
+NCP_LOG_MODULE_REGISTER(ncp_ot_app, CONFIG_LOG_NCP_OT_LEVEL);
 
 #define NCP_OT_RX_QUEUE_NAME "/ncp_ot_rx_queue"
 static pthread_t ot_ncp_tlv_rx_thread;
@@ -44,7 +49,7 @@ static int ot_ncp_handle_rx_cmd_event(uint8_t *tlv_buf, int tlv_sz)
 
     if (recv_buf == NULL)
     {
-        ncp_adap_e("failed to allocate memory for the received response");
+        NCP_LOG_ERR("failed to allocate memory for the received response");
         return -1;
     }
 
@@ -59,18 +64,18 @@ static void ot_ncp_rx_task(void *pvParameters)
 {
     printf("here in rx task  ot_ncp_rx_task \n");
     ssize_t         tlv_sz = 0;
-    ncp_tlv_qelem_t *qelem = NULL;
+    ncp_tlv_data_qelem_t *qelem = NULL;
 
     while (pthread_mutex_trylock(&ot_ncp_tlv_rx_thread_mutex) != 0)
     {
         qelem = NULL;
         tlv_sz = mq_receive(ot_ncp_tlv_rx_msgq_handle, (char *)&qelem, NCP_TLV_QUEUE_MSG_SIZE, NULL);
-        ncp_adap_d("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
+        NCP_LOG_DBG("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
                     __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
         if (tlv_sz == -1)
         {
-            ncp_adap_e("%s: mq_receive failed", __FUNCTION__);
-            NCP_TLV_STATS_INC(err_rx);
+            NCP_LOG_ERR("%s: mq_receive failed", __FUNCTION__);
+            // NCP_TLV_STATS_INC(err_rx);
             continue;
         }
 
@@ -80,13 +85,13 @@ static void ot_ncp_rx_task(void *pvParameters)
 
         if (qelem == NULL)
         {
-            ncp_adap_e("%s: qelem=%p", __FUNCTION__, qelem);
-            NCP_TLV_STATS_INC(err_rx);
+            NCP_LOG_ERR("%s: qelem=%p", __FUNCTION__, qelem);
+            // NCP_TLV_STATS_INC(err_rx);
             continue;
         }
-        NCP_TLV_STATS_INC(rx2);
+        // NCP_TLV_STATS_INC(rx2);
         ot_ncp_handle_rx_cmd_event(qelem->tlv_buf,qelem->tlv_sz );
-        ncp_adap_d("%s: free qelem %p", __FUNCTION__, qelem);
+        NCP_LOG_DBG("%s: free qelem %p", __FUNCTION__, qelem);
         free(qelem);
     }
     pthread_mutex_unlock(&ot_ncp_tlv_rx_thread_mutex);
@@ -94,55 +99,55 @@ static void ot_ncp_rx_task(void *pvParameters)
 
 static void ot_ncp_callback(void *tlv, size_t tlv_sz, int status)
 {
-    ncp_tlv_qelem_t *qelem = NULL;
+    ncp_tlv_data_qelem_t *qelem = NULL;
     uint8_t *qelem_pld = NULL;
 
     pthread_mutex_lock(&ot_ncp_tlv_rx_queue_mutex);
     if (tlv_sz > NCP_TLV_QUEUE_MSGPLD_SIZE)
     {
-        ncp_adap_e("%s: tlv_sz=%lu > %d", __FUNCTION__, tlv_sz, NCP_TLV_QUEUE_MSGPLD_SIZE);
-        NCP_TLV_STATS_INC(err_rx);
+        NCP_LOG_ERR("%s: tlv_sz=%lu > %d", __FUNCTION__, tlv_sz, NCP_TLV_QUEUE_MSGPLD_SIZE);
+        // NCP_TLV_STATS_INC(err_rx);
         goto Fail;
     }
 
-    if (ot_ncp_tlv_rx_queue_len == NCP_TLV_QUEUE_LENGTH)
+    if (ot_ncp_tlv_rx_queue_len == NCP_TLV_DATA_QUEUE_LENGTH)
     {
-        ncp_adap_e("%s: ncp tlv queue is full max queue length: %d", __FUNCTION__, NCP_TLV_QUEUE_LENGTH);
+        NCP_LOG_ERR("%s: ncp tlv queue is full max queue length: %d", __FUNCTION__, NCP_TLV_DATA_QUEUE_LENGTH);
         //ret = NCP_STATUS_QUEUE_FULL;
-        NCP_TLV_STATS_INC(err_rx);
+        // NCP_TLV_STATS_INC(err_rx);
         goto Fail;
     }
 
-    qelem = (ncp_tlv_qelem_t *)malloc(sizeof(ncp_tlv_qelem_t) + tlv_sz);
+    qelem = (ncp_tlv_data_qelem_t *)malloc(sizeof(ncp_tlv_data_qelem_t) + tlv_sz);
     if (!qelem)
     {
-        ncp_adap_e("%s: failed to allocate qelem memory", __FUNCTION__);
+        NCP_LOG_ERR("%s: failed to allocate qelem memory", __FUNCTION__);
         //return NCP_STATUS_NOMEM;
         goto Fail;
     }
-    ncp_adap_d("%s: malloc qelem %p %lu", __FUNCTION__, qelem, sizeof(ncp_tlv_qelem_t) + tlv_sz);
+    NCP_LOG_DBG("%s: malloc qelem %p %lu", __FUNCTION__, qelem, sizeof(ncp_tlv_data_qelem_t) + tlv_sz);
     qelem->tlv_sz = tlv_sz;
     qelem->priv   = NULL;
-    qelem_pld = (uint8_t *)qelem + sizeof(ncp_tlv_qelem_t);
+    qelem_pld = (uint8_t *)qelem + sizeof(ncp_tlv_data_qelem_t);
     memcpy(qelem_pld, tlv, tlv_sz);
     qelem->tlv_buf = qelem_pld;
 
-    ncp_adap_d("%s: mq_send qelem=%p: tlv_buf=%p tlv_sz=%lu", __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
+    NCP_LOG_DBG("%s: mq_send qelem=%p: tlv_buf=%p tlv_sz=%lu", __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
 #ifdef CONFIG_MPU_IO_DUMP
-    mpu_dump_hex((uint8_t *)qelem, sizeof(ncp_tlv_qelem_t) + qelem->tlv_sz);
+    NCP_LOG_HEXDUMP_DBG((uint8_t *)qelem, sizeof(ncp_tlv_data_qelem_t) + qelem->tlv_sz);
 #endif
     if (mq_send(ot_ncp_tlv_rx_msgq_handle, (char *)&qelem, NCP_TLV_QUEUE_MSG_SIZE, 0) != 0)
     {
-        ncp_adap_e("%s: ncp tlv enqueue failure", __FUNCTION__);
-        ncp_adap_d("%s: free qelem %p", __FUNCTION__, qelem);
+        NCP_LOG_ERR("%s: ncp tlv enqueue failure", __FUNCTION__);
+        NCP_LOG_DBG("%s: free qelem %p", __FUNCTION__, qelem);
         free(qelem);
-        NCP_TLV_STATS_INC(err_rx);
+        // NCP_TLV_STATS_INC(err_rx);
         //ret = NCP_STATUS_ERROR;
         goto Fail;
     }
     ot_ncp_tlv_rx_queue_len++;
-    NCP_TLV_STATS_INC(rx1);
-    ncp_adap_d("%s: enque tlv_buf success", __FUNCTION__);
+    // NCP_TLV_STATS_INC(rx1);
+    NCP_LOG_DBG("%s: enque tlv_buf success", __FUNCTION__);
 
 Fail:
     pthread_mutex_unlock(&ot_ncp_tlv_rx_queue_mutex);
@@ -197,23 +202,23 @@ int ot_ncp_init(void)
     struct mq_attr     qattr;
     pthread_attr_t     tattr;
 
-    ncp_adap_d("Enter ot_ncp_init");
+    NCP_LOG_DBG("Enter ot_ncp_init");
 
     status = pthread_mutex_init(&ot_ncp_tlv_rx_queue_mutex, NULL);
     if (status != 0)
     {
-        ncp_adap_e("%s: ERROR: pthread_mutex_init", __FUNCTION__);
+        NCP_LOG_ERR("%s: ERROR: pthread_mutex_init", __FUNCTION__);
         return NCP_STATUS_ERROR;
     }
 
     qattr.mq_flags         = 0;
-    qattr.mq_maxmsg        = NCP_TLV_QUEUE_LENGTH;
+    qattr.mq_maxmsg        = NCP_TLV_DATA_QUEUE_LENGTH;
     qattr.mq_msgsize       = NCP_TLV_QUEUE_MSG_SIZE;
     qattr.mq_curmsgs       = 0;
     ot_ncp_tlv_rx_msgq_handle = mq_open(NCP_OT_RX_QUEUE_NAME, O_RDWR | O_CREAT, 0644, &qattr);
     if ((int)ot_ncp_tlv_rx_msgq_handle == -1)
     {
-        ncp_adap_e("ERROR: ot_ncp_tlv_rx_msgq_handle create fail");
+        NCP_LOG_ERR("ERROR: ot_ncp_tlv_rx_msgq_handle create fail");
         goto err_msgq;
     }
 
@@ -221,7 +226,7 @@ int ot_ncp_init(void)
     status = pthread_attr_init(&tattr);
     if (status != 0)
     {
-        ncp_adap_e("ERROR: %s pthread_attr_init", __FUNCTION__);
+        NCP_LOG_ERR("ERROR: %s pthread_attr_init", __FUNCTION__);
         goto err_arrt_init;
     }
 
@@ -231,12 +236,12 @@ int ot_ncp_init(void)
     status = pthread_create(&ot_ncp_tlv_rx_thread, &tattr, (void *)ot_ncp_rx_task, NULL);
     if (status != 0)
     {
-        ncp_adap_e("ERROR: %s pthread_create", __FUNCTION__);
+        NCP_LOG_ERR("ERROR: %s pthread_create", __FUNCTION__);
         goto err_rx_mutex;
     }
 
     ncp_tlv_install_handler(GET_CMD_CLASS(NCP_CMD_15D4), (void *)ot_ncp_callback);
-    ncp_adap_d("Exit ot_ncp_init");
+    NCP_LOG_DBG("Exit ot_ncp_init");
     return NCP_STATUS_SUCCESS;
 
 err_rx_mutex:
@@ -254,7 +259,7 @@ err_msgq:
 int ot_ncp_deinit(void)
 {
     ssize_t		 tlv_sz;
-    ncp_tlv_qelem_t *qelem = NULL;
+    ncp_tlv_data_qelem_t *qelem = NULL;
 
     pthread_mutex_unlock(&ot_ncp_tlv_rx_thread_mutex);
     pthread_join(ot_ncp_tlv_rx_thread, NULL);
@@ -267,19 +272,19 @@ int ot_ncp_deinit(void)
         {
             if (qelem == NULL)
             {
-                ncp_adap_e("%s: qelem=%p", __FUNCTION__, qelem);
+                NCP_LOG_ERR("%s: qelem=%p", __FUNCTION__, qelem);
                 continue;
             }
-            ncp_adap_d("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
+            NCP_LOG_DBG("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
                             __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
-            ncp_adap_d("%s: free qelem %p", __FUNCTION__, qelem);
+            NCP_LOG_DBG("%s: free qelem %p", __FUNCTION__, qelem);
             free(qelem);
             qelem = NULL;
             continue;
         }
         else
         {
-            ncp_adap_d("ncp adapter queue flush completed");
+            NCP_LOG_DBG("ncp adapter queue flush completed");
             break;
         }
     }
@@ -288,18 +293,18 @@ int ot_ncp_deinit(void)
 
     if (pthread_mutex_destroy(&ot_ncp_tlv_rx_queue_mutex) != 0)
     {
-        ncp_adap_e("ncp adapter tx deint queue mutex fail");
+        NCP_LOG_ERR("ncp adapter tx deint queue mutex fail");
     }
 
     if (mq_close(ot_ncp_tlv_rx_msgq_handle) != 0)
     {
-        ncp_adap_e("ncp adapter tx deint MsgQ fail");
+        NCP_LOG_ERR("ncp adapter tx deint MsgQ fail");
     }
     mq_unlink(NCP_OT_RX_QUEUE_NAME);
 
     if (pthread_mutex_destroy(&ot_ncp_tlv_rx_thread_mutex) != 0)
     {
-        ncp_adap_e("ncp adapter tx deint thread mutex fail");
+        NCP_LOG_ERR("ncp adapter tx deint thread mutex fail");
     }
     return NCP_STATUS_SUCCESS;
 }

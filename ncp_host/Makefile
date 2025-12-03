@@ -5,147 +5,226 @@
 # * SPDX-License-Identifier: BSD-3-Clause
 # */
 
-#$(shell . /opt/fsl-imx-xwayland/5.10-hardknott/environment-setup-cortexa53-crypto-poky-linux)
+# ==================== Configuration ====================
+# Parallel build configuration
+NPROC := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+JOBS ?= $(NPROC)
 
-# How to compile for specific function:
-# You need to provide function as an argument to make command:
-# WIFI function        -> "make func=WIFI"
-# BLE function         -> "make func=BLE"
-# WIFI + BLE function  -> "make func=WIFI_BLE"
+# Enable parallel builds with output synchronization
+ifeq ($(findstring j,$(MAKEFLAGS)),)
+    MAKEFLAGS += -j$(JOBS)
+endif
+MAKEFLAGS += --output-sync=target
 
-# How to compile for specific interface:
-# You need to provide each interface as an argument to make command:
-# USB interface  -> "make interface=USB"
-# UART interface -> "make interface=UART"
-# SDIO interface -> "make interface=SDIO"
-# SPI interface  -> "make interface=SPI"
+# Show parallel build info
+$(info [INFO] Parallel build enabled with $(JOBS) jobs)
 
-# How to compile for specific ble profile:
-# You need to provide HTS/HTC/HRS/HRC/BAS profile as argument to make command,
-# HTS profile -> "make HTS=y"
-# HTC profile -> "make HTC=y"
-# HRS profile -> "make HRS=y"
-# HRC profile -> "make HRC=y"
-# BAS profile -> "make BAS=y"
+# Default values
+func ?= WIFI_BLE
+interface ?= UART
+DEBUG ?= 1
+NCP_DEBUG ?= 0
+NCP_ENCRYPT ?= 1
 
-# for example:
-# WIFI function + USB interface                  -> "make func=WIFI interface=USB"
-# BLE function + UART interface                  -> "make func=BLE interface=UART"
-# BLE function + UART interface + HTS profile    -> "make func=BLE interface=UART HTS=y"
-# WIFI + BLE function + SPI interface -> "make func=WIFI_BLE interface=UART"
+# ==================== Build Output Control ====================
+# Better output formatting for parallel builds
+ifeq ($(VERBOSE),1)
+    Q :=
+    QUIET :=
+else
+    Q := @
+    QUIET := --quiet
+endif
 
-
+# Toolchain
 CC := gcc
-BIN = MPU_NCP_HOST
-CFLAGS = -Wall
-CFLAGS += -std=gnu99
-CFLAGS += -g
+AR := ar
+STRIP := strip
 
-SRC_DIR 	= ./src
-INC_DIR		= $(shell find $(SRC_DIR) -type d)
-OBJ_DIR		= ./obj
-BIN_NAME 	= MPU_NCP_HOST
-BIN_DIR 	= ./bin
-encrypt     = 1
+# Project structure
+SRC_DIR := src
+DRV_DIR := drivers/gpio
+OBJ_DIR := build
+BIN_DIR := bin
+DEP_DIR := $(OBJ_DIR)/.deps
 
-SRC_FILES	= $(shell find src -name *.c)
-OBJ_FILES 	= $(SRC_FILES:.c=.o)
+# Binary name
+BIN_NAME := MPU_NCP_HOST
+TARGET := $(BIN_DIR)/$(BIN_NAME)
 
-_INC_DIR 	= $(foreach dir,$(INC_DIR),$(addprefix -I, $(dir)))
+# ==================== Feature Configuration ====================
+# Define feature sets for different functions
+FEATURES := 
 
-CFLAGS		+= -DCONFIG_NCP_$(func)
-CFLAGS		+= -DCONFIG_NCP_$(interface)
-#CFLAGS		+= -DCONFIG_NCP_DEBUG
-LDFLAGS 	= -lpthread -lc -lrt
-
-ifeq ($(func), WIFI_BLE)
-CFLAGS += -DCONFIG_NCP_WIFI
-CFLAGS += -DCONFIG_NCP_BLE
+ifeq ($(func), WIFI)
+    FEATURES += WIFI
+else ifeq ($(func), BLE)
+    FEATURES += BLE
+else ifeq ($(func), OT)
+    FEATURES += OT
+else ifeq ($(func), WIFI_BLE)
+    FEATURES += WIFI BLE
+else ifeq ($(func), WIFI_OT)
+    FEATURES += WIFI OT
+else ifeq ($(func), BLE_OT)
+    FEATURES += BLE OT
+else ifeq ($(func), WIFI_BLE_OT)
+    FEATURES += WIFI BLE OT
 endif
 
-ifeq ($(func), WIFI_BLE_OT)
-CFLAGS += -DCONFIG_NCP_WIFI
-CFLAGS += -DCONFIG_NCP_BLE
-CFLAGS += -DCONFIG_NCP_OT
+# BLE Profiles
+BLE_PROFILES := HTS HTC HRS HRC BAS
+
+# ==================== Compiler Flags ====================
+CFLAGS := -Wall -std=gnu99 -g
+CFLAGS += -MMD -MP  # Auto dependency generation
+CFLAGS += -DCONFIG_NCP_$(func)=1
+CFLAGS += -DCONFIG_NCP_$(interface)
+CFLAGS += -DCONFIG_NCP_DEBUG=$(NCP_DEBUG)
+CFLAGS += -DCONFIG_NCP_USE_ENCRYPT=$(NCP_ENCRYPT)
+
+# Add feature flags
+$(foreach feature,$(FEATURES),$(eval CFLAGS += -DCONFIG_NCP_$(feature)))
+
+# Add BLE profile flags if enabled
+ifeq ($(findstring BLE,$(FEATURES)),BLE)
+    $(foreach profile,$(BLE_PROFILES),\
+        $(if $($(profile)),$(eval CFLAGS += -DCONFIG_NCP_$(profile))))
 endif
 
-ifeq ($(func), WIFI_OT)
-CFLAGS += -DCONFIG_NCP_WIFI
-CFLAGS += -DCONFIG_NCP_OT
+# Optimization flags based on DEBUG
+ifeq ($(DEBUG), 0)
+    CFLAGS += -O2 -DNDEBUG
+else
+    CFLAGS += -O0 -g3 -DDEBUG
 endif
 
-ifeq ($(func), BLE_OT)
-CFLAGS += -DCONFIG_NCP_BLE
-CFLAGS += -DCONFIG_NCP_OT
+# ==================== Libraries and Includes ====================
+LDFLAGS := -lpthread -lc -lrt
+
+# USB support
+ifeq ($(interface), USB)
+    LDFLAGS += -I/usr/local/include/libusb-1.0 -L/usr/local/lib -lusb-1.0
 endif
 
-ifeq ($(func), OT)
-CFLAGS += -DCONFIG_NCP_OT
-endif
+# Include directories
+INC_DIRS := $(shell find $(SRC_DIR) -type d) \
+            $(shell find $(DRV_DIR) -type d)
+INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
-ifeq ($(encrypt), 1)
-CFLAGS += -DCONFIG_NCP_USE_ENCRYPT=1
-endif
+# ==================== Source Files ====================
+# Find all source files
+SRC_FILES := $(shell find $(SRC_DIR) -name '*.c') \
+             $(shell find $(DRV_DIR) -name '*.c')
 
-#When use USB interface
-#******For NCP MPU Host side(i.mx8mini)*****
-#1.Need install libusb in imx8 mini to support host app compile
-#2.Use "make interface=USB" to build app support usb interface
+# Generate object file names
+OBJ_FILES := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SRC_FILES))
+DEP_FILES := $(patsubst %.c,$(DEP_DIR)/%.d,$(SRC_FILES))
 
-#******For NCP device side(rw61x)*****
-#Enable compile macro 'CONFIG_NCP_USB'
+# ==================== Build Rules ====================
+.PHONY: all clean install debug release help
 
-#Note
-#Path of '-I/usr/local/include/libusb-1.0 -L/usr/local/lib' is corresponding to your libusb install path.
-LDFLAGS += -I/usr/local/include/libusb-1.0 -L/usr/local/lib -lusb-1.0
-#endif
+# Default target
+all: $(TARGET)
+
+# Main target
+$(TARGET): $(OBJ_FILES) | $(BIN_DIR)
+	$(Q)echo "[LD] Linking $(notdir $@)"
+	$(Q)$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(Q)echo "[OK] Build complete: $(notdir $@)"
+	$(Q)size $@
+
+# Pattern rule for object files
+$(OBJ_DIR)/%.o: %.c | $(OBJ_DIR) $(DEP_DIR)
+	@mkdir -p $(dir $@)
+	@mkdir -p $(dir $(DEP_DIR)/$*.d)
+	$(Q)echo "[CC] $(notdir $<)"
+	$(Q)$(CC) $(CFLAGS) $(INC_FLAGS) -MF $(DEP_DIR)/$*.d -c $< -o $@
 
 
+# Create directories
+$(BIN_DIR) $(OBJ_DIR) $(DEP_DIR):
+	@mkdir -p $@
 
-ifeq ($(CONFIG_NCP_SDIO), y)
-ifeq ($(CONFIG_NCP_SDIO_TEST_LOOPBACK), y)
-CFLAGS += -g -DCONFIG_SDIO_TEST_LOOPBACK
-endif
-endif
+# ==================== Utility Targets ====================
+# Clean build artifacts
+clean:
+	@echo "[CLEAN] Removing build artifacts..."
+	@rm -rf $(OBJ_DIR) $(BIN_DIR)
 
-ifeq ($(func), BLE)
-# Use "make HTS=y" to compile with HTS profile
-ifeq ($(HTS), y)
-CFLAGS += -DCONFIG_NCP_HTS
-endif
+# Deep clean (includes dependency files)
+distclean: clean
+	@echo "[DISTCLEAN] Removing all generated files..."
+	@find . -name "*.o" -delete
+	@find . -name "*.d" -delete
 
-# Use "make HTC=y" to compile with HTC profile
-ifeq ($(HTC), y)
-CFLAGS += -DCONFIG_NCP_HTC
-endif
+# Install target
+install: $(TARGET)
+	@echo "[INSTALL] Installing to /usr/local/bin..."
+	@install -D -m 755 $(TARGET) /usr/local/bin/$(BIN_NAME)
 
-# Use "make HRS=y" to compile with HRS profile
-ifeq ($(HRS), y)
-CFLAGS += -DCONFIG_NCP_HRS
-endif
+# Debug build
+debug:
+	@$(MAKE) DEBUG=1
 
-# Use "make HRC=y" to compile with HRC profile
-ifeq ($(HRC), y)
-CFLAGS += -DCONFIG_NCP_HRC
-endif
+# Release build (with optimization and stripping)
+release: CFLAGS += -O3
+release: $(TARGET)
+	@echo "[STRIP] Stripping debug symbols..."
+	@$(STRIP) $(TARGET)
 
-# Use "make BAS=y" to compile with BAS profile
-ifeq ($(BAS), y)
-CFLAGS += -DCONFIG_NCP_BAS
-endif
-endif
+# Print configuration
+info:
+	@echo "=== Build Configuration ==="
+	@echo "Function:  $(func)"
+	@echo "Interface: $(interface)"
+	@echo "Features:  $(FEATURES)"
+	@echo "Debug build:   $(DEBUG)"
+	@echo "NCP debug:     $(NCP_DEBUG)"
+	@echo "NCP encrypt:   $(NCP_ENCRYPT)"
+	@echo "Target:    $(TARGET)"
+	@echo "=========================="
 
-.PHONY : $(BIN_DIR)/$(BIN_NAME)
+# Help target
+help:
+	@echo "NCP Host Application Build System"
+	@echo "================================="
+	@echo ""
+	@echo "Usage: make [target] [options]"
+	@echo ""
+	@echo "Targets:"
+	@echo "  all       - Build the application (default)"
+	@echo "  clean     - Remove build artifacts"
+	@echo "  distclean - Remove all generated files"
+	@echo "  install   - Install the application"
+	@echo "  debug     - Build with debug symbols"
+	@echo "  release   - Build optimized release version"
+	@echo "  info      - Show build configuration"
+	@echo "  help      - Show this help message"
+	@echo ""
+	@echo "Options:"
+	@echo "  func=<FUNCTION>      - WIFI, BLE, OT, WIFI_BLE, WIFI_OT, BLE_OT, WIFI_BLE_OT"
+	@echo "  interface=<IFACE>    - USB, UART, SDIO, SPI"
+	@echo "  DEBUG=<0|1>          - Enable debug mode (default: 0)"
+	@echo "  NCP_DEBUG=<0|1>      - Enable NCP debug logs (default: 0)"
+	@echo "  NCP_ENCRYPT=<0|1>    - Enable NCP encryption (default: 1)"
+	@echo ""
+	@echo "BLE Profile Options (when func includes BLE):"
+	@echo "  HTS=y     - Enable HTS profile"
+	@echo "  HTC=y     - Enable HTC profile"
+	@echo "  HRS=y     - Enable HRS profile"
+	@echo "  HRC=y     - Enable HRC profile"
+	@echo "  BAS=y     - Enable BAS profile"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make func=WIFI interface=USB"
+	@echo "  make func=BLE interface=UART HTS=y"
+	@echo "  make func=WIFI_BLE interface=SDIO DEBUG=1"
 
-$(BIN_DIR)/$(BIN_NAME): $(OBJ_FILES)
-	@echo "start compiling ......"
-	$(CC) -o $@ $^ $(_INC_DIR) $(LDFLAGS)
+# Include dependency files
+-include $(DEP_FILES)
 
-%.o: %.c
-	$(CC) $(CFLAGS) -o $@ -c $< $(_INC_DIR) $(LDFLAGS)
-
-.PHONY : clean
-
-clean :
-	$(shell find . -name *.o | xargs rm -rf)
-	rm -rf $(BIN_DIR)/$(BIN_NAME)
+# Enable parallel build by default
+.PHONY: parallel
+parallel:
+	@$(MAKE) -j$(shell nproc) all

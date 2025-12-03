@@ -5,121 +5,161 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#if CONFIG_NCP_UART
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "ncp_adapter.h"
 #include "uart.h"
+#include "ncp_log.h"
+
+NCP_LOG_MODULE_DECLARE(ncp_uart);
 
 /*******************************************************************************
- * Public functions
+ * Code
  ******************************************************************************/
-/*
- * Init UART instance.
- */
-ncp_status_t uart_init(uart_device_t *dev)
+
+int uart_init(uart_device_t *dev)
 {
     struct termios *tty;
     int             fd;
     int             ret;
 
-    fd = open(dev->instance, O_RDWR | O_NOCTTY);
+    fd = open((const char *)dev->instance, O_RDWR | O_NOCTTY);
     if (fd < 0)
     {
-        ncp_adap_e("Failed to open UART instance \n");
-        return NCP_STATUS_ERROR;
+        NCP_LOG_ERR("Failed to open UART instance: %s", strerror(errno));
+        return -1;
     }
+
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
 
     tty = malloc(sizeof(*tty));
     if (!tty)
     {
-        ncp_adap_e("Failed to allocate UART TTY instance \n");
+        NCP_LOG_ERR("Failed to allocate UART TTY instance");
         close(fd);
-        return NCP_STATUS_ERROR;
+        return -1;
     }
 
-    memset(tty, 0, sizeof(*tty));
+    if (tcgetattr(fd, tty) != 0)
+    {
+        NCP_LOG_ERR("Failed to get UART attributes");
+        free(tty);
+        close(fd);
+        return -1;
+    }
 
     cfsetispeed(tty, dev->rate);
     cfsetospeed(tty, dev->rate);
-    /*Local area connection mode*/
-    tty->c_cflag |= CLOCAL;
-    /*Serial data reception*/
-    tty->c_cflag |= CREAD;
-    /*Hardware flow control*/
-    tty->c_cflag |= CRTSCTS; /*Enable hardware flow control*/
-    /*Set data bit*/
-    tty->c_cflag &= ~CSIZE; // bit mask for data bits.
-    tty->c_cflag |= CS8;    // 8 data bits.
-    /*Set parity bit*/
-    tty->c_cflag &= ~PARENB; // Enable parity bit.
-    tty->c_iflag &= ~INPCK;  // Enable parity check.
-    /*Set stop bit*/
-    tty->c_cflag &= ~CSTOPB;
-    /*Raw output*/
-    tty->c_oflag &= ~OPOST;
-    tty->c_iflag &= ~(IXON | IXOFF | IXANY); // Disable XON/XOFF flow control both i/p and o/p
-    tty->c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-    /*Set wait time and minimum received uint8_tacters*/
-    /*Time to wait for data (tenths of seconds). VTIME sepcifies the amount of time to wait for incoming characters in
-    tenths of seconds.
-    If VTIME is set to 0 (the default), reads will block (wait) indefinitely unless the NDELAY option is set on the port
-    with open or fcntl.*/
-    tty->c_cc[VTIME] = 0;
-    tty->c_cc[VMIN]  = 0; // TMinimum number of characters to read.
 
+    tty->c_cflag |= CLOCAL | CREAD;
+
+    if (dev->flow_control)
+    {
+        tty->c_cflag |= CRTSCTS;
+    }
+    else
+    {
+        tty->c_cflag &= ~CRTSCTS;
+    }
+
+    tty->c_cflag &= ~CSIZE;
+    tty->c_cflag |= CS8;
+    tty->c_cflag &= ~PARENB;
+    tty->c_iflag &= ~INPCK;
+    tty->c_cflag &= ~CSTOPB;
+
+    tty->c_oflag &= ~OPOST;
+    tty->c_iflag &= ~(IXON | IXOFF | IXANY);
+    tty->c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+
+    /* Raw mode */
+    tty->c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+
+    /* Configure read behavior */
+    tty->c_cc[VTIME] = 0;
+    tty->c_cc[VMIN]  = 1;
+
+    /* Flush input buffer */
     tcflush(fd, TCIFLUSH);
 
+    /* Apply new settings */
     ret = tcsetattr(fd, TCSANOW, tty);
     if (ret)
     {
-        ncp_adap_e("Failed to set UART attributes \n");
-        close(fd);
+        NCP_LOG_ERR("Failed to set UART attributes: %s", strerror(errno));
         free(tty);
-        return NCP_STATUS_ERROR;
+        close(fd);
+        return -1;
     }
 
     dev->fd  = fd;
     dev->tty = tty;
 
-    return NCP_STATUS_SUCCESS;
+    NCP_LOG_DBG("UART initialized: %s @ %u baud", dev->instance, dev->rate);
+    return 0;
 }
 
-/*
- * Receive UART data.
- */
-ncp_status_t uart_receive(uart_device_t *dev, uint8_t *buf, uint32_t len, size_t *nb_bytes)
+int uart_receive(uart_device_t *dev, uint8_t *buf, uint32_t len, size_t *nb_bytes)
 {
-    *nb_bytes = read(dev->fd, buf, len);
-    if (*nb_bytes < 0)
+    ssize_t bytes_read;
+
+    bytes_read = read(dev->fd, buf, len);
+    if (bytes_read < 0)
     {
-        ncp_adap_e("Failed to read UART data \n");
-        return NCP_STATUS_ERROR;
+        if (errno == EINTR)
+        {
+            *nb_bytes = 0;
+            return 0;
+        }
+        NCP_LOG_ERR("Failed to read UART data: %s", strerror(errno));
+        *nb_bytes = 0;
+        return -1;
     }
 
-    return NCP_STATUS_SUCCESS;
+    *nb_bytes = (size_t)bytes_read;
+    return 0;
 }
 
-/*
- * Send UART data.
- */
-ncp_status_t uart_send(uart_device_t *dev, uint8_t *buf, uint32_t len)
+int uart_send(uart_device_t *dev, uint8_t *buf, uint32_t len)
 {
-    if (write(dev->fd, buf, len) < 0)
+    ssize_t bytes_written;
+    uint32_t total_written = 0;
+
+    NCP_LOG_DBG("UART sending %u bytes", len);
+
+    while (total_written < len)
     {
-        ncp_adap_e("Failed to write UART data \n");
-        return NCP_STATUS_ERROR;
+        bytes_written = write(dev->fd, buf + total_written, len - total_written);
+        if (bytes_written < 0)
+        {
+            if (errno == EINTR)
+                continue;
+            NCP_LOG_ERR("Failed to write UART data: %s", strerror(errno));
+            return -1;
+        }
+        total_written += bytes_written;
     }
 
-    return NCP_STATUS_SUCCESS;
+    tcdrain(dev->fd);
+
+    NCP_LOG_DBG("UART sent %u bytes", len);
+    return 0;
 }
 
-/*
- * Deinit UART instance.
- */
 void uart_deinit(uart_device_t *dev)
 {
-    close(dev->fd);
-    free(dev->tty);
+    if (dev->fd >= 0)
+    {
+        tcflush(dev->fd, TCIOFLUSH);
+        close(dev->fd);
+    }
+    if (dev->tty)
+    {
+        free(dev->tty);
+        dev->tty = NULL;
+    }
 }
+#endif /* CONFIG_NCP_UART */

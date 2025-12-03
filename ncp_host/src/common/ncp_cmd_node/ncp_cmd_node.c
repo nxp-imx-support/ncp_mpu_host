@@ -149,7 +149,7 @@ uint8_t ncp_tlv_send_wait_resp(void * cmd, void * cmd_resp_buf, Handle_respFunc 
     pthread_mutex_lock(&g_cmd_node_list.cmd_node_seqno_lock);
     g_cmd_node_seqno++;
     pthread_mutex_unlock(&g_cmd_node_list.cmd_node_seqno_lock);
-    //ncp_adap_d("%s: last_cmd_node_sent=0x%x last_cmd_node_seqno_sent=0x%x\r\n", __FUNCTION__, last_cmd_node_sent, last_cmd_node_seqno_sent);
+    //NCP_LOG_DBG("%s: last_cmd_node_sent=0x%x last_cmd_node_seqno_sent=0x%x\r\n", __FUNCTION__, last_cmd_node_sent, last_cmd_node_seqno_sent);
 
     /* wait notify */
     clock_gettime(CLOCK_REALTIME, &ts);

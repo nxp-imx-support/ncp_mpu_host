@@ -33,8 +33,10 @@
 #include "ncp_tlv_adapter.h"
 #include "ncp_inet.h"
 #include <sys/syscall.h>
+#include "ncp_log.h"
 
-
+NCP_LOG_MODULE_DEFINE(ncp_wifi, CONFIG_LOG_NCP_WIFI_LEVEL);
+NCP_LOG_MODULE_REGISTER(ncp_wifi, CONFIG_LOG_NCP_WIFI_LEVEL);
 
 /* ping variables */
 int ping_qid;
@@ -115,6 +117,81 @@ static void display_ping_stats(int status, uint32_t size, const char *ip_str, ui
  * NCP_CMD_WLAN_SOCKET_RECVFROM command. Print ping statistics in NCP_CMD_WLAN_SOCKET_RECVFROM
  * command response, and print ping result in ping_sock_task.
  */
+#if CONFIG_INET_SOCKET
+static void ping_sock_task(void *arg)
+{
+    struct icmp_echo_hdr *iecho;
+    uint64_t ping_time;
+    ping_time_t ping_stop, temp_time;
+    printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
+
+    while (1)
+    {   
+        ping_res.recvd  = 0;
+        ping_res.seq_no = -1;
+        /* demo ping task wait for user input ping command from console */
+        (void)memset(&ping_msg, 0, sizeof(ping_msg_t));
+        if (msgrcv(ping_qid, (void *)&ping_msg, sizeof(ping_msg_t), 0, 0) < 0)
+        {
+            printf("msgrcv failed!\r\n");
+            continue;
+        }
+
+        printf("PING %s (%s) %u(%lu) bytes of data\r\n", ping_msg.ip_addr, ping_msg.ip_addr, ping_msg.size,
+        ping_msg.size + sizeof(struct ip_hdr) + sizeof(struct icmp_echo_hdr));
+
+        int i = 1;
+        /* Ping size is: size of ICMP header + size of payload */
+        uint16_t ping_size = sizeof(struct icmp_echo_hdr) + ping_msg.size;
+
+        iecho = (struct icmp_echo_hdr *)malloc(ping_size);
+        if (!iecho)
+        {
+            printf("failed to allocate memory for ping packet!\r\n");
+            continue;
+        }
+        struct sockaddr_in server_addr = {0};
+        struct in_addr dest_addr;
+        inet_pton(AF_INET, ping_msg.ip_addr, &dest_addr);
+        server_addr.sin_family		= PF_INET;
+        server_addr.sin_addr.s_addr     = dest_addr.s_addr;
+        int sockfd = ncp_socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+
+        while (i <= ping_msg.count)
+        {
+            ping_res.echo_resp = FALSE;
+            /* Prepare ping command */
+            ping_prepare_echo(iecho, (uint16_t)ping_size, i);
+
+            NCP_LOG_DBG("%s: SOCKET_SENDTO ping count=%u", __FUNCTION__, ping_msg.count);
+            ping_time_now(&ping_res.time);
+            ping_res.seq_no = i;
+            ncp_sendto(sockfd, iecho, ping_size, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+            socklen_t len = sizeof(server_addr);
+            int ret = ncp_recvfrom(sockfd, iecho, ping_size, 0, (struct sockaddr *)&server_addr, &len);
+            if (ret > 0)
+            {
+                ping_res.recvd++;
+                ping_res.size = ret;
+            }
+            else
+                ping_res.echo_resp = ret;
+            ping_time_now(&ping_stop);
+            ping_time_diff(&ping_stop, &ping_res.time, &temp_time);
+            ping_res.time = temp_time;
+            ping_time = ping_time_in_msecs(&ping_res.time);
+            inet_ntop(AF_INET, &(server_addr.sin_addr), ping_res.ip_addr, IP_ADDR_LEN);
+            display_ping_stats(ping_res.echo_resp, ping_res.size, ping_res.ip_addr, ping_res.seq_no, ping_res.ttl, ping_time);
+            usleep(1000000);
+            i++;
+        }
+        display_ping_result((int)ping_msg.count, ping_res.recvd);
+        ncp_close(sockfd);
+    }
+
+    pthread_exit(NULL);
+}
+#else
 static void ping_sock_task(void *arg)
 {
     struct icmp_echo_hdr *iecho;
@@ -125,7 +202,7 @@ static void ping_sock_task(void *arg)
     printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (1)
-    {   
+    {
         ping_res.recvd  = 0;
         ping_res.seq_no = -1;
         /* demo ping task wait for user input ping command from console */
@@ -163,7 +240,7 @@ static void ping_sock_task(void *arg)
         strcpy(ping_sock_open_tlv->domain_type, "ipv4");
         strcpy(ping_sock_open_tlv->protocol, "icmp");
         ping_sock_open_command->header.size += sizeof(NCP_CMD_SOCKET_OPEN_CFG);
-        ncp_adap_d("%s: SOCKET_OPEN before ping", __FUNCTION__);
+        NCP_LOG_DBG("%s: SOCKET_OPEN before ping", __FUNCTION__);
         /* Send socket open command */
         send_tlv_command(S_D);
 
@@ -196,7 +273,7 @@ static void ping_sock_task(void *arg)
             ping_sock_command->header.size += sizeof(NCP_CMD_SOCKET_SENDTO_CFG) - sizeof(char);
             ping_sock_command->header.size += ping_size;
 
-            ncp_adap_d("%s: SOCKET_SENDTO ping count=%u", __FUNCTION__, ping_msg.count);
+            NCP_LOG_DBG("%s: SOCKET_SENDTO ping count=%u", __FUNCTION__, ping_msg.count);
             /* Send ping TLV command */
             send_tlv_command(S_D);
             /* Get the current ticks as the start time */
@@ -208,7 +285,7 @@ static void ping_sock_task(void *arg)
             /* wait for NCP_CMD_WLAN_SOCKET_SENDTO command response */
             sem_wait(&ping_res_sem);
 
-            ncp_adap_d("%s: echo_resp=%d retry=%d", __FUNCTION__, ping_res.echo_resp, retry);
+            NCP_LOG_DBG("%s: echo_resp=%d retry=%d", __FUNCTION__, ping_res.echo_resp, retry);
             /* Function raw_input may put multiple pieces of data in conn->recvmbox,
              * waiting to select the data we want */
             while (ping_res.echo_resp != TRUE && retry)
@@ -231,7 +308,7 @@ static void ping_sock_task(void *arg)
                 /* cmd size */
                 ping_res_command->header.size += sizeof(NCP_CMD_SOCKET_RECVFROM_CFG);
 
-                ncp_adap_d("%s: SOCKET_RECVFROM echo_resp=%d retry=%d", __FUNCTION__, ping_res.echo_resp, retry);
+                NCP_LOG_DBG("%s: SOCKET_RECVFROM echo_resp=%d retry=%d", __FUNCTION__, ping_res.echo_resp, retry);
                 /* Send get-ping-result TLV command */
                 send_tlv_command(S_D);
                 /* wait for NCP_CMD_WLAN_SOCKET_RECVFROM command response */
@@ -239,7 +316,7 @@ static void ping_sock_task(void *arg)
 
                 retry--;
             }
-			
+
             /* Calculate the round trip time */
             ping_time_now(&ping_stop);
             ping_time_diff(&ping_stop, &ping_res.time, &temp_time);
@@ -266,13 +343,15 @@ static void ping_sock_task(void *arg)
         ping_socket_close_tlv->handle = ping_sock_handle;
         /*cmd size*/
         ping_socket_close_command->header.size += sizeof(NCP_CMD_SOCKET_CLOSE_CFG);
-        ncp_adap_d("%s: SOCKET_CLOSE ping handle=%u", __FUNCTION__, ping_sock_handle);
+        NCP_LOG_DBG("%s: SOCKET_CLOSE ping handle=%u", __FUNCTION__, ping_sock_handle);
         send_tlv_command(S_D);
         ping_sock_handle = -1;
     }
 
     pthread_exit(NULL);
 }
+#endif
+
 
 extern iperf_msg_t iperf_msg;
 
@@ -325,7 +404,7 @@ char lwiperf_end_token[NCP_IPERF_END_TOKEN_SIZE] = {'N', 'C', 'P', 'I', 'P', 'E'
 int iperf_send_setting(void *arg)
 {
     send_data_t *S_D = (send_data_t *)arg;
-    ncp_adap_d("%s: iperf_type=%u", __FUNCTION__, iperf_msg.iperf_set.iperf_type);
+    NCP_LOG_DBG("%s: iperf_type=%u", __FUNCTION__, iperf_msg.iperf_set.iperf_type);
     if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_TX || iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_RX)
     {
         NCPCmd_DS_COMMAND *iperf_command = mpu_host_get_wifi_command_buffer();
@@ -376,7 +455,7 @@ void iperf_send_finish(void *arg)
 {
     send_data_t *S_D                 = (send_data_t *)arg;
     NCPCmd_DS_COMMAND *iperf_command = mpu_host_get_wifi_command_buffer();
-    ncp_adap_d("%s: iperf_type=%u", __FUNCTION__, iperf_msg.iperf_set.iperf_type);
+    NCP_LOG_DBG("%s: iperf_type=%u", __FUNCTION__, iperf_msg.iperf_set.iperf_type);
     if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_TX)
     {    
         iperf_command->header.cmd        = NCP_CMD_WLAN_SOCKET_SEND;
@@ -435,7 +514,7 @@ void iperf_tcp_tx(void *arg)
     send_data_t *S_D                 = (send_data_t *)arg;
     NCPCmd_DS_COMMAND *iperf_command = mpu_host_get_wifi_command_buffer();
 
-    ncp_adap_d("%s: iperf_type=%u", __FUNCTION__, iperf_msg.iperf_set.iperf_type);
+    NCP_LOG_DBG("%s: iperf_type=%u", __FUNCTION__, iperf_msg.iperf_set.iperf_type);
     if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_TX)
     {
         iperf_command->header.cmd      = NCP_CMD_WLAN_SOCKET_SEND;
@@ -479,7 +558,7 @@ void iperf_tcp_rx(void *arg)
     send_data_t *S_D                     = (send_data_t *)arg;
     NCPCmd_DS_COMMAND *ncp_iperf_command = mpu_host_get_wifi_command_buffer();
 
-    ncp_adap_d("%s: iperf_type=%u", __FUNCTION__, iperf_msg.iperf_set.iperf_type);
+    NCP_LOG_DBG("%s: iperf_type=%u", __FUNCTION__, iperf_msg.iperf_set.iperf_type);
     if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_RX)
     {
         ncp_iperf_command->header.cmd      = NCP_CMD_WLAN_SOCKET_RECV;
@@ -557,12 +636,12 @@ static void iperf_tx_task(void *arg)
                 client_sockfd = ncp_socket(PF_INET, (SOCK_STREAM | SOCK_CLOEXEC), IPPROTO_TCP);
                 if (ncp_connect(client_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
                 {
-                    ncp_adap_e("connect to server failed!");
+                    NCP_LOG_ERR("connect to server failed!");
                     ncp_close(client_sockfd);
                     continue;
                 }
                 else
-                    ncp_adap_w("[OK] Connected to Server");
+                    NCP_LOG_INF("[OK] Connected to Server");
             }
             else if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_UDP_TX)
             {
@@ -571,12 +650,12 @@ static void iperf_tx_task(void *arg)
                 client_sockfd = ncp_socket(PF_INET, (SOCK_DGRAM | SOCK_CLOEXEC), IPPROTO_UDP);
                 if (client_sockfd < 0)
                 {
-                    ncp_adap_e("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+                    NCP_LOG_ERR("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
                     continue;
                 }
                 else
                 {
-                    ncp_adap_w("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
+                    NCP_LOG_WRN("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
                 }
                 server_addr.sin_family = AF_INET;
                 server_addr.sin_port = htons(NCP_IPERF_UDP_SERVER_PORT_DEFAULT);
@@ -607,15 +686,15 @@ static void iperf_tx_task(void *arg)
         /*send setting*/
         memcpy(lwiperf_txbuf_const, (char *)(&iperf_msg.iperf_set), sizeof(iperf_set_t));
 #ifdef CONFIG_MPU_INET_DUMP
-        ncp_adap_e("%s: dump %u setting buffer %u", __FUNCTION__, iperf_msg.iperf_set.iperf_type, sizeof(iperf_set_t));
-        ncp_dump_hex(lwiperf_txbuf_const, sizeof(iperf_set_t));
+        NCP_LOG_ERR("%s: dump %u setting buffer %u", __FUNCTION__, iperf_msg.iperf_set.iperf_type, sizeof(iperf_set_t));
+        NCP_LOG_HEXDUMP_DBG(lwiperf_txbuf_const, sizeof(iperf_set_t));
 #endif
         if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_TX)
         {
             ret = ncp_send(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0);
             if (ret < 0)
             {
-                ncp_adap_e("[send iperf setting fail]");
+                NCP_LOG_ERR("[send iperf setting fail]");
                 continue;
             }
         }
@@ -624,7 +703,7 @@ static void iperf_tx_task(void *arg)
             ret = ncp_sendto(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
             if (ret < 0)
             {
-                ncp_adap_e("[send iperf setting fail]");
+                NCP_LOG_ERR("[send iperf setting fail]");
                 continue;
             }
         }
@@ -635,20 +714,20 @@ static void iperf_tx_task(void *arg)
         while (i < iperf_msg.iperf_set.iperf_count)
         {
 #ifdef CONFIG_MPU_INET_DUMP
-            ncp_adap_e("%s: [%llu] dump %u setting buffer %u", __FUNCTION__, i, iperf_msg.iperf_set.iperf_type, iperf_msg.per_size);
-            ncp_dump_hex(lwiperf_txbuf_const, 64);
+            NCP_LOG_ERR("%s: [%llu] dump %u setting buffer %u", __FUNCTION__, i, iperf_msg.iperf_set.iperf_type, iperf_msg.per_size);
+            NCP_LOG_HEXDUMP_DBG(lwiperf_txbuf_const, 64);
 #endif
             if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_TX)
             {
                 ret = ncp_send(client_sockfd, lwiperf_txbuf_const, iperf_msg.per_size, 0);
                 if (ret < 0)
-                    ncp_adap_e("[send iperf data fail");
+                    NCP_LOG_ERR("[send iperf data fail");
             }
             else if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_UDP_TX)
             {
                 ret = ncp_sendto(client_sockfd, lwiperf_txbuf_const, iperf_msg.per_size, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
                 if (ret < 0)
-                    ncp_adap_e("[send iperf data fail");
+                    NCP_LOG_ERR("[send iperf data fail");
             }
 
             if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_UDP_TX)
@@ -676,17 +755,17 @@ static void iperf_tx_task(void *arg)
         {
             ret = ncp_send(client_sockfd, lwiperf_end_token, NCP_IPERF_END_TOKEN_SIZE, 0);
             if (ret < 0)
-                ncp_adap_e("[send iperf finish fail]");
+                NCP_LOG_ERR("[send iperf finish fail]");
             else
-                ncp_adap_e("[send iperf finish]");
+                NCP_LOG_INF("[send iperf finish]");
         }
         else if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_UDP_TX)
         {
             ret = ncp_sendto(client_sockfd, lwiperf_end_token, NCP_IPERF_END_TOKEN_SIZE, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
             if (ret < 0)
-                ncp_adap_e("[send iperf finish fail]");
+                NCP_LOG_ERR("[send iperf finish fail]");
             else
-                ncp_adap_e("[send iperf finish]");
+                NCP_LOG_INF("[send iperf finish]");
 
         }
         sleep(1);
@@ -702,7 +781,6 @@ static void iperf_rx_task(void *arg)
 {
     long long pkg_num   = 0;
     long long recv_size = 0, left_size = 0;
-    send_data_t *S_D = (send_data_t *)arg;
     int ret = 0;
     int32_t latency_target = 0, latency_old = 0;
     int                client_sockfd;
@@ -730,12 +808,12 @@ static void iperf_rx_task(void *arg)
                 client_sockfd = ncp_socket(PF_INET, (SOCK_STREAM | SOCK_CLOEXEC), IPPROTO_TCP);
                 if (ncp_connect(client_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
                 {
-                    ncp_adap_e("connect to server failed!");
+                    NCP_LOG_ERR("connect to server failed!");
                     ncp_close(client_sockfd);
                     continue;
                 }
                 else
-                    ncp_adap_w("[OK] Connected to Server");
+                    NCP_LOG_INF("[OK] Connected to Server");
             }
             else if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_UDP_RX)
             {
@@ -744,12 +822,12 @@ static void iperf_rx_task(void *arg)
                 client_sockfd = ncp_socket(PF_INET, (SOCK_DGRAM | SOCK_CLOEXEC), IPPROTO_UDP);
                 if (client_sockfd < 0)
                 {
-                    ncp_adap_e("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+                    NCP_LOG_ERR("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
                     continue;
                 }
                 else
                 {
-                    ncp_adap_w("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
+                    NCP_LOG_WRN("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
 				}
                 server_addr.sin_family = AF_INET;
                 server_addr.sin_port = htons(5003);
@@ -760,15 +838,15 @@ static void iperf_rx_task(void *arg)
         /*send setting*/
         memcpy(lwiperf_txbuf_const, (char *)(&iperf_msg.iperf_set), sizeof(iperf_set_t));
 #ifdef CONFIG_MPU_INET_DUMP
-        ncp_adap_e("%s: dump %u setting buffer %u", __FUNCTION__, iperf_msg.iperf_set.iperf_type, sizeof(iperf_set_t));
-        ncp_dump_hex(lwiperf_txbuf_const, sizeof(iperf_set_t));
+        NCP_LOG_ERR("%s: dump %u setting buffer %u", __FUNCTION__, iperf_msg.iperf_set.iperf_type, sizeof(iperf_set_t));
+        NCP_LOG_HEXDUMP_DBG(lwiperf_txbuf_const, sizeof(iperf_set_t));
 #endif
         if (iperf_msg.iperf_set.iperf_type == NCP_IPERF_TCP_RX)
         {
             ret = ncp_send(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0);
             if (ret < 0)
             {
-                ncp_adap_e("[send iperf setting fail");
+                NCP_LOG_ERR("[send iperf setting fail");
                 continue;
             }
         }
@@ -777,7 +855,7 @@ static void iperf_rx_task(void *arg)
             ret = ncp_sendto(client_sockfd, lwiperf_txbuf_const, sizeof(iperf_set_t), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
             if (ret < 0)
             {
-                ncp_adap_e("[send iperf setting fail");
+                NCP_LOG_ERR("[send iperf setting fail");
                 continue;
             }
         }
@@ -794,17 +872,17 @@ static void iperf_rx_task(void *arg)
             ret = ncp_recv(client_sockfd, buffer, iperf_msg.per_size, 0);
             if (ret < 0)
             {
-                ncp_adap_e("%s: ncp_recv fail ret=%d", __FUNCTION__, ret);
+                NCP_LOG_ERR("%s: ncp_recv fail ret=%d", __FUNCTION__, ret);
                 continue;
             }
             if (iperf_msg.per_size > sizeof(buffer))
             {
-                ncp_adap_e("%s: invalid recv size %u", __FUNCTION__, iperf_msg.per_size);
+                NCP_LOG_ERR("%s: invalid recv size %u", __FUNCTION__, iperf_msg.per_size);
                 continue;
             }
 #ifdef CONFIG_MPU_INET_DUMP
-            ncp_adap_e("%s: dump ncp_recv buffer %u ret=%d", __FUNCTION__, iperf_msg.per_size, ret);
-            ncp_dump_hex(buffer, ret);
+            NCP_LOG_ERR("%s: dump ncp_recv buffer %u ret=%d", __FUNCTION__, iperf_msg.per_size, ret);
+            NCP_LOG_HEXDUMP_DBG(buffer, ret);
 #endif
             recv_size += ret;
             left_size -= ret;
@@ -985,55 +1063,55 @@ static void iperf_rx_task(void *arg)
 static void wifi_ncp_callback(void *tlv, size_t tlv_sz, int status)
 {
     //ncp_status_t ret = NCP_STATUS_SUCCESS;
-    ncp_tlv_qelem_t *qelem = NULL;
+    ncp_tlv_data_qelem_t *qelem = NULL;
     uint8_t *qelem_pld = NULL;
 
     pthread_mutex_lock(&wifi_ncp_tlv_rx_queue_mutex);
     if (tlv_sz > NCP_TLV_QUEUE_MSGPLD_SIZE)
     {
-        ncp_adap_e("%s: tlv_sz=%lu > %d", __FUNCTION__, tlv_sz, NCP_TLV_QUEUE_MSGPLD_SIZE);
-        NCP_TLV_STATS_INC(err_rx);
+        NCP_LOG_ERR("%s: tlv_sz=%lu > %d", __FUNCTION__, tlv_sz, NCP_TLV_QUEUE_MSGPLD_SIZE);
+        // NCP_TLV_STATS_INC(err_rx);
         goto Fail;
     }
 
-    if (wifi_ncp_tlv_rx_queue_len == NCP_TLV_QUEUE_LENGTH)
+    if (wifi_ncp_tlv_rx_queue_len == NCP_TLV_DATA_QUEUE_LENGTH)
     {
-        ncp_adap_e("%s: ncp tlv queue is full max queue length: %d", __FUNCTION__, NCP_TLV_QUEUE_LENGTH);
+        NCP_LOG_ERR("%s: ncp tlv queue is full max queue length: %d", __FUNCTION__, NCP_TLV_DATA_QUEUE_LENGTH);
         //ret = NCP_STATUS_QUEUE_FULL;
-        NCP_TLV_STATS_INC(err_rx);
+        // NCP_TLV_STATS_INC(err_rx);
         goto Fail;
     }
 
-    qelem = (ncp_tlv_qelem_t *)malloc(sizeof(ncp_tlv_qelem_t) + tlv_sz);
+    qelem = (ncp_tlv_data_qelem_t *)malloc(sizeof(ncp_tlv_data_qelem_t) + tlv_sz);
     if (!qelem)
     {
-        ncp_adap_e("%s: failed to allocate qelem memory", __FUNCTION__);
+        NCP_LOG_ERR("%s: failed to allocate qelem memory", __FUNCTION__);
         //return NCP_STATUS_NOMEM;
         goto Fail;
     }
-    ncp_adap_d("%s: malloc qelem %p %lu", __FUNCTION__, qelem, sizeof(ncp_tlv_qelem_t) + tlv_sz);
+    NCP_LOG_DBG("%s: malloc qelem %p %lu", __FUNCTION__, qelem, sizeof(ncp_tlv_data_qelem_t) + tlv_sz);
     qelem->tlv_sz = tlv_sz;
     qelem->priv   = NULL;
-    qelem_pld = (uint8_t *)qelem + sizeof(ncp_tlv_qelem_t);
+    qelem_pld = (uint8_t *)qelem + sizeof(ncp_tlv_data_qelem_t);
     memcpy(qelem_pld, tlv, tlv_sz);
     qelem->tlv_buf = qelem_pld;
 
-    ncp_adap_d("%s: mq_send qelem=%p: tlv_buf=%p tlv_sz=%lu", __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
+    NCP_LOG_DBG("%s: mq_send qelem=%p: tlv_buf=%p tlv_sz=%lu", __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
 #ifdef CONFIG_MPU_IO_DUMP
-    mpu_dump_hex((uint8_t *)qelem, sizeof(ncp_tlv_qelem_t) + qelem->tlv_sz);
+    NCP_LOG_HEXDUMP_DBG((uint8_t *)qelem, sizeof(ncp_tlv_data_qelem_t) + qelem->tlv_sz);
 #endif
     if (mq_send(wifi_ncp_tlv_rx_msgq_handle, (char *)&qelem, NCP_TLV_QUEUE_MSG_SIZE, 0) != 0)
     {
-        ncp_adap_e("%s: ncp tlv enqueue failure", __FUNCTION__);
-        ncp_adap_d("%s: free qelem %p", __FUNCTION__, qelem);
+        NCP_LOG_ERR("%s: ncp tlv enqueue failure", __FUNCTION__);
+        NCP_LOG_DBG("%s: free qelem %p", __FUNCTION__, qelem);
         free(qelem);
-        NCP_TLV_STATS_INC(err_rx);
+        // NCP_TLV_STATS_INC(err_rx);
         //ret = NCP_STATUS_ERROR;
         goto Fail;
     }
     wifi_ncp_tlv_rx_queue_len++;
-    NCP_TLV_STATS_INC(rx1);
-    ncp_adap_d("%s: enque tlv_buf success", __FUNCTION__);
+    // NCP_TLV_STATS_INC(rx1);
+    NCP_LOG_DBG("%s: enque tlv_buf success", __FUNCTION__);
 
 Fail:
     pthread_mutex_unlock(&wifi_ncp_tlv_rx_queue_mutex);
@@ -1048,7 +1126,7 @@ static int wifi_ncp_handle_rx_cmd_event(uint8_t *cmd)
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)cmd;
     int recv_resp_length = cmd_res->header.size;
     printf("%s: recv_resp_length = %d\r\n", __FUNCTION__, recv_resp_length);
-    mpu_dump_hex((uint8_t *)cmd_res, recv_resp_length);
+    NCP_LOG_HEXDUMP_DBG((uint8_t *)cmd_res, recv_resp_length);
 #endif
 
     msg_type = GET_MSG_TYPE(((NCP_COMMAND *)cmd)->cmd);
@@ -1085,19 +1163,19 @@ static int wifi_ncp_handle_rx_cmd_event(uint8_t *cmd)
 void wifi_ncp_rx_task(void *pvParameters)
 {
     ssize_t         tlv_sz = 0;
-    ncp_tlv_qelem_t *qelem = NULL;
+    ncp_tlv_data_qelem_t *qelem = NULL;
     printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (pthread_mutex_trylock(&wifi_ncp_tlv_rx_thread_mutex) != 0)
     {
         qelem = NULL;
         tlv_sz = mq_receive(wifi_ncp_tlv_rx_msgq_handle, (char *)&qelem, NCP_TLV_QUEUE_MSG_SIZE, NULL);
-        ncp_adap_d("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
+        NCP_LOG_DBG("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
                     __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
         if (tlv_sz == -1)
         {
-            ncp_adap_e("%s: mq_receive failed", __FUNCTION__);
-            NCP_TLV_STATS_INC(err_rx);
+            NCP_LOG_ERR("%s: mq_receive failed", __FUNCTION__);
+            // NCP_TLV_STATS_INC(err_rx);
             continue;
         }
 
@@ -1107,13 +1185,13 @@ void wifi_ncp_rx_task(void *pvParameters)
 
         if (qelem == NULL)
         {
-            ncp_adap_e("%s: qelem=%p", __FUNCTION__, qelem);
-            NCP_TLV_STATS_INC(err_rx);
+            NCP_LOG_ERR("%s: qelem=%p", __FUNCTION__, qelem);
+            // NCP_TLV_STATS_INC(err_rx);
             continue;
         }
-        NCP_TLV_STATS_INC(rx2);
+        // NCP_TLV_STATS_INC(rx2);
         wifi_ncp_handle_rx_cmd_event(qelem->tlv_buf);
-        ncp_adap_d("%s: free qelem %p", __FUNCTION__, qelem);
+        NCP_LOG_DBG("%s: free qelem %p", __FUNCTION__, qelem);
         free(qelem);
     }
     pthread_mutex_unlock(&wifi_ncp_tlv_rx_thread_mutex);
@@ -1125,23 +1203,23 @@ int wifi_ncp_init()
     struct mq_attr     qattr;
     pthread_attr_t     tattr;
 
-    ncp_adap_d("Enter wifi_ncp_init");
+    NCP_LOG_DBG("Enter wifi_ncp_init");
 
     status = pthread_mutex_init(&wifi_ncp_tlv_rx_queue_mutex, NULL);
     if (status != 0)
     {
-        ncp_adap_e("%s: ERROR: pthread_mutex_init", __FUNCTION__);
+        NCP_LOG_ERR("%s: ERROR: pthread_mutex_init", __FUNCTION__);
         return NCP_STATUS_ERROR;
     }
     mq_unlink(NCP_RX_QUEUE_NAME);
     qattr.mq_flags         = 0;
-    qattr.mq_maxmsg        = NCP_TLV_QUEUE_LENGTH;
+    qattr.mq_maxmsg        = NCP_TLV_DATA_QUEUE_LENGTH;
     qattr.mq_msgsize       = NCP_TLV_QUEUE_MSG_SIZE;
     qattr.mq_curmsgs       = 0;
     wifi_ncp_tlv_rx_msgq_handle = mq_open(NCP_RX_QUEUE_NAME, O_RDWR | O_CREAT, 0644, &qattr);
     if ((int)wifi_ncp_tlv_rx_msgq_handle == -1)
     {
-        ncp_adap_e("ERROR: wifi_ncp_tlv_rx_msgq_handle create fail");
+        NCP_LOG_ERR("ERROR: wifi_ncp_tlv_rx_msgq_handle create fail");
         goto err_msgq;
     }
 
@@ -1149,7 +1227,7 @@ int wifi_ncp_init()
     status = pthread_attr_init(&tattr);
     if (status != 0)
     {
-        ncp_adap_e("ERROR: %s pthread_attr_init", __FUNCTION__);
+        NCP_LOG_ERR("ERROR: %s pthread_attr_init", __FUNCTION__);
         goto err_arrt_init;
     }
 
@@ -1159,13 +1237,13 @@ int wifi_ncp_init()
     status = pthread_create(&wifi_ncp_tlv_rx_thread, &tattr, (void *)wifi_ncp_rx_task, NULL);
     if (status != 0)
     {
-        ncp_adap_e("ERROR: %s pthread_create", __FUNCTION__);
+        NCP_LOG_ERR("ERROR: %s pthread_create", __FUNCTION__);
         goto err_rx_mutex;
     }
 
     ncp_tlv_install_handler(GET_CMD_CLASS(NCP_CMD_WLAN), (void *)wifi_ncp_callback);
     ncp_inet_init();
-    ncp_adap_d("Exit wifi_ncp_init");
+    NCP_LOG_DBG("Exit wifi_ncp_init");
     return NCP_STATUS_SUCCESS;
 
 err_rx_mutex:
@@ -1183,7 +1261,7 @@ err_msgq:
 int wifi_ncp_deinit()
 {
     ssize_t		 tlv_sz;
-    ncp_tlv_qelem_t *qelem = NULL;
+    ncp_tlv_data_qelem_t *qelem = NULL;
 
     pthread_mutex_unlock(&wifi_ncp_tlv_rx_thread_mutex);
     pthread_join(wifi_ncp_tlv_rx_thread, NULL);
@@ -1196,19 +1274,19 @@ int wifi_ncp_deinit()
         {
             if (qelem == NULL)
             {
-                ncp_adap_e("%s: qelem=%p", __FUNCTION__, qelem);
+                NCP_LOG_ERR("%s: qelem=%p", __FUNCTION__, qelem);
                 continue;
             }
-            ncp_adap_d("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
+            NCP_LOG_DBG("%s: mq_receive qelem=%p: tlv_buf=%p tlv_sz=%lu",
                             __FUNCTION__, qelem, qelem->tlv_buf, qelem->tlv_sz);
-            ncp_adap_d("%s: free qelem %p", __FUNCTION__, qelem);
+            NCP_LOG_DBG("%s: free qelem %p", __FUNCTION__, qelem);
             free(qelem);
             qelem = NULL;
             continue;
         }
         else
         {
-            ncp_adap_d("ncp adapter queue flush completed");
+            NCP_LOG_DBG("ncp adapter queue flush completed");
             break;
         }
     }
@@ -1217,18 +1295,18 @@ int wifi_ncp_deinit()
 
     if (pthread_mutex_destroy(&wifi_ncp_tlv_rx_queue_mutex) != 0)
     {
-        ncp_adap_e("ncp adapter tx deint queue mutex fail");
+        NCP_LOG_ERR("ncp adapter tx deint queue mutex fail");
     }
 
     if (mq_close(wifi_ncp_tlv_rx_msgq_handle) != 0)
     {
-        ncp_adap_e("ncp adapter tx deint MsgQ fail");
+        NCP_LOG_ERR("ncp adapter tx deint MsgQ fail");
     }
     mq_unlink(NCP_RX_QUEUE_NAME);
 
     if (pthread_mutex_destroy(&wifi_ncp_tlv_rx_thread_mutex) != 0)
     {
-        ncp_adap_e("ncp adapter tx deint thread mutex fail");
+        NCP_LOG_ERR("ncp adapter tx deint thread mutex fail");
     }
     return NCP_STATUS_SUCCESS;
 }

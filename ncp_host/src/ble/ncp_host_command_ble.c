@@ -24,7 +24,9 @@
 #include <service/bas.h>
 
 #include <matter/src/ncp_bluetooth.h>
+#include "ncp_log.h"
 
+NCP_LOG_MODULE_DECLARE(ncp_ble);
 
 extern uint8_t cmd_buf[NCP_COMMAND_LEN];
 
@@ -2372,7 +2374,7 @@ int ble_process_l2cap_received(uint8_t *res)
     }
     printf("L2CAP psm: %u\r\n",l2cap_received_tlv->psm);
 
-    mpu_dump_hex(l2cap_received_tlv->data, l2cap_received_tlv->len);
+    NCP_LOG_HEXDUMP_DBG(l2cap_received_tlv->data, l2cap_received_tlv->len);
 
     return WM_SUCCESS;
 }

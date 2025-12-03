@@ -2,15 +2,15 @@
   "SPDXID": "SPDXRef-DOCUMENT",
   "spdxVersion": "SPDX-2.3",
   "creationInfo": {
-    "created": "2025-11-28T08:08:05Z",
+    "created": "2025-11-28T08:08:28Z",
     "creators": [
       "Organization: NXP"
     ],
     "licenseListVersion": "3.20"
   },
-  "name": "ncp_mpu_host-v1.r1.p12",
+  "name": "ncp_mpu_host-v1.r1.p13",
   "dataLicense": "CC0-1.0",
-  "documentNamespace": "https://nxp.com/spdx/9e34bcd6-a513-4718-b177-5a1f48d30042",
+  "documentNamespace": "https://nxp.com/spdx/a2cebd53-ff31-41df-a84e-87e11a70d6f4",
   "packages": [
     {
       "SPDXID": "SPDXRef-package-2f3dbaea-7c5a-4589-b9ed-c7956629f571",
@@ -68,9 +68,9 @@
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-9e34bcd6-a513-4718-b177-5a1f48d30042",
+      "SPDXID": "SPDXRef-package-a2cebd53-ff31-41df-a84e-87e11a70d6f4",
       "name": "ncp_mpu_host",
-      "versionInfo": "v1.r1.p12",
+      "versionInfo": "v1.r1.p13",
       "licenseConcluded": "(BSD-3-Clause)",
       "licenseDeclared": "(BSD-3-Clause)",
       "downloadLocation": "NOASSERTION",
@@ -140,32 +140,32 @@
   ],
   "relationships": [
     {
-      "spdxElementId": "SPDXRef-package-9e34bcd6-a513-4718-b177-5a1f48d30042",
+      "spdxElementId": "SPDXRef-package-a2cebd53-ff31-41df-a84e-87e11a70d6f4",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-2f3dbaea-7c5a-4589-b9ed-c7956629f571"
     },
     {
-      "spdxElementId": "SPDXRef-package-9e34bcd6-a513-4718-b177-5a1f48d30042",
+      "spdxElementId": "SPDXRef-package-a2cebd53-ff31-41df-a84e-87e11a70d6f4",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-87476701-cd7b-494c-a778-27bd8fecc90f"
     },
     {
-      "spdxElementId": "SPDXRef-package-9e34bcd6-a513-4718-b177-5a1f48d30042",
+      "spdxElementId": "SPDXRef-package-a2cebd53-ff31-41df-a84e-87e11a70d6f4",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-99490dd7-f4da-4cb8-9c61-7770c570f492"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-package-9e34bcd6-a513-4718-b177-5a1f48d30042"
+      "relatedSpdxElement": "SPDXRef-package-a2cebd53-ff31-41df-a84e-87e11a70d6f4"
     },
     {
-      "spdxElementId": "SPDXRef-package-9e34bcd6-a513-4718-b177-5a1f48d30042",
+      "spdxElementId": "SPDXRef-package-a2cebd53-ff31-41df-a84e-87e11a70d6f4",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a"
     },
     {
-      "spdxElementId": "SPDXRef-package-9e34bcd6-a513-4718-b177-5a1f48d30042",
+      "spdxElementId": "SPDXRef-package-a2cebd53-ff31-41df-a84e-87e11a70d6f4",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-fea2dbed-9f9b-4b25-92a4-808a7bec9a49"
     }

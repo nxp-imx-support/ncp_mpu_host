@@ -5,6 +5,8 @@
  *  SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <string.h>
+#include <stdlib.h>
 #include "ncp_host_app.h"
 #include "ncp_host_command.h"
 #include "ncp_tlv_adapter.h"
@@ -121,7 +123,7 @@ int help_command(int argc, char **argv)
     {
         if (mpu_host_app_cmd.commands[i]->name != NULL)
         {
-            printf("%s %s\r\n", mpu_host_app_cmd.commands[i]->name,
+            printf("%s %s\n", mpu_host_app_cmd.commands[i]->name,
                    mpu_host_app_cmd.commands[i]->help ? mpu_host_app_cmd.commands[i]->help : "");
             n++;
         }
