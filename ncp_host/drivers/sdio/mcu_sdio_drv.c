@@ -1284,11 +1284,33 @@ static int mcu_sdio_init(struct mcu_sdio_mmc_card *card)
 	return ret;
 }
 
+static void mcu_sdio_wait_fw_ready(struct mcu_sdio_mmc_card *card)
+{
+	int ret = -EFAULT;
+	u32 fwstat0 = 0;
+	u32 fwstat1 = 0;
+
+	/* Wait for firmware ready */
+	while (true) {
+		ret = mcu_sdio_read_reg(card, card->regs->fw_dnld_status_0_reg, &fwstat0);
+		ret |= mcu_sdio_read_reg(card, card->regs->fw_dnld_status_1_reg, &fwstat1);
+		if ((ret == 0) && (fwstat0 == SDIO_FW_READY0) && (fwstat1 == SDIO_FW_READY1)) {
+			break;
+		}
+		PRINTM_DEBUG("%s: ret=%d fwstat0=0x%x fwstat1=0x%x\n", __FUNCTION__, ret, fwstat0, fwstat1);
+		mdelay(1);
+	}
+
+	PRINTM_DEBUG("%s: Success %d: 0x%x 0x%x\n", __FUNCTION__, ret, fwstat0, fwstat1);
+}
+
+
 int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 {
 	struct mcu_sdio_mmc_card *card = NULL;
 	int ret;
 	u32 i = 0;
+	int retry_cnt = 0;
 
 	PRINT_INFO("vendor=0x%4.04X device=0x%4.04X class=%d function=%d\n",
 		func->vendor, func->device, func->class, func->num);
@@ -1355,6 +1377,18 @@ int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 
 	sdio_claim_host(func);
 
+	/* Set Scratch Reg 0xFD to 2, let device know mmc reset done */
+	retry_cnt = 100;
+	do {
+		ret = mcu_sdio_write_reg(card, 0xFD, SDIO_HOST_RESET_DONE);
+		mdelay(10);
+		PRINTM_DEBUG("%s: mcu_sdio_write_reg %d 0xFD=%u ret=%d\n", __FUNCTION__, retry_cnt, SDIO_HOST_RESET_DONE, ret);
+		retry_cnt--;
+	} while (ret && retry_cnt > 0);
+
+	mcu_sdio_wait_fw_ready(card);
+	mdelay(100);
+
 	ret = sdio_enable_func(func);
 	if (ret) {
 		PRINT_ERR("sdio_enable_func() failed: ret=%d\n", ret);
@@ -1382,11 +1416,12 @@ int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 		goto err;
 	}
 
+	sdio_set_drvdata(func, card);
+
 	/* re-enable host interrupt */
 	ret = mcu_enable_sdio_host_int(card, card->regs->host_int_enable);
 
 	sdio_release_host(func);
-	sdio_set_drvdata(func, card);
 
 	ret = mcu_sdio_write_reg(card, 0xFD, SDIO_HOST_INIT_DONE);
 	if (ret != 0) {
@@ -1584,7 +1619,6 @@ static ssize_t mcu_sdio_misc_read(struct file *file, char __user *buf,
 	DEFINE_WAIT(wait);
 	struct sdio_cmd_event_buffer *cmdevent_buf = NULL;
 	struct sdio_buffer *rx_buf = NULL;
-	unsigned long flags;
 	static int more_round = 0;
 
 	PRINTM_DEBUG("%s: Enter file=%p buf=%p count=%lu ppos=%p noblock=%d more_round=%d\n", __FUNCTION__, file, buf, count, ppos, noblock, more_round);
@@ -1836,26 +1870,6 @@ static int mcu_sdio_enable_irq(struct sdio_func *func, struct mcu_sdio_mmc_card 
 }
 #endif
 
-static void mcu_sdio_wait_fw_ready(struct mcu_sdio_mmc_card *card)
-{
-	int ret = -EFAULT;
-	u32 fwstat0 = 0;
-	u32 fwstat1 = 0;
-
-	/* Wait for firmware ready */
-	while (true) {
-		ret = mcu_sdio_read_reg(card, card->regs->fw_dnld_status_0_reg, &fwstat0);
-		ret |= mcu_sdio_read_reg(card, card->regs->fw_dnld_status_1_reg, &fwstat1);
-		if ((ret == 0) && (fwstat0 == SDIO_FW_READY0) && (fwstat1 == SDIO_FW_READY1)) {
-			break;
-		}
-		PRINTM_DEBUG("%s: ret=%d fwstat0=0x%x fwstat1=0x%x\n", __FUNCTION__, ret, fwstat0, fwstat1);
-		mdelay(1);
-	}
-
-	PRINTM_DEBUG("%s: Success %d: 0x%x 0x%x\n", __FUNCTION__, ret, fwstat0, fwstat1);
-}
-
 static int mcu_sdio_reset(struct sdio_func *func, struct mcu_sdio_mmc_card *card)
 {
 	int ret1 = 0;
@@ -1872,7 +1886,6 @@ static int mcu_sdio_reset(struct sdio_func *func, struct mcu_sdio_mmc_card *card
 	retry_cnt = 10;
 	do {
 		ret1 = mmc_sw_reset(func->card);
-		mdelay(100);
 		PRINTM_DEBUG("%s: mmc_sw_reset %d ret1=%d\n", __FUNCTION__, retry_cnt, ret1);
 		retry_cnt--;
 	} while (ret1 && retry_cnt > 0);
@@ -1880,7 +1893,6 @@ static int mcu_sdio_reset(struct sdio_func *func, struct mcu_sdio_mmc_card *card
 		PRINT_ERR("%s: mmc_sw_reset done %d ret1=%d\n", __FUNCTION__, RETRY_CNT, ret1);
 		//goto retry;
 	}
-	mdelay(1000);
 
 	if (ret1) {
 		retry_cnt = 10;
@@ -1902,7 +1914,6 @@ static int mcu_sdio_reset(struct sdio_func *func, struct mcu_sdio_mmc_card *card
 	retry_cnt = 10;
 	do {
 		ret1 = mcu_sdio_write_reg(card, 0xFD, SDIO_HOST_RESET_DONE);
-		mdelay(100);
 		PRINTM_DEBUG("%s: mcu_sdio_write_reg %d 0xFD=%u ret=%d\n", __FUNCTION__, retry_cnt, SDIO_HOST_RESET_DONE, ret1);
 		retry_cnt--;
 	} while (ret1 && retry_cnt > 0);
@@ -1913,7 +1924,6 @@ static int mcu_sdio_reset(struct sdio_func *func, struct mcu_sdio_mmc_card *card
 	}
 
 	mcu_sdio_wait_fw_ready(card);
-	mdelay(100);
 
 	retry_cnt = RETRY_CNT;
 	do {
@@ -2004,7 +2014,6 @@ static ssize_t mcu_sdio_misc_write(struct file *file, const char __user *buf,
 	bool is_data = false;
 	u32 max_len = 0;
 	sdio_header *sdio_hdr = NULL;
-	unsigned long flags;
 
 	PRINTM_DEBUG("%s: Enter file=%p buf=%p count=%lu ppos=%p\n", __FUNCTION__, file, buf, count, ppos);
 

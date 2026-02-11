@@ -29,6 +29,14 @@ NCP_LOG_MODULE_REGISTER(gpio, CONFIG_LOG_GPIO_LEVEL);
 #define GPIO_DEV_PATH_LEN 32
 #define GPIO_LABEL_LEN    32
 
+#define GPIO_CHECK_INIT() \
+    do { \
+        if (!g_gpio_manager.initialized) { \
+            NCP_LOG_ERR("GPIO subsystem not initialized"); \
+            return -EINVAL; \
+        } \
+    } while(0)
+
 /*******************************************************************************
  * Variables
  ******************************************************************************/
@@ -45,6 +53,44 @@ static gpio_manager_t g_gpio_manager = {0};
  * Internal Functions
  ******************************************************************************/
 
+static int gpio_cleanup_event_internal(gpio_event_handler_t *handler)
+{
+    if (!handler || !handler->active)
+    {
+        return -EINVAL;
+    }
+
+    gpio_handle_t *handle = handler->handle;
+
+    if (g_gpio_manager.monitor.epoll_fd > 0 && handle->line_fd >= 0)
+    {
+        if (epoll_ctl(g_gpio_manager.monitor.epoll_fd, EPOLL_CTL_DEL,
+                      handle->line_fd, NULL) != 0)
+        {
+            NCP_LOG_WRN("Failed to remove fd %d from epoll: %s",
+                        handle->line_fd, strerror(errno));
+        }
+    }
+
+    if (handle->line_fd >= 0)
+    {
+        close(handle->line_fd);
+        handle->line_fd = -1;
+    }
+
+    handler->active = false;
+    g_gpio_manager.monitor.handler_count--;
+
+    NCP_LOG_DBG("Cleaned up event handler %d for GPIO %d_%d",
+                handle->event_id, handle->chip_num, handle->line_num);
+
+    memset(handler, 0, sizeof(gpio_event_handler_t));
+
+    handle->event_id = -1;
+
+    return 0;
+}
+
 /**
  * @brief Single task that monitors all GPIO events using epoll
  */
@@ -52,13 +98,16 @@ static void gpio_monitor_task(osa_task_param_t param)
 {
     struct epoll_event events[GPIO_MAX_EVENT_HANDLERS];
     struct gpioevent_data gpio_event;
+    gpio_edge_t edge = GPIO_EDGE_NONE;
+    gpio_event_handler_t *handler = NULL;
     int nfds, i;
 
     NCP_LOG_DBG("GPIO monitor task started");
 
+    g_gpio_manager.monitor.task_exited = false;
+
     while (g_gpio_manager.monitor.running)
     {
-        /* Wait for any GPIO event with timeout for checking running flag */
         nfds = epoll_wait(g_gpio_manager.monitor.epoll_fd, events,
                         GPIO_MAX_EVENT_HANDLERS, GPIO_EPOLL_TIMEOUT_MS);
 
@@ -66,10 +115,11 @@ static void gpio_monitor_task(osa_task_param_t param)
         {
             for (i = 0; i < nfds; i++)
             {
-                gpio_event_handler_t *handler = (gpio_event_handler_t *)events[i].data.ptr;
+                handler = (gpio_event_handler_t *)events[i].data.ptr;
 
                 if (!handler || !handler->active)
                 {
+                    NCP_LOG_DBG("Received event for inactive handler");
                     continue;
                 }
 
@@ -77,7 +127,7 @@ static void gpio_monitor_task(osa_task_param_t param)
                 if (read(handler->handle->line_fd, &gpio_event,
                         sizeof(gpio_event)) == sizeof(gpio_event))
                 {
-                    gpio_edge_t edge = GPIO_EDGE_NONE;
+                    edge = GPIO_EDGE_NONE;
 
                     /* Determine edge type */
                     if (gpio_event.id == GPIOEVENT_EVENT_RISING_EDGE)
@@ -109,6 +159,7 @@ static void gpio_monitor_task(osa_task_param_t param)
     }
 
     NCP_LOG_DBG("GPIO monitor task exiting");
+    g_gpio_manager.monitor.task_exited = true;
 }
 
 /**
@@ -146,11 +197,12 @@ static int gpio_monitor_init(void)
     {
         close(g_gpio_manager.monitor.epoll_fd);
         g_gpio_manager.monitor.epoll_fd = -1;
+        g_gpio_manager.monitor.running  = false;
         NCP_LOG_ERR("Failed to create monitor task");
         return -1;
     }
 
-    NCP_LOG_INF("GPIO monitor initialized");
+    NCP_LOG_DBG("GPIO monitor initialized");
     return 0;
 }
 
@@ -159,8 +211,6 @@ static int gpio_monitor_init(void)
  */
 static void gpio_monitor_deinit(void)
 {
-    int i;
-
     if (g_gpio_manager.monitor.epoll_fd <= 0)
     {
         return;
@@ -168,28 +218,57 @@ static void gpio_monitor_deinit(void)
 
     /* Stop monitoring task */
     g_gpio_manager.monitor.running = false;
-    OSA_TimeDelay(GPIO_EPOLL_TIMEOUT_MS + 50);
 
     if (g_gpio_manager.monitor.monitor_task)
     {
+        while (!g_gpio_manager.monitor.task_exited)
+        {
+            OSA_TimeDelay(10);
+        }
         OSA_TaskDestroy(g_gpio_manager.monitor.monitor_task);
         g_gpio_manager.monitor.monitor_task = NULL;
     }
 
     /* Clean up all active handlers */
-    for (i = 0; i < GPIO_MAX_EVENT_HANDLERS; i++)
+    OSA_MutexLock(g_gpio_manager.mutex, osaWaitForever_c);
+
+    for (int i = 0; i < GPIO_MAX_EVENT_HANDLERS; i++)
     {
         if (g_gpio_manager.monitor.handlers[i].active)
         {
-            gpio_unregister_event(i);
+            gpio_event_handler_t *handler = &g_gpio_manager.monitor.handlers[i];
+
+            if (handler->handle->line_fd >= 0)
+            {
+                epoll_ctl(g_gpio_manager.monitor.epoll_fd, EPOLL_CTL_DEL,
+                          handler->handle->line_fd, NULL);
+                close(handler->handle->line_fd);
+                handler->handle->line_fd = -1;
+            }
+
+            if (handler->handle->event_id == i)
+            {
+                handler->handle->event_id = -1;
+            }
+
+            /* Clear handler */
+            handler->active = false;
+            g_gpio_manager.monitor.handler_count--;
+
+            NCP_LOG_DBG("Cleaned up event handler %d during deinit", i);
         }
     }
+
+    /* Clear all handler data */
+    memset(g_gpio_manager.monitor.handlers, 0, sizeof(g_gpio_manager.monitor.handlers));
+
+    OSA_MutexUnlock(g_gpio_manager.mutex);
 
     /* Close epoll */
     close(g_gpio_manager.monitor.epoll_fd);
     g_gpio_manager.monitor.epoll_fd = -1;
 
-    NCP_LOG_INF("GPIO monitor deinitialized");
+    NCP_LOG_DBG("GPIO monitor deinitialized");
 }
 
 /*******************************************************************************
@@ -218,29 +297,31 @@ int gpio_init(void)
     /* Initialize monitor */
     memset(&g_gpio_manager.monitor, 0, sizeof(g_gpio_manager.monitor));
 
+    if (gpio_monitor_init() < 0)
+    {
+        NCP_LOG_ERR("Failed to initialize GPIO monitor");
+        OSA_MutexDestroy(g_gpio_manager.mutex);
+        return -1;
+    }
+
     g_gpio_manager.initialized = true;
-    NCP_LOG_INF("GPIO subsystem initialized");
+
+    NCP_LOG_DBG("GPIO subsystem initialized");
 
     return 0;
 }
 
 int gpio_deinit(void)
 {
-    if (!g_gpio_manager.initialized)
-    {
-        return 0;
-    }
-
-    OSA_MutexLock(g_gpio_manager.mutex, osaWaitForever_c);
+    GPIO_CHECK_INIT();
 
     /* Deinitialize monitor */
     gpio_monitor_deinit();
 
-    OSA_MutexUnlock(g_gpio_manager.mutex);
     OSA_MutexDestroy(g_gpio_manager.mutex);
 
     g_gpio_manager.initialized = false;
-    NCP_LOG_INF("GPIO subsystem deinitialized");
+    NCP_LOG_DBG("GPIO subsystem deinitialized");
 
     return 0;
 }
@@ -248,6 +329,8 @@ int gpio_deinit(void)
 int gpio_open(gpio_handle_t *handle, uint8_t chip_num, uint8_t line_num)
 {
     char dev_path[GPIO_DEV_PATH_LEN];
+
+    GPIO_CHECK_INIT();
 
     if (!handle)
     {
@@ -274,6 +357,7 @@ int gpio_open(gpio_handle_t *handle, uint8_t chip_num, uint8_t line_num)
     handle->line_num = line_num;
     handle->line_fd = -1;
     handle->is_open = true;
+    handle->event_id = -1;
 
     NCP_LOG_DBG("Opened GPIO chip %d, line %d", chip_num, line_num);
 
@@ -282,9 +366,19 @@ int gpio_open(gpio_handle_t *handle, uint8_t chip_num, uint8_t line_num)
 
 int gpio_close(gpio_handle_t *handle)
 {
+    GPIO_CHECK_INIT();
+
     if (!handle || !handle->is_open)
     {
         return -EINVAL;
+    }
+
+    OSA_MutexLock(g_gpio_manager.mutex, osaWaitForever_c);
+
+    if (handle->event_id >= 0 && handle->event_id < GPIO_MAX_EVENT_HANDLERS)
+    {
+        gpio_event_handler_t *handler = &g_gpio_manager.monitor.handlers[handle->event_id];
+        gpio_cleanup_event_internal(handler);
     }
 
     if (handle->line_fd >= 0)
@@ -300,6 +394,8 @@ int gpio_close(gpio_handle_t *handle)
     }
 
     handle->is_open = false;
+
+    OSA_MutexUnlock(g_gpio_manager.mutex);
 
     NCP_LOG_DBG("Closed GPIO chip %d, line %d", handle->chip_num, handle->line_num);
 
@@ -317,7 +413,14 @@ int gpio_configure(gpio_handle_t *handle, gpio_direction_t direction,
         return -EINVAL;
     }
 
-    /* Close existing line handle if any */
+    OSA_MutexLock(g_gpio_manager.mutex, osaWaitForever_c);
+
+    if (handle->event_id >= 0)
+    {
+        gpio_event_handler_t *handler = &g_gpio_manager.monitor.handlers[handle->event_id];
+        gpio_cleanup_event_internal(handler);
+    }
+
     if (handle->line_fd >= 0)
     {
         close(handle->line_fd);
@@ -358,7 +461,7 @@ int gpio_configure(gpio_handle_t *handle, gpio_direction_t direction,
     }
     else
     {
-        snprintf(req.consumer_label, sizeof(req.consumer_label), "gpio_%d_%d", 
+        snprintf(req.consumer_label, sizeof(req.consumer_label), "gpio_%d_%d",
                 handle->chip_num, handle->line_num);
     }
 
@@ -366,11 +469,14 @@ int gpio_configure(gpio_handle_t *handle, gpio_direction_t direction,
     if (ret != 0)
     {
         NCP_LOG_ERR("Failed to configure GPIO line %d: %s", handle->line_num, strerror(errno));
+        OSA_MutexUnlock(g_gpio_manager.mutex);
         return -errno;
     }
 
     handle->line_fd = req.fd;
     handle->direction = direction;
+
+    OSA_MutexUnlock(g_gpio_manager.mutex);
 
     NCP_LOG_DBG("Configured GPIO %d_%d as %s", handle->chip_num, handle->line_num,
                 direction == GPIO_DIR_OUTPUT ? "output" : "input");
@@ -427,50 +533,29 @@ int gpio_get_value(gpio_handle_t *handle, gpio_level_t *value)
     return 0;
 }
 
-int gpio_toggle(gpio_handle_t *handle)
-{
-    gpio_level_t current_value;
-    int ret;
-
-    ret = gpio_get_value(handle, &current_value);
-    if (ret != 0)
-    {
-        return ret;
-    }
-
-    return gpio_set_value(handle, current_value == GPIO_LEVEL_HIGH ? GPIO_LEVEL_LOW : GPIO_LEVEL_HIGH);
-}
-
 int gpio_register_event(gpio_handle_t *handle, gpio_edge_t edge,
                        gpio_event_callback_t callback, void *user_data)
 {
     struct gpioevent_request req;
     struct epoll_event ev;
     gpio_event_handler_t *handler = NULL;
-    int ret, i;
+    int ret, i, handler_idx = -1;
+
+    GPIO_CHECK_INIT();
 
     if (!handle || !handle->is_open || !callback)
     {
         return -EINVAL;
     }
 
-    if (!g_gpio_manager.initialized)
-    {
-        NCP_LOG_ERR("GPIO subsystem not initialized");
-        return -EINVAL;
-    }
-
     OSA_MutexLock(g_gpio_manager.mutex, osaWaitForever_c);
 
-    /* Initialize monitor if needed */
-    if (g_gpio_manager.monitor.epoll_fd <= 0)
+    if (handle->event_id >= 0 && handle->event_id < GPIO_MAX_EVENT_HANDLERS)
     {
-        ret = gpio_monitor_init();
-        if (ret != 0)
-        {
-            OSA_MutexUnlock(g_gpio_manager.mutex);
-            return ret;
-        }
+        OSA_MutexUnlock(g_gpio_manager.mutex);
+        NCP_LOG_ERR("Event already registered for GPIO %d_%d",
+                    handle->chip_num, handle->line_num);
+        return -EEXIST;
     }
 
     /* Find free event handler slot */
@@ -479,6 +564,7 @@ int gpio_register_event(gpio_handle_t *handle, gpio_edge_t edge,
         if (!g_gpio_manager.monitor.handlers[i].active)
         {
             handler = &g_gpio_manager.monitor.handlers[i];
+            handler_idx = i;
             break;
         }
     }
@@ -523,25 +609,16 @@ int gpio_register_event(gpio_handle_t *handle, gpio_edge_t edge,
     }
 
     handle->line_fd = req.fd;
-    handle->direction = GPIO_DIR_INPUT;
-
-    /* Setup event handler */
-    handler->handle = handle;
-    handler->callback = callback;
-    handler->user_data = user_data;
-    handler->active = true;
-    handler->event_id = i;
 
     /* Add to epoll monitoring */
     memset(&ev, 0, sizeof(ev));
-    ev.events = EPOLLIN | EPOLLET;  /* Edge-triggered mode */
+    ev.events = EPOLLIN;
     ev.data.ptr = handler;
 
     ret = epoll_ctl(g_gpio_manager.monitor.epoll_fd, EPOLL_CTL_ADD,
                     handle->line_fd, &ev);
     if (ret != 0)
     {
-        handler->active = false;
         close(handle->line_fd);
         handle->line_fd = -1;
         OSA_MutexUnlock(g_gpio_manager.mutex);
@@ -549,19 +626,30 @@ int gpio_register_event(gpio_handle_t *handle, gpio_edge_t edge,
         return -errno;
     }
 
+    /* Setup event handler */
+    handler->handle = handle;
+    handler->callback = callback;
+    handler->user_data = user_data;
+    handler->event_id = handler_idx;
+    handler->active = true;
+
+    handle->direction = GPIO_DIR_INPUT;
+    handle->event_id = handler_idx;
+
     g_gpio_manager.monitor.handler_count++;
 
     OSA_MutexUnlock(g_gpio_manager.mutex);
 
-    NCP_LOG_INF("Registered event handler %d for GPIO %d_%d (edge=%d)",
-            i, handle->chip_num, handle->line_num, edge);
+    NCP_LOG_DBG("Registered event handler %d for GPIO %d_%d (edge=%d)",
+            handler_idx, handle->chip_num, handle->line_num, edge);
 
-    return i;
+    return handler_idx;
 }
 
 int gpio_unregister_event(int event_id)
 {
     gpio_event_handler_t *handler;
+    int ret = -1;
 
     if (event_id < 0 || event_id >= GPIO_MAX_EVENT_HANDLERS)
     {
@@ -580,85 +668,14 @@ int gpio_unregister_event(int event_id)
         return -EINVAL;
     }
 
-    /* Remove from epoll */
-    if (g_gpio_manager.monitor.epoll_fd > 0 && handler->handle->line_fd >= 0)
-    {
-        epoll_ctl(g_gpio_manager.monitor.epoll_fd, EPOLL_CTL_DEL,
-                  handler->handle->line_fd, NULL);
-    }
-
-    /* Clear handler */
-    handler->active = false;
-    g_gpio_manager.monitor.handler_count--;
-
-    NCP_LOG_DBG("Unregistered event handler %d", event_id);
-
-    /* If no more handlers, stop the monitor */
-    if (g_gpio_manager.monitor.handler_count == 0)
-    {
-        gpio_monitor_deinit();
-    }
-
-    /* Clear handler data */
-    memset(handler, 0, sizeof(*handler));
+    ret = gpio_cleanup_event_internal(handler);
 
     OSA_MutexUnlock(g_gpio_manager.mutex);
 
+    if (ret == 0)
+    {
+        NCP_LOG_DBG("Unregistered event handler %d", event_id);
+    }
+
     return 0;
-}
-
-int gpio_wait_event(gpio_handle_t *handle, gpio_edge_t *edge, int timeout_ms)
-{
-    struct gpioevent_data event;
-    struct pollfd pfd;
-    int ret;
-
-    if (!handle || !handle->is_open || handle->line_fd < 0 || !edge)
-    {
-        return -EINVAL;
-    }
-
-    pfd.fd = handle->line_fd;
-    pfd.events = POLLIN | POLLPRI;
-
-    ret = poll(&pfd, 1, timeout_ms);
-    if (ret < 0)
-    {
-        NCP_LOG_ERR("Poll failed: %s", strerror(errno));
-        return -errno;
-    }
-    else if (ret == 0)
-    {
-        /* Timeout */
-        return -ETIMEDOUT;
-    }
-
-    if (pfd.revents & (POLLIN | POLLPRI))
-    {
-        ret = read(handle->line_fd, &event, sizeof(event));
-        if (ret != sizeof(event))
-        {
-            NCP_LOG_ERR("Failed to read event: %s", strerror(errno));
-            return -errno;
-        }
-
-        if (event.id == GPIOEVENT_EVENT_RISING_EDGE)
-            *edge = GPIO_EDGE_RISING;
-        else if (event.id == GPIOEVENT_EVENT_FALLING_EDGE)
-            *edge = GPIO_EDGE_FALLING;
-        else
-            *edge = GPIO_EDGE_NONE;
-
-        return 0;
-    }
-
-    return -1;
-}
-
-int gpio_set_direction(gpio_handle_t *handle, gpio_direction_t direction)
-{
-    gpio_pull_t pull = GPIO_PULL_NONE;
-    gpio_level_t initial_value = GPIO_LEVEL_LOW;
-
-    return gpio_configure(handle, direction, pull, initial_value, NULL);
 }

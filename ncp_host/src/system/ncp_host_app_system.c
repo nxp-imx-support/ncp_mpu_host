@@ -16,6 +16,7 @@
 #include <sys/syscall.h>
 #include "ncp_log.h"
 #include <string.h>
+#include <semaphore.h>
 
 NCP_LOG_MODULE_DEFINE(ncp_system, CONFIG_LOG_NCP_SYSTEM_LEVEL);
 NCP_LOG_MODULE_REGISTER(ncp_system, CONFIG_LOG_NCP_SYSTEM_LEVEL);
@@ -33,6 +34,8 @@ extern uint16_t last_seqno_rcvd, last_seqno_sent;
 
 int system_process_response(uint8_t *res);
 int system_process_event(uint8_t *res);
+
+sem_t ncp_dev_reset_semaphore;
 
 static void system_ncp_callback(void *tlv, size_t tlv_sz, int status)
 {
@@ -200,6 +203,12 @@ int ncp_system_app_init()
     else
         printf("Success to creat Send Thread!\r\n");
 
+    if (sem_init(&ncp_dev_reset_semaphore, 0, 1) == -1)
+    {
+        printf("Failed to init dev reset semaphore!\r\n");
+        goto err_tlv_thread;
+    }
+
     return 0;
 
 err_tlv_thread:
@@ -258,5 +267,7 @@ void ncp_system_app_deinit(void)
     {
         NCP_LOG_ERR("ncp system tx deint thread mutex fail");
     }
+
+    sem_destroy(&ncp_dev_reset_semaphore);
 }
 

@@ -24,6 +24,8 @@ extern uint8_t cmd_buf[NCP_COMMAND_LEN];
 
 extern int mpu_host_register_commands(const struct mpu_host_cli_command *commands, int num_commands);
 
+extern sem_t ncp_dev_reset_semaphore;
+
 SYSTEM_NCPCmd_DS_COMMAND *ncp_host_get_cmd_buffer_sys()
 {
     return (SYSTEM_NCPCmd_DS_COMMAND *)(cmd_buf);
@@ -85,6 +87,53 @@ int ncp_process_test_loopback_response(uint8_t *res)
 
     return NCP_SUCCESS;
 }
+
+void ncp_dev_reset_block(uint8_t *res)
+{
+    SYSTEM_NCPCmd_DS_COMMAND *ncp_dev_reset_command = (SYSTEM_NCPCmd_DS_COMMAND *)res;
+
+    if (ncp_dev_reset_command->header.cmd == NCP_CMD_SYSTEM_CONFIG_DEVICE_RESET)
+    {
+        sem_wait(&ncp_dev_reset_semaphore);
+    }
+}
+
+int ncp_dev_reset_command(int argc, char **argv)
+{
+    SYSTEM_NCPCmd_DS_COMMAND *ncp_dev_reset_command = ncp_host_get_cmd_buffer_sys();
+
+    ncp_dev_reset_command->header.cmd      = NCP_CMD_SYSTEM_CONFIG_DEVICE_RESET;
+    ncp_dev_reset_command->header.size     = NCP_CMD_HEADER_LEN;
+    ncp_dev_reset_command->header.result   = NCP_CMD_RESULT_OK;
+
+    ncp_adapter_set_cb(ncp_dev_reset_block);
+
+    return NCP_SUCCESS;
+}
+
+/**
+ * @brief      This function processes device reset response from ncp device
+ *
+ * @param res  A pointer to uint8_t
+ * @return     Status returned
+ */
+int ncp_process_dev_reset_response(uint8_t *res)
+{
+    SYSTEM_NCPCmd_DS_COMMAND *cmd_res = (SYSTEM_NCPCmd_DS_COMMAND *)res;
+
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
+    {
+        (void)printf("Failed to reset ncp device\r\n");
+        sem_post(&ncp_dev_reset_semaphore);
+        ncp_adapter_set_cb(NULL);
+        return -NCP_FAIL;
+    }
+
+    (void)printf("ncp-dev-reset succeeded!\r\n");
+
+    return NCP_SUCCESS;
+}
+
 
 int ncp_mcu_sleep_command(int argc, char **argv)
 {
@@ -262,6 +311,15 @@ int ncp_process_host_type_response(uint8_t *res)
     return NCP_SUCCESS;
 }
 
+int ncp_process_dev_reset_event(uint8_t *res)
+{
+    sem_post(&ncp_dev_reset_semaphore);
+    ncp_adapter_set_cb(NULL);
+    (void)printf("device reset complete\r\n");
+
+    return NCP_SUCCESS;
+}
+
 int ncp_get_mcu_sleep_conf_command(int argc, char **argv)
 {
     ncp_pm_cfg_t *power_cfg = ncp_pm_get_config();
@@ -325,7 +383,6 @@ end:
     return ret;
 }
 
-
 int system_process_event(uint8_t *res)
 {
     int ret                        = -NCP_FAIL;
@@ -341,6 +398,9 @@ int system_process_event(uint8_t *res)
             ret = ncp_process_encrypt_stop_event(res);
             break;
 #endif
+        case NCP_EVENT_SYSTEM_DEV_RESET:
+            ret = ncp_process_dev_reset_event(res);
+            break;
         default:
             printf("Invaild event!\r\n");
             break;
@@ -382,6 +442,9 @@ int system_process_response(uint8_t *res)
 #endif
         case NCP_RSP_SYSTEM_HOST_TYPE:
             ret = ncp_process_host_type_response(res);
+            break;
+        case NCP_RSP_SYSTEM_CONFIG_DEVICE_RESET:
+            ret = ncp_process_dev_reset_response(res);
             break;
         default:
             NCP_LOG_ERR("Invaild response cmd!");
@@ -522,6 +585,7 @@ static struct mpu_host_cli_command ncp_host_app_cli_commands_system[] = {
     {"ncp-encrypt", NULL, ncp_encrypt_command},
     {"ncp-dbg-encrypt-stop", NULL, ncp_dbg_encrypt_stop_command},
 #endif
+    {"ncp-dev-reset", NULL, ncp_dev_reset_command},
 };
 
 /**

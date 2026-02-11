@@ -66,6 +66,9 @@ static const ncp_pm_tx_if_t s_ncp_pm_tx_if = {
 
 static bool ncp_initialized = false;
 
+static ncp_reset_callback_t ncp_dev_reset_cb = NULL;
+uint32_t ncp_dev_reset_cb_cnt = 0;
+
 /*******************************************************************************
  * Code
  ******************************************************************************/
@@ -367,6 +370,16 @@ static void ncp_tlv_tx_data_dequeue(void)
         NCP_TLV_STATS_INC(tx1);
 
         ncp_tlv_adapter.intf_ops->send(msg->tlv_buf, msg->tlv_sz, NULL);
+
+        if (ncp_dev_reset_cb)
+        {
+            ncp_dev_reset_cb(msg->tlv_buf);
+            if (ncp_tlv_adapter_is_encrypt_mode())
+            {
+                ncp_tlv_adapter_encrypt_deinit();
+            }
+        }
+
         /* free element */
         ncp_tlv_free_data_elmt(&msg);
     } while (1);
@@ -528,6 +541,25 @@ static void ncp_tlv_tx_deinit(void)
 
     NCP_LOG_DBG("ncp adapter tx deinit: completed");
 }
+
+void ncp_adapter_set_cb(ncp_reset_callback_t dev_reset_cb)
+{
+    NCP_LOG_DBG("%s: enter cb_in=%p cb=%p cnt=%u", __FUNCTION__, dev_reset_cb, ncp_dev_reset_cb, ncp_dev_reset_cb_cnt);
+    if (dev_reset_cb != NULL)
+    {
+        ncp_dev_reset_cb_cnt++;
+        ncp_dev_reset_cb = dev_reset_cb;
+    }
+    else
+    {
+        if (ncp_dev_reset_cb_cnt)
+            ncp_dev_reset_cb_cnt--;
+        if (ncp_dev_reset_cb_cnt == 0)
+            ncp_dev_reset_cb = dev_reset_cb;
+    }
+    NCP_LOG_DBG("%s: exit cb_in=%p cb=%p cnt=%u", __FUNCTION__, dev_reset_cb, ncp_dev_reset_cb, ncp_dev_reset_cb_cnt);
+}
+
 
 ncp_status_t ncp_adapter_init(char * dev_name, int role)
 {

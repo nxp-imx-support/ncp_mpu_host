@@ -105,6 +105,7 @@ int ncp_gpio_adapter_init(void)
     {
         NCP_LOG_ERR("Failed to create event");
         OSA_MutexDestroy(g_ncp_gpio_ctx.mutex);
+        g_ncp_gpio_ctx.mutex = NULL;
         gpio_deinit();
         return -1;
     }
@@ -113,6 +114,7 @@ int ncp_gpio_adapter_init(void)
     for (int i = 0; i < NCP_GPIO_SIG_MAX; i++)
     {
         g_ncp_gpio_ctx.event_ids[i] = -1;
+        memset(&g_ncp_gpio_ctx.handles[i], 0, sizeof(gpio_handle_t));
     }
 
     /* Clear event flags */

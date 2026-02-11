@@ -118,6 +118,7 @@ static void display_ping_stats(int status, uint32_t size, const char *ip_str, ui
  * command response, and print ping result in ping_sock_task.
  */
 #if CONFIG_INET_SOCKET
+#define PING_RECV_TIMEOUT_MS 5000
 static void ping_sock_task(void *arg)
 {
     struct ip_hdr *iphdr;
@@ -126,7 +127,7 @@ static void ping_sock_task(void *arg)
     uint8_t *recv_buf;
     uint64_t ping_time;
     ping_time_t ping_stop, temp_time;
-    int retry;
+    struct timeval tv;
 
     printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
@@ -171,9 +172,12 @@ static void ping_sock_task(void *arg)
         server_addr.sin_addr.s_addr     = dest_addr.s_addr;
         int sockfd = ncp_socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 
+        tv.tv_sec = PING_RECV_TIMEOUT_MS / 1000;
+        tv.tv_usec = (PING_RECV_TIMEOUT_MS % 1000) * 1000;
+        ncp_setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
         while (i <= ping_msg.count)
         {
-            retry = 10;
             ping_res.echo_resp = FALSE;
             (void)memset(iecho, 0, ping_size);
             (void)memset(recv_buf, 0, ping_size + IP_HEADER_LEN);
@@ -189,7 +193,7 @@ static void ping_sock_task(void *arg)
             socklen_t len = sizeof(server_addr);
             /* Function raw_input may put multiple pieces of data in conn->recvmbox,
              * waiting to select the data we want */
-            while (ping_res.echo_resp != TRUE && retry)
+            while (ping_res.echo_resp != TRUE)
             {
                 int ret = ncp_recvfrom(sockfd, recv_buf, ping_size + sizeof(struct ip_hdr), 0, (struct sockaddr *)&server_addr, &len);
                 if (ret > (int)(sizeof(struct ip_hdr) + sizeof(struct icmp_echo_hdr)))
@@ -216,7 +220,11 @@ static void ping_sock_task(void *arg)
                         (void)memset(recv_buf, 0, ping_size + IP_HEADER_LEN);
                     }
                 }
-                retry--;
+                else
+                {
+                    /* ncp_recvfrom timeout and break */
+                    break;
+                }
             }
 
             ping_time_now(&ping_stop);

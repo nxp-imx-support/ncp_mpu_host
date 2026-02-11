@@ -295,11 +295,6 @@ static int ncp_sdio_deinit(void *argv)
 
     ARG_UNUSED(argv);
 
-    if (ncp_sdio_gpio_deinit())
-    {
-       NCP_LOG_ERR("Failed to deinit NCP SDIO GPIO");
-    }
-
     status = OSA_TaskDestroy(ncp_sdio_rx_task_handle);
     if (status != KOSA_StatusSuccess)
     {
@@ -308,6 +303,11 @@ static int ncp_sdio_deinit(void *argv)
 
     OSA_MutexDestroy(&ncp_sdio_tx_mutex);
     sdio_deinit(&sdio_device);
+
+    if (ncp_sdio_gpio_deinit())
+    {
+       NCP_LOG_ERR("Failed to deinit NCP SDIO GPIO");
+    }
 
     return NCP_SUCCESS;
 }

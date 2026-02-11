@@ -621,6 +621,16 @@ int ncp_setsockopt(int socket, int level, int optname, const void *optval, sockl
     int ret = 0;
     socket = socketfd_host_to_lwip(socket);
 
+    struct ncp_socket_recv_t *handle = inet_get_sock_handle(socket);
+    if (!handle)
+        return -1;
+    
+    if (level == SOL_SOCKET && optname == SO_RCVTIMEO)
+    {
+        struct timeval *tv = (struct timeval *)optval;
+        handle->recv_timeout_ms = tv->tv_sec * 1000 + tv->tv_usec / 1000;
+    }
+
     NCP_CMD_INET_RESP_SETSOCKOPT_CFG *cmd_resp_buf = malloc(sizeof(NCP_CMD_INET_RESP_SETSOCKOPT_CFG));
     if(cmd_resp_buf == NULL)
     {
@@ -825,6 +835,7 @@ created:
     NCP_LOG_DBG("create ncp socket receive queue %d for socket %d", handle->rx_fifo_fd, socket);
     handle->socket = socket;
     handle->socket_type = socket_type;
+    handle->recv_timeout_ms = 0;
     return WM_SUCCESS;
 err:
     return -WM_FAIL;
@@ -846,6 +857,7 @@ static void inet_socket_recv_queue_close(int socket)
     handle->socket = -1;
     handle->socket_type = IPPROTO_NONE;	
     handle->write_errorn = 0;
+    handle->recv_timeout_ms = 0;
     memset(handle->name, '\0', sizeof(handle->name));
 
     NCP_LOG_DBG("close ncp socket receive queue for socket %d", socket);
@@ -969,6 +981,8 @@ static ssize_t ncp_common_recv(int socket, void *buffer, size_t size, int flags,
     int32_t ret = 0;
     int read_fd;
     struct ncp_socket_recv_t *handle = inet_get_sock_handle(socket);
+    fd_set readfds;
+    struct timeval tv;
     if (!handle || handle->socket == -1)
     {
         NCP_LOG_ERR("%s ncp socket receive get queue fail", __func__);
@@ -991,6 +1005,32 @@ static ssize_t ncp_common_recv(int socket, void *buffer, size_t size, int flags,
     }
 
     read_fd = handle->rx_fifo_fd;
+
+    if (handle->recv_timeout_ms > 0)
+    {
+        tv.tv_sec = handle->recv_timeout_ms / 1000;
+        tv.tv_usec = (handle->recv_timeout_ms % 1000) * 1000;
+
+        FD_ZERO(&readfds);
+        FD_SET(read_fd, &readfds);
+
+        ret = select(read_fd + 1, &readfds, NULL, NULL, &tv);
+        
+        if (ret < 0)
+        {
+            perror("select");
+            NCP_LOG_ERR("%s select error: %s", __func__, strerror(errno));
+            goto exit;
+        }
+        else if (ret == 0)
+        {
+            NCP_LOG_DBG("%s socket %d recv timeout (%d ms)", __func__, socket, handle->recv_timeout_ms);
+            errno = EAGAIN;
+            ret = -WM_FAIL;
+            goto exit;
+        }
+    }
+
     if (handle->socket_type == IPPROTO_TCP)
     {
         ret = read(read_fd, buffer, size);

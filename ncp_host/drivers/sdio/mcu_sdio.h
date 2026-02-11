@@ -219,4 +219,10 @@ typedef struct _mcu_sdio_card_reg {
 	u8 winner_check_reg;
 } mcu_sdio_card_reg;
 
+int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id);
+int mcu_sdio_suspend(struct device *dev);
+int mcu_sdio_resume(struct device *dev);
+void mcu_sdio_remove(struct sdio_func *func);
+void mcu_sdio_shutdown(struct device *dev);
+
 #endif /* _MCU_SDIO_H */

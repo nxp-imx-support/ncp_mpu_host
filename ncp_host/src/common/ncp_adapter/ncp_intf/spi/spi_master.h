@@ -46,6 +46,28 @@ typedef struct _gpio_signal_msg
     uint8_t msg_type;
 } spi_gpio_signal_msg_t;
 
+#pragma pack(1)
+typedef struct _ncp_spi_hs_rx_header
+{
+    uint16_t direct;
+} ncp_spi_hs_tx_header;
+
+typedef struct _ncp_spi_hs_tx_header
+{
+    uint32_t crc;
+} ncp_spi_hs_rx_header;
+#pragma pack()
+
+#define NCP_SPI_SEND 0x9b
+#define NCP_SPI_RECV 0xb9
+#define NCP_SPI_CRC  0x5a5b9a9b
+
+#define NCP_SPI_IN_TRANSFERING     0x5a5a
+#define NCP_SPI_NOT_IN_TRANSFERING 0xb5b5
+
+
+#define NCP_SPI_RX_READY_SIG_QUEUE_NAME "/ncp_system_spi_rx_ready_sig_queue"
+#define NCP_SPI_RX_SIG_QUEUE_NAME "/ncp_system_spi_rx_sig_queue"
 
 #endif /* __NCP_INTF_SPI_MASTER_H__ */
 

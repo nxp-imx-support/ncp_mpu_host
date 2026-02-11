@@ -195,6 +195,17 @@ typedef struct _ncp_intf_ops
 } ncp_intf_ops_t;
 
 /**
+ * @brief NCP device reset callback fn type
+ */
+typedef void (*ncp_reset_callback_t)(uint8_t *res);
+
+/**
+ * @brief Set NCP device reset callback fn handler
+ * @param dev_reset_cb Pointer to ncp_reset_callback_t
+ */
+void ncp_adapter_set_cb(ncp_reset_callback_t dev_reset_cb);
+
+/**
  * @brief NCP TLV adapter main structure
  *
  * Central structure containing all adapter components

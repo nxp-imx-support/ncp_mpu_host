@@ -131,9 +131,9 @@ typedef enum _osa_status {
     uint8_t name[OSA_TIMER_HANDLE_SIZE] __attribute__((aligned(8)))
 
 /* Critical section macros */
-#define OSA_SR_ALLOC() uint32_t osaCurrentSr = 0U
-#define OSA_ENTER_CRITICAL() OSA_EnterCritical(&osaCurrentSr)
-#define OSA_EXIT_CRITICAL() OSA_ExitCritical(osaCurrentSr)
+#define OSA_SR_ALLOC()       /* Nothing needed */
+#define OSA_ENTER_CRITICAL() OSA_EnterCritical(NULL)
+#define OSA_EXIT_CRITICAL()  OSA_ExitCritical(0)
 
 /*******************************************************************************
  * API

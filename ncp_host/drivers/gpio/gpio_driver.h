@@ -55,6 +55,7 @@ typedef struct {
     uint8_t line_num;
     gpio_direction_t direction;
     bool is_open;
+    int event_id;  /* Handler ID */
 } gpio_handle_t;
 
 /* GPIO Event Callback */
@@ -75,6 +76,7 @@ typedef struct {
     gpio_event_handler_t handlers[GPIO_MAX_EVENT_HANDLERS];
     osa_task_handle_t monitor_task;                      /* Single monitoring task */
     volatile bool running;                               /* Task running flag */
+    volatile bool task_exited;                           /* Task exit confirmation */
     int handler_count;                                   /* Active handler count */
 } gpio_monitor_t;
 
@@ -146,13 +148,6 @@ int gpio_set_value(gpio_handle_t *handle, gpio_level_t value);
 int gpio_get_value(gpio_handle_t *handle, gpio_level_t *value);
 
 /**
- * @brief Toggle GPIO output value
- * @param handle GPIO handle
- * @return 0 on success, negative on error
- */
-int gpio_toggle(gpio_handle_t *handle);
-
-/**
  * @brief Register GPIO event handler
  * @param handle GPIO handle
  * @param edge Edge to trigger on
@@ -169,22 +164,5 @@ int gpio_register_event(gpio_handle_t *handle, gpio_edge_t edge,
  * @return 0 on success, negative on error
  */
 int gpio_unregister_event(int event_id);
-
-/**
- * @brief Wait for GPIO event (blocking)
- * @param handle GPIO handle
- * @param edge Pointer to store edge type
- * @param timeout_ms Timeout in milliseconds (0 = no wait, -1 = infinite)
- * @return 0 on success, negative on error or timeout
- */
-int gpio_wait_event(gpio_handle_t *handle, gpio_edge_t *edge, int timeout_ms);
-
-/**
- * @brief Set GPIO line direction
- * @param handle GPIO handle
- * @param direction New direction
- * @return 0 on success, negative on error
- */
-int gpio_set_direction(gpio_handle_t *handle, gpio_direction_t direction);
 
 #endif /* _GPIO_DRIVER_H_ */

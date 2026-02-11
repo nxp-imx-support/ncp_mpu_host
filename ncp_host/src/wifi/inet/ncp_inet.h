@@ -432,6 +432,7 @@ struct ncp_socket_recv_t
     char name[64];
     int read_errorn;
     int write_errorn;
+    int recv_timeout_ms;
 };
 
 #define NCP_SOCKET_FD_OFFSET 128

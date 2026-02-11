@@ -16,14 +16,6 @@
 /* USE_RTOS = 1 for Linux */
 #define USE_RTOS (1)
 
-/* Handle sizes for Linux implementation */
-#define OSA_TASK_HANDLE_SIZE    (256)
-#define OSA_SEM_HANDLE_SIZE     (64)
-#define OSA_MUTEX_HANDLE_SIZE   (64)
-#define OSA_EVENT_HANDLE_SIZE   (128)
-#define OSA_MSGQ_HANDLE_SIZE    (256)
-#define OSA_TIMER_HANDLE_SIZE   (128)
-
 /* Linux-specific task structure */
 typedef struct osa_linux_task {
     pthread_t thread;
@@ -55,7 +47,6 @@ typedef struct osa_linux_mutex {
     pthread_mutexattr_t attr;
     bool initialized;
     pthread_t owner;
-    uint32_t recursiveCount;
 } osa_linux_mutex_t;
 
 /* Linux-specific event structure */
@@ -94,5 +85,13 @@ typedef struct osa_linux_timer {
     bool initialized;
     bool stopRequested;
 } osa_linux_timer_t;
+
+/* Handle sizes - automatically calculated from actual structure sizes */
+#define OSA_TASK_HANDLE_SIZE    (sizeof(osa_linux_task_t))
+#define OSA_SEM_HANDLE_SIZE     (sizeof(osa_linux_sem_t))
+#define OSA_MUTEX_HANDLE_SIZE   (sizeof(osa_linux_mutex_t))
+#define OSA_EVENT_HANDLE_SIZE   (sizeof(osa_linux_event_t))
+#define OSA_MSGQ_HANDLE_SIZE    (sizeof(osa_linux_msgq_t))
+#define OSA_TIMER_HANDLE_SIZE   (sizeof(osa_linux_timer_t))
 
 #endif /* _FSL_OS_ABSTRACTION_LINUX_H_ */

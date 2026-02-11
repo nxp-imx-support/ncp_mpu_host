@@ -19,6 +19,24 @@
 #include <assert.h>
 
 /*******************************************************************************
+ * Compile-time size validation
+ ******************************************************************************/
+
+ /* Ensure handle sizes are sufficient for actual structure sizes */
+_Static_assert(sizeof(osa_linux_sem_t) <= OSA_SEM_HANDLE_SIZE,
+               "OSA_SEM_HANDLE_SIZE too small for osa_linux_sem_t");
+_Static_assert(sizeof(osa_linux_mutex_t) <= OSA_MUTEX_HANDLE_SIZE,
+               "OSA_MUTEX_HANDLE_SIZE too small for osa_linux_mutex_t");
+_Static_assert(sizeof(osa_linux_event_t) <= OSA_EVENT_HANDLE_SIZE,
+               "OSA_EVENT_HANDLE_SIZE too small for osa_linux_event_t");
+_Static_assert(sizeof(osa_linux_task_t) <= OSA_TASK_HANDLE_SIZE,
+               "OSA_TASK_HANDLE_SIZE too small for osa_linux_task_t");
+_Static_assert(sizeof(osa_linux_msgq_t) <= OSA_MSGQ_HANDLE_SIZE,
+               "OSA_MSGQ_HANDLE_SIZE too small for osa_linux_msgq_t");
+_Static_assert(sizeof(osa_linux_timer_t) <= OSA_TIMER_HANDLE_SIZE,
+               "OSA_TIMER_HANDLE_SIZE too small for osa_linux_timer_t");
+
+/*******************************************************************************
  * Definitions
  ******************************************************************************/
 
@@ -50,6 +68,12 @@ const uint8_t gUseRtos_c = USE_RTOS;
 
 static osa_state_t s_osaState = {0};
 static pthread_once_t s_osaInitOnce = PTHREAD_ONCE_INIT;
+
+/* Thread-local storage for critical section nesting */
+/* Global critical section mutex */
+static pthread_mutex_t s_globalCriticalMutex = PTHREAD_MUTEX_INITIALIZER;
+/* Thread-local nesting counter */
+static __thread uint32_t tls_criticalNesting = 0;
 
 /*******************************************************************************
  * Private Functions
@@ -165,31 +189,36 @@ void OSA_MemoryFreeAlign(void *p)
 }
 
 /*******************************************************************************
- * Critical Section - Using Signal Masking
+ * Critical Section
  ******************************************************************************/
 
 void OSA_EnterCritical(uint32_t *sr)
 {
-    sigset_t newMask;
-    sigset_t *oldMask = (sigset_t *)sr;
-    
-    /* Block all signals */
-    sigfillset(&newMask);
-    pthread_sigmask(SIG_BLOCK, &newMask, oldMask);
-    
-    /* Also lock the critical mutex for thread safety */
-    pthread_mutex_lock(&s_osaState.criticalMutex);
+    (void)sr;  /* Unused in Linux implementation */
+
+    if (tls_criticalNesting == 0) {
+        /* Lock the global critical mutex */
+        pthread_mutex_lock(&s_globalCriticalMutex);
+    }
+
+    tls_criticalNesting++;
 }
 
 void OSA_ExitCritical(uint32_t sr)
 {
-    sigset_t *oldMask = (sigset_t *)&sr;
-    
-    /* Unlock critical mutex */
-    pthread_mutex_unlock(&s_osaState.criticalMutex);
-    
-    /* Restore signal mask */
-    pthread_sigmask(SIG_SETMASK, oldMask, NULL);
+    (void)sr;  /* Unused in Linux */
+
+    if (tls_criticalNesting == 0) {
+        /* Error: unbalanced critical section calls */
+        return;
+    }
+
+    tls_criticalNesting--;
+
+    if (tls_criticalNesting == 0) {
+        /* Unlock the global critical mutex */
+        pthread_mutex_unlock(&s_globalCriticalMutex);
+    }
 }
 
 /*******************************************************************************
@@ -576,7 +605,6 @@ osa_status_t OSA_MutexCreate(osa_mutex_handle_t mutexHandle)
     memset(mutex, 0, sizeof(osa_linux_mutex_t));
     
     pthread_mutexattr_init(&mutex->attr);
-    pthread_mutexattr_settype(&mutex->attr, PTHREAD_MUTEX_RECURSIVE);
     
     if (pthread_mutex_init(&mutex->mutex, &mutex->attr) != 0) {
         pthread_mutexattr_destroy(&mutex->attr);
@@ -584,7 +612,6 @@ osa_status_t OSA_MutexCreate(osa_mutex_handle_t mutexHandle)
     }
     
     mutex->initialized = true;
-    mutex->recursiveCount = 0;
     
     return KOSA_StatusSuccess;
 }
@@ -600,9 +627,9 @@ osa_status_t OSA_MutexLock(osa_mutex_handle_t mutexHandle, uint32_t millisec)
     if (!mutex->initialized) {
         return KOSA_StatusError;
     }
-    
+
     int ret;
-    
+
     if (millisec == 0) {
         ret = pthread_mutex_trylock(&mutex->mutex);
     } else if (millisec == osaWaitForever_c) {
@@ -611,13 +638,12 @@ osa_status_t OSA_MutexLock(osa_mutex_handle_t mutexHandle, uint32_t millisec)
         struct timespec ts = calculate_timeout(millisec);
         ret = pthread_mutex_timedlock(&mutex->mutex, &ts);
     }
-    
+
     if (ret == 0) {
         mutex->owner = pthread_self();
-        mutex->recursiveCount++;
         return KOSA_StatusSuccess;
     }
-    
+
     return (ret == ETIMEDOUT) ? KOSA_StatusTimeout : KOSA_StatusError;
 }
 
@@ -626,17 +652,13 @@ osa_status_t OSA_MutexUnlock(osa_mutex_handle_t mutexHandle)
     if (!mutexHandle) {
         return KOSA_StatusError;
     }
-    
+
     osa_linux_mutex_t *mutex = (osa_linux_mutex_t *)mutexHandle;
     
     if (!mutex->initialized) {
         return KOSA_StatusError;
     }
-    
-    if (mutex->recursiveCount > 0) {
-        mutex->recursiveCount--;
-    }
-    
+
     if (pthread_mutex_unlock(&mutex->mutex) != 0) {
         return KOSA_StatusError;
     }

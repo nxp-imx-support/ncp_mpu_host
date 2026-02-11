@@ -41,8 +41,8 @@
 #include <sys/types.h>
 #include <sys/syscall.h>
 #include <ncp_crc.h>
-
-#ifdef CONFIG_SPI_DEBUG
+#define CONFIG_SPI_DEBUG 0
+#if CONFIG_SPI_DEBUG
 #define SPI_DEBUG_PRINT(fmt, ...) \
     do { \
         printf(fmt, ##__VA_ARGS__); \
@@ -52,16 +52,16 @@
 #define SPI_DEBUG_PRINT(fmt, ...) do {} while (0)
 #endif
 
-
 static int spi_dev_fd;
 static const char *spi_dev_path = SPI_DEV_PATH;
 static uint32_t spi_mode = 0;
 static uint8_t spi_bits = 8;
 static uint32_t spi_speed = NCP_SPI_MASTER_CLOCK;
 static uint16_t spi_delay = 0;
-static pthread_mutex_t *spi_slave_rx_ready_mutex = 0;
 static pthread_mutex_t *spi_slave_rtx_sync_mutex = 0;
 static pthread_mutex_t *ncp_machine_state_mutex = 0;
+static char spi_rx_ready_sig_dummy = 0;
+static char spi_rx_sig_dummy = 0;
 
 
 int gpio_fd;
@@ -73,6 +73,10 @@ static spi_gpio_signal_msg_t gpio_signal;
 
 int ncp_host_efd;
 pthread_t spi_select_loop_thread;
+
+static mqd_t ncp_spi_rx_ready_sig_msgq_tx_handle, ncp_spi_rx_ready_sig_msgq_rx_handle;
+static mqd_t ncp_spi_rx_sig_msgq_tx_handle, ncp_spi_rx_sig_msgq_rx_handle;
+
 
 static int spi_master_tx(int fd, const uint8_t *tx, size_t len)
 {
@@ -96,7 +100,7 @@ static int spi_master_tx(int fd, const uint8_t *tx, size_t len)
 	return 0;
 }
 
-static int spi_master_rx(int fd, uint8_t const *rx, size_t len)
+static int spi_master_rx(int fd, uint8_t *rx, size_t len)
 {
     int ret = 0;
 	ret = read(fd, rx, len);
@@ -107,6 +111,29 @@ static int spi_master_rx(int fd, uint8_t const *rx, size_t len)
     }
 	return 0;
 }
+
+static int spi_master_tx_rx(int fd, const uint8_t *tx, uint8_t *rx, size_t len)
+{
+    int ret = 0;
+    struct spi_ioc_transfer tr = {
+        .tx_buf = (unsigned long)tx,
+        .rx_buf = (unsigned long)rx,
+        .len = len,
+        .delay_usecs = spi_delay,
+        .speed_hz = spi_speed,
+        .bits_per_word = spi_bits,
+    };
+
+    ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
+    if (ret < 0)
+    {
+        perror("can't ioctrl spi device: ");
+        return -1;
+    }
+
+    return 0;
+}
+
 
 static int spi_dev_init(void)
 {
@@ -331,17 +358,17 @@ spi_fd_fail:
 
 static void spi_master_gpio_deinit(void)
 {
-	SPI_DEBUG_PRINT("Spi master gpio deinit\r\n");
-	msgctl(ncp_host_gpio_rd_sig_msgq, IPC_RMID, 0);
-	msgctl(ncp_host_gpio_sig_msgq, IPC_RMID, 0);
-	close(ncp_host_gpio_rx_ready_fd);
-	close(ncp_host_gpio_rx_fd);
-	close(gpio_fd);
-	close(ncp_host_efd);
-	ncp_host_gpio_rx_ready_fd = 0;
-	ncp_host_gpio_rx_fd = 0;
-	gpio_fd = 0;
-	ncp_host_efd = 0;
+    SPI_DEBUG_PRINT("Spi master gpio deinit\r\n");
+    msgctl(ncp_host_gpio_rd_sig_msgq, IPC_RMID, 0);
+    msgctl(ncp_host_gpio_sig_msgq, IPC_RMID, 0);
+    close(ncp_host_gpio_rx_ready_fd);
+    close(ncp_host_gpio_rx_fd);
+    close(gpio_fd);
+    close(ncp_host_efd);
+    ncp_host_gpio_rx_ready_fd = 0;
+    ncp_host_gpio_rx_fd = 0;
+    gpio_fd = 0;
+    ncp_host_efd = 0;
 }
 
 static void *spi_select_loop_func(void *arg)
@@ -373,12 +400,7 @@ static void *spi_select_loop_func(void *arg)
             read(ncp_host_gpio_rx_fd, &event, sizeof(event));
             gpio_signal.msg_type = GPIO_RX_SIGNAL;
             SPI_DEBUG_PRINT("send gpio rx signal\n");
-            if ((msgsnd(ncp_host_gpio_sig_msgq, &gpio_signal, sizeof(spi_gpio_signal_msg_t), 0)) < 0)
-            {
-                perror("send gpio rx signal fail: ");
-                continue;
-            }
-        
+            mq_send(ncp_spi_rx_sig_msgq_tx_handle, &spi_rx_sig_dummy, 1, 0);
         }
         if (FD_ISSET(ncp_host_gpio_rx_ready_fd, &mReadFdSet))
         {
@@ -386,8 +408,7 @@ static void *spi_select_loop_func(void *arg)
             // Read event data to clear interrupt.
             read(ncp_host_gpio_rx_ready_fd, &event, sizeof(event));
             gpio_signal.msg_type = GPIO_RX_READY_SIGNAL;
-            SPI_DEBUG_PRINT("send gpio rx ready signal\n");
-            pthread_mutex_unlock(spi_slave_rx_ready_mutex);
+            mq_send(ncp_spi_rx_ready_sig_msgq_tx_handle, &spi_rx_ready_sig_dummy, 1, 0);
         }
     }
     return NULL;
@@ -403,15 +424,34 @@ static void spi_master_send_signal(void)
 static uint8_t first_buf[MAX_TRANSFER_COUNT];
 int ncp_host_spi_master_tx(uint8_t *buff, uint16_t data_size)
 {
+    struct mq_attr attr;
     int ret = 0;
     int trans_len = 0, len = 0;
     uint8_t *p   = NULL;
-    static uint8_t hs_tx[4] = {'s', 'e', 'n', 'd'};
-resend:
-	pthread_mutex_lock(spi_slave_rtx_sync_mutex);
-	SPI_DEBUG_PRINT("start master tx\n");
-	/* spi slave and master handshake */
-	ret = spi_master_tx(spi_dev_fd, hs_tx, 4);
+    ncp_spi_hs_tx_header hs_tx_header = {0};
+    ncp_spi_hs_rx_header hs_rx_header = {0};
+    hs_tx_header.direct = NCP_SPI_SEND;
+
+    pthread_mutex_lock(spi_slave_rtx_sync_mutex);
+    SPI_DEBUG_PRINT("start master tx\n");
+    while (1)
+    {
+        if (mq_getattr(ncp_spi_rx_ready_sig_msgq_rx_handle, &attr) == -1)
+        {
+            goto done;
+        }
+        if (attr.mq_curmsgs > 0)
+        {
+            mq_receive(ncp_spi_rx_ready_sig_msgq_rx_handle, &spi_rx_ready_sig_dummy, 1, NULL);
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* spi slave and master handshake */
+    ret = spi_master_tx_rx(spi_dev_fd, (uint8_t *)&hs_tx_header, (uint8_t *)&hs_rx_header, 4);
     if (ret < 0)
     {
         printf("spi slave tx fail");
@@ -419,8 +459,8 @@ resend:
     }
 
     /* spi stransfer valid data */
-	pthread_mutex_lock(spi_slave_rx_ready_mutex);
-	SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
+    mq_receive(ncp_spi_rx_ready_sig_msgq_rx_handle, &spi_rx_ready_sig_dummy, 1, NULL);
+    SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
     len = data_size;
     if (data_size < MAX_TRANSFER_COUNT)
     {
@@ -442,13 +482,13 @@ resend:
     p = buff + MAX_TRANSFER_COUNT;
     while (len > 0)
     {
-		pthread_mutex_lock(spi_slave_rx_ready_mutex);
-		SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
+        mq_receive(ncp_spi_rx_ready_sig_msgq_rx_handle, &spi_rx_ready_sig_dummy, 1, NULL);
+        SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
         if (len <= MAX_TRANSFER_COUNT)
             trans_len = len;
         else
             trans_len = MAX_TRANSFER_COUNT;
-		ret = spi_master_tx(spi_dev_fd, p, trans_len);
+        ret = spi_master_tx(spi_dev_fd, p, trans_len);
         if (ret)
         {
             printf("read spi slave rx fail\n");
@@ -459,33 +499,57 @@ resend:
     }
 done:
     /*wait slave prepare handshake dma*/
-    pthread_mutex_lock(spi_slave_rx_ready_mutex);
+    mq_receive(ncp_spi_rx_ready_sig_msgq_rx_handle, &spi_rx_ready_sig_dummy, 1, NULL);
+    SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
     pthread_mutex_unlock(spi_slave_rtx_sync_mutex);
     return ret;
 }
 
 int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz)
 {
+    struct mq_attr attr;
     int ret = 0;
     int total_len = 0, resp_len = 0, trans_len = 0, len = 0;
     uint8_t *p   = buff;
-	static uint8_t hs_rx[4] = {'r', 'e', 'c', 'v'};
-
-    if (msgrcv(ncp_host_gpio_sig_msgq, (void *)&gpio_signal, sizeof(spi_gpio_signal_msg_t), 0, 0) < 0)
-    {
-        perror("msgrcv failed: ");
-        return -1;
-    }
-	pthread_mutex_lock(spi_slave_rtx_sync_mutex);
-    SPI_DEBUG_PRINT("start to master rx\n");
+    ncp_spi_hs_tx_header hs_tx_header = {0};
+    ncp_spi_hs_rx_header hs_rx_header = {0};
+    hs_tx_header.direct = NCP_SPI_RECV;
+invalid_crc:
+    mq_receive(ncp_spi_rx_sig_msgq_rx_handle, &spi_rx_sig_dummy, 1, NULL);
+    pthread_mutex_lock(spi_slave_rtx_sync_mutex);
     /* spi handshake */
-	ret = spi_master_tx(spi_dev_fd, hs_rx, 4);
+    while (1)
+    {
+        if (mq_getattr(ncp_spi_rx_ready_sig_msgq_rx_handle, &attr) == -1)
+        {
+            goto done;
+        }
+        if (attr.mq_curmsgs > 0)
+        {
+            mq_receive(ncp_spi_rx_ready_sig_msgq_rx_handle, &spi_rx_ready_sig_dummy, 1, NULL);
+        }
+        else
+        {
+            break;
+        }
+    }
 
+    ret = spi_master_tx_rx(spi_dev_fd, (uint8_t *)&hs_tx_header, (uint8_t *)&hs_rx_header, 4);
+    if (hs_rx_header.crc != NCP_SPI_CRC)
+    {
+        SPI_DEBUG_PRINT("line = %d, recv invalid crc, filter the signal\n", __LINE__);
+		pthread_mutex_unlock(spi_slave_rtx_sync_mutex);
+        goto invalid_crc;
+    }
+    else
+    {
+        SPI_DEBUG_PRINT("spi crc check pass %d\n", __LINE__);
+    }
     /* spi transfer valid data */	
-	pthread_mutex_lock(spi_slave_rx_ready_mutex);
-	SPI_DEBUG_PRINT("spi transfer complete-rx-%d\n", __LINE__);
+    mq_receive(ncp_spi_rx_ready_sig_msgq_rx_handle, &spi_rx_ready_sig_dummy, 1, NULL);
+    SPI_DEBUG_PRINT("spi transfer complete-rx-%d\n", __LINE__);
     trans_len = MAX_TRANSFER_COUNT;
-	ret = spi_master_rx(spi_dev_fd, p, trans_len);
+    ret = spi_master_rx(spi_dev_fd, p, trans_len);
     if (ret)
     {
         printf("read spi slave rx ready fail\n");
@@ -499,15 +563,15 @@ int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz)
 
     if (resp_len < NCP_CMD_HEADER_LEN || total_len >= NCP_COMMAND_LEN)
     {
-        printf("Invalid tlv reponse length from ncp device.\n");
+        printf("Invalid tlv reponse length from ncp device resp_len = %d.\n", resp_len);
         goto done;
     }
     len = total_len - MAX_TRANSFER_COUNT;
     p += MAX_TRANSFER_COUNT;
     while (len > 0)
     {
-		pthread_mutex_lock(spi_slave_rx_ready_mutex);
-		SPI_DEBUG_PRINT("spi transfer complete-rx-%d\n", __LINE__);
+        mq_receive(ncp_spi_rx_ready_sig_msgq_rx_handle, &spi_rx_ready_sig_dummy, 1, NULL);
+        SPI_DEBUG_PRINT("spi transfer complete-rx-%d\n", __LINE__);
         if (len <= MAX_TRANSFER_COUNT)
             trans_len = len;
         else
@@ -523,7 +587,8 @@ int ncp_host_spi_master_rx(uint8_t *buff, size_t *tlv_sz)
     }
 done:
     /*wait slave prepare handshake dma*/
-    pthread_mutex_lock(spi_slave_rx_ready_mutex);
+    mq_receive(ncp_spi_rx_ready_sig_msgq_rx_handle, &spi_rx_ready_sig_dummy, 1, NULL);
+    SPI_DEBUG_PRINT("spi transfer complete-tx-%d\n", __LINE__);
     pthread_mutex_unlock(spi_slave_rtx_sync_mutex);
     *tlv_sz             = resp_len;
     return ret;
@@ -532,12 +597,14 @@ done:
 int ncp_host_spi_init(void)
 {
     int ret = 0;
+	struct mq_attr	   qattr;
+
     ret = spi_dev_init();
     if (ret < 0)
-	{
-		printf("Failed to init spi device!\r\n");
-		goto spi_dev_init_fail;
-	}
+    {
+        printf("Failed to init spi device!\r\n");
+        goto spi_dev_init_fail;
+    }
 
     ret = spi_master_gpio_init();
     if (ret < 0)
@@ -546,25 +613,41 @@ int ncp_host_spi_init(void)
 		goto ncp_gpio_init_fail;
 	}
 
-    spi_slave_rx_ready_mutex = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
-    if (!spi_slave_rx_ready_mutex)
+    qattr.mq_flags         = 0;
+    qattr.mq_maxmsg        = 1;
+    qattr.mq_msgsize       = 1;
+    qattr.mq_curmsgs       = 0;
+
+    ncp_spi_rx_ready_sig_msgq_rx_handle = mq_open(NCP_SPI_RX_READY_SIG_QUEUE_NAME, O_RDWR | O_CREAT, 0644, &qattr);
+    if (ncp_spi_rx_ready_sig_msgq_rx_handle == (mqd_t)-1)
     {
-        printf("Failed to creat spi slave rx ready mutex!\r\n");
-        goto create_rx_ready_mutex_fail;
+        perror("mq_open");
+        goto init_rtx_sync_mutex_fail;
     }
-    
-    if (pthread_mutex_init(spi_slave_rx_ready_mutex, NULL) != 0)
+    ncp_spi_rx_ready_sig_msgq_tx_handle = mq_open(NCP_SPI_RX_READY_SIG_QUEUE_NAME, O_WRONLY | O_NONBLOCK);
+    if (ncp_spi_rx_ready_sig_msgq_tx_handle == (mqd_t)-1)
     {
-        printf("Failed to init spi_slave rx ready mutex!\r\n");
-        goto init_rx_ready_mutex_fail;
+        perror("mq_open");
+        goto init_rtx_sync_mutex_fail;
     }
-    pthread_mutex_lock(spi_slave_rx_ready_mutex);
-    
+    ncp_spi_rx_sig_msgq_rx_handle = mq_open(NCP_SPI_RX_SIG_QUEUE_NAME, O_RDWR | O_CREAT, 0644, &qattr);
+    if (ncp_spi_rx_sig_msgq_rx_handle == (mqd_t)-1)
+    {
+        perror("mq_open");
+        goto init_rtx_sync_mutex_fail;
+    }
+    ncp_spi_rx_sig_msgq_tx_handle = mq_open(NCP_SPI_RX_SIG_QUEUE_NAME, O_WRONLY | O_NONBLOCK);
+    if (ncp_spi_rx_sig_msgq_tx_handle == (mqd_t)-1)
+    {
+        perror("mq_open");
+        goto init_rtx_sync_mutex_fail;
+    }
+
     spi_slave_rtx_sync_mutex = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
     if (!spi_slave_rtx_sync_mutex)
     {
         printf("Failed to create spi slave tx complete mutex!\r\n");
-        goto malloc_rx_ready_mutex_fail;
+        goto init_rtx_sync_mutex_fail;
     }
     
     if (pthread_mutex_init(spi_slave_rtx_sync_mutex, NULL) != 0)
@@ -606,7 +689,6 @@ int ncp_host_spi_init(void)
     
     return 0;
     
-create_ms_thread_fail:
     pthread_cancel(spi_select_loop_thread);
     pthread_join(spi_select_loop_thread, NULL);
 create_sl_thread_fail:
@@ -617,11 +699,6 @@ malloc_ms_mutex_fail:
 init_rtx_sync_mutex_fail:
     free(spi_slave_rtx_sync_mutex);
     spi_slave_rtx_sync_mutex = 0;
-malloc_rx_ready_mutex_fail:
-init_rx_ready_mutex_fail:
-    free(spi_slave_rx_ready_mutex);
-    spi_slave_rx_ready_mutex = 0;
-create_rx_ready_mutex_fail:
     spi_master_gpio_deinit();
 ncp_gpio_init_fail:
     spi_dev_deinit();
@@ -634,15 +711,9 @@ void ncp_host_spi_deinit(void)
 {
     int ret = 0;
     SPI_DEBUG_PRINT("Ncp mpu spi deinit\r\n");
-
+    mq_unlink(NCP_SPI_RX_SIG_QUEUE_NAME);
     spi_master_gpio_deinit();
     spi_dev_deinit();
-    pthread_mutex_destroy(spi_slave_rx_ready_mutex);
-    if (spi_slave_rx_ready_mutex)
-    {
-        free(spi_slave_rx_ready_mutex);
-        spi_slave_rx_ready_mutex = 0;
-    }
 
     pthread_mutex_destroy(spi_slave_rtx_sync_mutex);
     if (spi_slave_rtx_sync_mutex)

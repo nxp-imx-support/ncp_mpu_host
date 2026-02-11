@@ -732,7 +732,6 @@ int main(int argc, char **argv)
     (void) ncp_trigger_encrypted_communication();
 #endif
     signal(SIGINT, ncp_host_stop);
-    ncp_set_host_type(1);
     printf("You can input these commands:\r\n");
     printf("================================\r\n");
     help_command(0, NULL);
