@@ -2197,6 +2197,7 @@ int wlan_ncp_iperf_command(int argc, char **argv)
 int wlan_process_response(uint8_t *res)
 {
     int ret                    = FALSE;
+    int cmd_node_handled           = -WM_FAIL;
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
     switch (cmd_res->header.cmd)
     {
@@ -2486,7 +2487,12 @@ int wlan_process_response(uint8_t *res)
             break;
     }
 
-    ncp_cmd_node_wakeup_pending_tasks((uint8_t *)cmd_res);
+    cmd_node_handled = ncp_cmd_node_wakeup_pending_tasks((uint8_t *)cmd_res);
+
+    if(cmd_node_handled == -NCP_STATUS_HANDLE_RSP)
+    {
+        return cmd_node_handled;
+    }
 
     return ret;
 }

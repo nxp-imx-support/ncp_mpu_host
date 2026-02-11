@@ -37,7 +37,6 @@ int port_mbedtls_send(void *ctx, const unsigned char *buf, size_t len)
 {
     SYSTEM_NCPCmd_DS_COMMAND *cmd = NULL;
     uint8_t *payload = NULL;
-    int ret = 0;
 
     (void) sem_wait(&cmd_sem);
 
@@ -65,7 +64,6 @@ int port_mbedtls_send(void *ctx, const unsigned char *buf, size_t len)
 static int ncp_encrypt_verify(void)
 {
     SYSTEM_NCPCmd_DS_COMMAND *cmd = NULL;
-    int ret = 0;
 
     (void) sem_wait(&cmd_sem);
 
@@ -101,7 +99,9 @@ static void ncp_encrypt_handshake_task(void *pvParameters)
     if (ret != 0)
     {
         NCP_LOG_ERR("mbedtls mbedtls_ssl_handshake fail %d", ret);
+#if defined(MBEDTLS_ERROR_C)
         NCP_LOG_ERR("%s", mbedtls_high_level_strerr(ret));
+#endif
         goto exit;
     }
     NCP_LOG_DBG("**** mbedtls_ssl_handshake succ\r\n");

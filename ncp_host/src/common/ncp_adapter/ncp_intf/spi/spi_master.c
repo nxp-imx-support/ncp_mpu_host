@@ -273,7 +273,7 @@ static int spi_master_gpio_init(void)
     int msgq_key = 5678;
     const char *ncp_host_gpio_dev = GPIO_DEV_PATH;
     uint8_t     spiGpioIntLine_rx = 6;   /* GPIO PIN Slot 10 */
-    uint8_t     spiGpioIntLine_rx_ready = 8; /* GPIO PIN Slot 7 */
+    uint8_t     spiGpioIntLine_rx_ready = 7; /* GPIO PIN Slot 8 */
 
     gpio_fd = open(ncp_host_gpio_dev, O_RDWR);
     if (gpio_fd < 0)

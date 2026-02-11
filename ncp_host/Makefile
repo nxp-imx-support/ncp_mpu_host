@@ -20,7 +20,7 @@ MAKEFLAGS += --output-sync=target
 $(info [INFO] Parallel build enabled with $(JOBS) jobs)
 
 # Default values
-func ?= WIFI_BLE
+func ?= WIFI
 interface ?= UART
 DEBUG ?= 1
 NCP_DEBUG ?= 0

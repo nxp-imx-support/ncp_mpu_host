@@ -7,13 +7,13 @@
 
 #if CONFIG_NCP_SDIO
 #include <string.h>
-#include <pthread.h>
 #include "sdio.h"
 #include "ncp_intf_sdio.h"
 #include "ncp_tlv_adapter.h"
 #include "ncp_log.h"
 #include "ncp_pm.h"
 #include "gpio_ncp_adapter.h"
+#include "fsl_os_abstraction.h"
 
 NCP_LOG_MODULE_DEFINE(ncp_sdio, CONFIG_LOG_NCP_INTF_LEVEL);
 NCP_LOG_MODULE_REGISTER(ncp_sdio, CONFIG_LOG_NCP_INTF_LEVEL);
@@ -26,6 +26,9 @@ NCP_LOG_MODULE_REGISTER(ncp_sdio, CONFIG_LOG_NCP_INTF_LEVEL);
 #define SDIO_SET_DIS_INT_IRQ      2
 #define SDIO_SET_DIS_INT_IRQ_TEST 3
 #define SDIO_DEV_NAME_LEN         64
+#define NCP_SDIO_RX_STACK_SIZE    2048
+#define NCP_SDIO_RX_PRIORITY      OSA_PRIORITY_NORMAL
+
 #define NCP_SDIO_GPIO_CHIP_NUM           4    /* /dev/gpiochip4 */
 #define NCP_SDIO_GPIO_DEVICE_NOTIFY_PIN  8    /* Input - Device notification */
 
@@ -40,17 +43,21 @@ NCP_LOG_MODULE_REGISTER(ncp_sdio, CONFIG_LOG_NCP_INTF_LEVEL);
  * Prototypes
  ******************************************************************************/
 
+static void ncp_sdio_rx_task(osa_task_param_t argv);
 static int ncp_sdio_recv(uint8_t *tlv_buf, size_t *tlv_sz);
 
 /*******************************************************************************
  * Variables
  ******************************************************************************/
 
-static pthread_t       ncp_sdio_intf_thread;
-static pthread_mutex_t ncp_sdio_intf_thread_mutex;
 static sdio_device_t sdio_device;
 static uint8_t ncp_sdio_tlvbuf[TLV_CMD_BUF_SIZE];
 char user_sdio_device[SDIO_DEV_NAME_LEN];
+
+OSA_MUTEX_HANDLE_DEFINE(ncp_sdio_tx_mutex);
+OSA_TASK_HANDLE_DEFINE(ncp_sdio_rx_task_handle);
+OSA_TASK_DEFINE(ncp_sdio_rx_task, NCP_SDIO_RX_PRIORITY, 1, NCP_SDIO_RX_STACK_SIZE, 0);
+
 gpio_handle_t sdio_gpio_handle;
 int sdio_gpio_event_id = -1;
 static const ncp_gpio_config_t sdio_gpio_cfg = {
@@ -67,14 +74,14 @@ static const ncp_gpio_config_t sdio_gpio_cfg = {
  * Code
  ******************************************************************************/
 
-static void* ncp_sdio_intf_task(void *argv)
+static void ncp_sdio_rx_task(osa_task_param_t argv)
 {
     int ret = NCP_SUCCESS;
     size_t tlv_size = 0;
 
     ARG_UNUSED(argv);
 
-    while (pthread_mutex_trylock(&ncp_sdio_intf_thread_mutex) != 0)
+    while (1)
     {
         ret = ncp_sdio_recv(ncp_sdio_tlvbuf, &tlv_size);
         if (ret == NCP_SUCCESS)
@@ -114,6 +121,7 @@ static int ncp_sdio_recv(uint8_t *tlv_buf, size_t *tlv_sz)
 static int ncp_sdio_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t cb)
 {
     int ret = NCP_SUCCESS;
+    osa_status_t status;
 
     ARG_UNUSED(cb);
 
@@ -124,8 +132,15 @@ static int ncp_sdio_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t cb
     ncp_dump_hex(tlv_buf, tlv_sz);
 #endif
 
+    status = OSA_MutexLock(&ncp_sdio_tx_mutex, osaWaitForever_c);
+    if (status != KOSA_StatusSuccess)
+    {
+        NCP_LOG_ERR("Failed to lock TX mutex");
+        return -NCP_FAIL;
+    }
     NCP_LOG_DBG("Sending data over SDIO, size: %zu", tlv_sz);
     ret = sdio_send(&sdio_device, tlv_buf, tlv_sz);
+    OSA_MutexUnlock(&ncp_sdio_tx_mutex);
     if (ret != NCP_STATUS_SUCCESS)
     {
         return -NCP_FAIL;
@@ -221,7 +236,7 @@ static int ncp_sdio_gpio_deinit(void)
 
 static int ncp_sdio_init(void *argv)
 {
-    int ret;
+    osa_status_t status;
 
     NCP_LOG_DBG("Enter %s", __FUNCTION__);
 
@@ -244,23 +259,27 @@ static int ncp_sdio_init(void *argv)
         return -NCP_FAIL;
     }
 
-    pthread_mutex_init(&ncp_sdio_intf_thread_mutex, NULL);
-    pthread_mutex_lock(&ncp_sdio_intf_thread_mutex);
+    status = OSA_MutexCreate(&ncp_sdio_tx_mutex);
+    if (status != KOSA_StatusSuccess)
+    {
+        NCP_LOG_ERR("Failed to create TX mutex");
+        return -NCP_FAIL;
+    }
 
-    ret = pthread_create(&ncp_sdio_intf_thread, NULL, &ncp_sdio_intf_task, NULL);
-    if (ret != 0)
+    status = OSA_TaskCreate(ncp_sdio_rx_task_handle,
+                           OSA_TASK(ncp_sdio_rx_task),
+                           NULL);
+    if (status != KOSA_StatusSuccess)
     {
         NCP_LOG_ERR("ERROR pthread_create");
-        pthread_mutex_unlock(&ncp_sdio_intf_thread_mutex);
-        pthread_mutex_destroy(&ncp_sdio_intf_thread_mutex);
+        OSA_MutexDestroy(&ncp_sdio_tx_mutex);
         sdio_deinit(&sdio_device);
         return -NCP_FAIL;
     }
 
     if (ncp_sdio_gpio_init())
     {
-        pthread_mutex_unlock(&ncp_sdio_intf_thread_mutex);
-        pthread_mutex_destroy(&ncp_sdio_intf_thread_mutex);
+        OSA_MutexDestroy(&ncp_sdio_tx_mutex);
         sdio_deinit(&sdio_device);
         NCP_LOG_ERR("Failed to init NCP SDIO GPIO pin");
         return -NCP_FAIL;
@@ -272,6 +291,8 @@ static int ncp_sdio_init(void *argv)
 
 static int ncp_sdio_deinit(void *argv)
 {
+    osa_status_t status;
+
     ARG_UNUSED(argv);
 
     if (ncp_sdio_gpio_deinit())
@@ -279,9 +300,13 @@ static int ncp_sdio_deinit(void *argv)
        NCP_LOG_ERR("Failed to deinit NCP SDIO GPIO");
     }
 
-    pthread_mutex_unlock(&ncp_sdio_intf_thread_mutex);
-    pthread_join(ncp_sdio_intf_thread, NULL);
-    pthread_mutex_destroy(&ncp_sdio_intf_thread_mutex);
+    status = OSA_TaskDestroy(ncp_sdio_rx_task_handle);
+    if (status != KOSA_StatusSuccess)
+    {
+        NCP_LOG_ERR("Failed to destroy NCP SDIO RX task");
+    }
+
+    OSA_MutexDestroy(&ncp_sdio_tx_mutex);
     sdio_deinit(&sdio_device);
 
     return NCP_SUCCESS;
@@ -319,6 +344,7 @@ static int ncp_sdio_pm_exit(uint8_t pm_state)
 
 static int ncp_sdio_pm_enter(uint8_t pm_state)
 {
+#if 0
     uint8_t sdio_cmd_buf[sizeof(NCP_CMD_SDIO_SET)] = {0};
 
     if (NCP_PM_STATE_PM3 == pm_state)
@@ -328,6 +354,7 @@ static int ncp_sdio_pm_enter(uint8_t pm_state)
         ncp_set_sdio(sdio_cmd_buf, sizeof(sdio_cmd_buf), SDIO_SET_DIS_INT_IRQ);
         ncp_sdio_send(sdio_cmd_buf, sizeof(sdio_cmd_buf), NULL);
     }
+#endif
     return NCP_SUCCESS;
 }
 

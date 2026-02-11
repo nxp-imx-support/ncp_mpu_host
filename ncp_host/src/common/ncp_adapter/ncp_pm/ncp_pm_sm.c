@@ -35,7 +35,7 @@ typedef struct _ncp_pm_sm_ctx
 } __attribute__((aligned(8))) ncp_pm_sm_ctx_t;
 
 #define NCP_PM_SM_TASK_STACK_SIZE (1024U)
-#define NCP_PM_WAKEUP_MAX_RETRY   (3U)
+#define NCP_PM_WAKEUP_MAX_RETRY   (20U)
 #define NCP_PM_WAKEUP_TIMEOUT_MS  (25U)
 
 /*******************************************************************************
@@ -116,6 +116,24 @@ static const char *ncp_pm_sm_event_str(uint32_t event)
 
     size_t len = strlen(buf);
     if (len > 0 && buf[len-1] == '|') buf[len-1] = '\0';
+    return buf;
+}
+
+static const char *ncp_pm_sm_notify_event_str(uint32_t events)
+{
+    static char buf[64];
+    buf[0] = '\0';
+
+    if (events & NCP_PM_NOTIFY_EVENT_DATA_READY) strcat(buf, "DATA_READY|");
+    if (events & NCP_PM_NOTIFY_EVENT_PRE)        strcat(buf, "CTRL_PRE|");
+    if (events & NCP_PM_NOTIFY_EVENT_POST)       strcat(buf, "CTRL_POST|");
+
+    size_t len = strlen(buf);
+    if (len > 0 && buf[len-1] == '|')
+        buf[len-1] = '\0';
+    else if (len == 0)
+        strcpy(buf, "NONE");
+
     return buf;
 }
 
@@ -206,7 +224,7 @@ static ncp_pm_status_t ncp_pm_sm_send(ncp_pm_sm_ctx_t *ctx, uint32_t event)
     }
 
     msg_id = packed >> 4;
-    notify_event = packed & 0x03;
+    notify_event = event | (packed & 0x03);
 
     ncp_pm_msg_t msg = {
         .magic = NCP_PM_MSG_MAGIC,
@@ -224,10 +242,10 @@ static ncp_pm_status_t ncp_pm_sm_send(ncp_pm_sm_ctx_t *ctx, uint32_t event)
         if (ctx->tx_if->send_msg(notify_event, &msg, msg.size) == NCP_PM_STATUS_SUCCESS)
         {
             s_psm_msg_seqnum++;
-            NCP_LOG_DBG("Message sent done, event: %s", ncp_pm_sm_event_str(event));
+            NCP_LOG_DBG("Message sent done, event: %s", ncp_pm_sm_notify_event_str(event));
             return NCP_PM_STATUS_SUCCESS;
         }
-        NCP_LOG_ERR("Failed to send message, event: %s", ncp_pm_sm_event_str(event));
+        NCP_LOG_ERR("Failed to send message, event: %s", ncp_pm_sm_notify_event_str(event));
     }
 
     return NCP_PM_STATUS_ERROR;
@@ -245,17 +263,17 @@ static void ncp_pm_sm_reset_flag(ncp_pm_sm_ctx_t *ctx)
  */
 static void pm_state_machine_step(ncp_pm_sm_ctx_t *ctx)
 {
+    ncp_pm_action_entry_update(ctx->state);
+
     switch (ctx->state)
     {
         case NCP_PM_SM_STATE_IDLE:
             NCP_LOG_DBG("=================START=================");
-            ncp_pm_action_cb_register(NULL, NULL, ncp_pm_action_rx_idle);
             ncp_pm_sm_reset_flag(ctx);
             ncp_pm_sm_wait_event(ctx, NCP_PM_SM_EVENT_START, osaWaitForever_c);
             ncp_pm_sm_set_state(ctx, NCP_PM_SM_STATE_ENTER);
             break;
         case NCP_PM_SM_STATE_ENTER:
-            ncp_pm_action_cb_register(ncp_pm_action_tx_ctrl_enter, NULL, NULL);
             /* Initiates low power handshake by sending SLEEP_ENTER/SLEEP_CFM message
              * and entering critical section. */
             ctx->notify_events = NCP_PM_NOTIFY_EVENT_POST;
@@ -270,7 +288,6 @@ static void pm_state_machine_step(ncp_pm_sm_ctx_t *ctx)
             ncp_pm_sm_set_state(ctx, NCP_PM_SM_STATE_CONFIRM);
             break;
         case NCP_PM_SM_STATE_CONFIRM:
-            ncp_pm_action_cb_register(NULL, NULL, ncp_pm_action_rx_confirm);
             if (ctx->role == NCP_PM_ROLE_DEVICE)
             {
                 /* Handshake is ongoing. Device waits for SLEEP_CFM. */
@@ -279,7 +296,6 @@ static void pm_state_machine_step(ncp_pm_sm_ctx_t *ctx)
             ncp_pm_sm_set_state(ctx, NCP_PM_SM_STATE_ACK);
             break;
         case NCP_PM_SM_STATE_ACK:
-            ncp_pm_action_cb_register(ncp_pm_action_tx_ctrl_ack, ncp_pm_action_tx_data_ack, ncp_pm_action_rx_ack);
             if (ctx->role == NCP_PM_ROLE_DEVICE)
             {
                 /* Sending SLEEP_ACK message */
@@ -301,13 +317,11 @@ static void pm_state_machine_step(ncp_pm_sm_ctx_t *ctx)
             ncp_pm_sm_set_state(ctx, NCP_PM_SM_STATE_FINISH);
             break;
         case NCP_PM_SM_STATE_FINISH:
-            ncp_pm_action_cb_register(NULL, ncp_pm_action_tx_data_finish, ncp_pm_action_rx_finish);
             /* Handshake complete. Waits for STOP, AWAKE, or TIME_WAIT to determine next step. */
             ncp_pm_sm_wait_event(ctx, NCP_PM_SM_EVENT_STOP | NCP_PM_SM_EVENT_AWAKE | NCP_PM_SM_EVENT_TIME_WAIT, osaWaitForever_c);
             ncp_pm_sm_set_state(ctx, NCP_PM_SM_STATE_EXIT);
             break;
         case NCP_PM_SM_STATE_EXIT:
-            ncp_pm_action_cb_register(ncp_pm_action_tx_ctrl_exit, ncp_pm_action_tx_data_exit, NULL);
             if (ctx->role == NCP_PM_ROLE_DEVICE)
             {
                 /* Check if TIME_WAIT event is already set, that is, if the low power timer has expired. */
@@ -344,7 +358,6 @@ static void pm_state_machine_step(ncp_pm_sm_ctx_t *ctx)
             NCP_LOG_DBG("=================STOP==================");
             break;
         case NCP_PM_SM_STATE_TIME_WAIT:
-            ncp_pm_action_cb_register(NULL, ncp_pm_action_tx_data_time_wait, ncp_pm_action_rx_time_wait);
             if (ctx->role == NCP_PM_ROLE_DEVICE)
             {
                 /* Release PM policy constraint. */

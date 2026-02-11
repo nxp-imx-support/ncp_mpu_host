@@ -15,19 +15,12 @@
 #include "common.h"
 
 #if defined(MBEDTLS_ECDH_C)
-/* NXP added for HW accelerators support */
-#if !defined(MBEDTLS_ECDH_ALT)
+
 #include "mbedtls/ecdh.h"
 #include "mbedtls/platform_util.h"
 #include "mbedtls/error.h"
 
 #include <string.h>
-
-/* Parameter validation macros based on platform_util.h */
-#define ECDH_VALIDATE_RET(cond)    \
-    MBEDTLS_INTERNAL_VALIDATE_RET(cond, MBEDTLS_ERR_ECP_BAD_INPUT_DATA)
-#define ECDH_VALIDATE(cond)        \
-    MBEDTLS_INTERNAL_VALIDATE(cond)
 
 #if defined(MBEDTLS_ECDH_LEGACY_CONTEXT)
 typedef mbedtls_ecdh_context mbedtls_ecdh_context_mbed;
@@ -43,15 +36,12 @@ static mbedtls_ecp_group_id mbedtls_ecdh_grp_id(
 #endif
 }
 
-/* NXP added */
-#if !defined(MBEDTLS_ECDH_CANDO_ALT)
 int mbedtls_ecdh_can_do(mbedtls_ecp_group_id gid)
 {
     /* At this time, all groups support ECDH. */
     (void) gid;
     return 1;
 }
-#endif /* MBEDTLS_ECDH_CANDO_ALT */
 
 #if !defined(MBEDTLS_ECDH_GEN_PUBLIC_ALT)
 /*
@@ -92,10 +82,6 @@ int mbedtls_ecdh_gen_public(mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp_
                             int (*f_rng)(void *, unsigned char *, size_t),
                             void *p_rng)
 {
-    ECDH_VALIDATE_RET(grp != NULL);
-    ECDH_VALIDATE_RET(d != NULL);
-    ECDH_VALIDATE_RET(Q != NULL);
-    ECDH_VALIDATE_RET(f_rng != NULL);
     return ecdh_gen_public_restartable(grp, d, Q, f_rng, p_rng, NULL);
 }
 #endif /* !MBEDTLS_ECDH_GEN_PUBLIC_ALT */
@@ -140,10 +126,6 @@ int mbedtls_ecdh_compute_shared(mbedtls_ecp_group *grp, mbedtls_mpi *z,
                                 int (*f_rng)(void *, unsigned char *, size_t),
                                 void *p_rng)
 {
-    ECDH_VALIDATE_RET(grp != NULL);
-    ECDH_VALIDATE_RET(Q != NULL);
-    ECDH_VALIDATE_RET(d != NULL);
-    ECDH_VALIDATE_RET(z != NULL);
     return ecdh_compute_shared_restartable(grp, z, Q, d,
                                            f_rng, p_rng, NULL);
 }
@@ -162,13 +144,20 @@ static void ecdh_init_internal(mbedtls_ecdh_context_mbed *ctx)
 #endif
 }
 
+mbedtls_ecp_group_id mbedtls_ecdh_get_grp_id(mbedtls_ecdh_context *ctx)
+{
+#if defined(MBEDTLS_ECDH_LEGACY_CONTEXT)
+    return ctx->MBEDTLS_PRIVATE(grp).id;
+#else
+    return ctx->MBEDTLS_PRIVATE(grp_id);
+#endif
+}
+
 /*
  * Initialize context
  */
 void mbedtls_ecdh_init(mbedtls_ecdh_context *ctx)
 {
-    ECDH_VALIDATE(ctx != NULL);
-
 #if defined(MBEDTLS_ECDH_LEGACY_CONTEXT)
     ecdh_init_internal(ctx);
     mbedtls_ecp_point_init(&ctx->Vi);
@@ -203,8 +192,6 @@ static int ecdh_setup_internal(mbedtls_ecdh_context_mbed *ctx,
  */
 int mbedtls_ecdh_setup(mbedtls_ecdh_context *ctx, mbedtls_ecp_group_id grp_id)
 {
-    ECDH_VALIDATE_RET(ctx != NULL);
-
 #if defined(MBEDTLS_ECDH_LEGACY_CONTEXT)
     return ecdh_setup_internal(ctx, grp_id);
 #else
@@ -245,8 +232,6 @@ static void ecdh_free_internal(mbedtls_ecdh_context_mbed *ctx)
  */
 void mbedtls_ecdh_enable_restart(mbedtls_ecdh_context *ctx)
 {
-    ECDH_VALIDATE(ctx != NULL);
-
     ctx->restart_enabled = 1;
 }
 #endif
@@ -355,11 +340,6 @@ int mbedtls_ecdh_make_params(mbedtls_ecdh_context *ctx, size_t *olen,
                              void *p_rng)
 {
     int restart_enabled = 0;
-    ECDH_VALIDATE_RET(ctx != NULL);
-    ECDH_VALIDATE_RET(olen != NULL);
-    ECDH_VALIDATE_RET(buf != NULL);
-    ECDH_VALIDATE_RET(f_rng != NULL);
-
 #if defined(MBEDTLS_ECP_RESTARTABLE)
     restart_enabled = ctx->restart_enabled;
 #else
@@ -392,7 +372,7 @@ static int ecdh_read_params_internal(mbedtls_ecdh_context_mbed *ctx,
                                      const unsigned char *end)
 {
     return mbedtls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, buf,
-                                      end - *buf);
+                                      (size_t) (end - *buf));
 }
 
 /*
@@ -408,12 +388,7 @@ int mbedtls_ecdh_read_params(mbedtls_ecdh_context *ctx,
 {
     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
     mbedtls_ecp_group_id grp_id;
-    ECDH_VALIDATE_RET(ctx != NULL);
-    ECDH_VALIDATE_RET(buf != NULL);
-    ECDH_VALIDATE_RET(*buf != NULL);
-    ECDH_VALIDATE_RET(end != NULL);
-
-    if ((ret = mbedtls_ecp_tls_read_group_id(&grp_id, buf, end - *buf))
+    if ((ret = mbedtls_ecp_tls_read_group_id(&grp_id, buf, (size_t) (end - *buf)))
         != 0) {
         return ret;
     }
@@ -472,10 +447,9 @@ int mbedtls_ecdh_get_params(mbedtls_ecdh_context *ctx,
                             mbedtls_ecdh_side side)
 {
     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
-    ECDH_VALIDATE_RET(ctx != NULL);
-    ECDH_VALIDATE_RET(key != NULL);
-    ECDH_VALIDATE_RET(side == MBEDTLS_ECDH_OURS ||
-                      side == MBEDTLS_ECDH_THEIRS);
+    if (side != MBEDTLS_ECDH_OURS && side != MBEDTLS_ECDH_THEIRS) {
+        return MBEDTLS_ERR_ECP_BAD_INPUT_DATA;
+    }
 
     if (mbedtls_ecdh_grp_id(ctx) == MBEDTLS_ECP_DP_NONE) {
         /* This is the first call to get_params(). Set up the context
@@ -566,11 +540,6 @@ int mbedtls_ecdh_make_public(mbedtls_ecdh_context *ctx, size_t *olen,
                              void *p_rng)
 {
     int restart_enabled = 0;
-    ECDH_VALIDATE_RET(ctx != NULL);
-    ECDH_VALIDATE_RET(olen != NULL);
-    ECDH_VALIDATE_RET(buf != NULL);
-    ECDH_VALIDATE_RET(f_rng != NULL);
-
 #if defined(MBEDTLS_ECP_RESTARTABLE)
     restart_enabled = ctx->restart_enabled;
 #endif
@@ -620,9 +589,6 @@ static int ecdh_read_public_internal(mbedtls_ecdh_context_mbed *ctx,
 int mbedtls_ecdh_read_public(mbedtls_ecdh_context *ctx,
                              const unsigned char *buf, size_t blen)
 {
-    ECDH_VALIDATE_RET(ctx != NULL);
-    ECDH_VALIDATE_RET(buf != NULL);
-
 #if defined(MBEDTLS_ECDH_LEGACY_CONTEXT)
     return ecdh_read_public_internal(ctx, buf, blen);
 #else
@@ -702,10 +668,6 @@ int mbedtls_ecdh_calc_secret(mbedtls_ecdh_context *ctx, size_t *olen,
                              void *p_rng)
 {
     int restart_enabled = 0;
-    ECDH_VALIDATE_RET(ctx != NULL);
-    ECDH_VALIDATE_RET(olen != NULL);
-    ECDH_VALIDATE_RET(buf != NULL);
-
 #if defined(MBEDTLS_ECP_RESTARTABLE)
     restart_enabled = ctx->restart_enabled;
 #endif
@@ -729,7 +691,4 @@ int mbedtls_ecdh_calc_secret(mbedtls_ecdh_context *ctx, size_t *olen,
     }
 #endif
 }
-
-#endif /*#if !defined(MBEDTLS_ECDH_ALT) */
-/* NXP added for HW accelerators support */
 #endif /* MBEDTLS_ECDH_C */

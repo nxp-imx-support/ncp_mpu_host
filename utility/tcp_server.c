@@ -29,7 +29,7 @@ typedef struct _iperf_thead_data
 {
     iperf_set_t iperf_set;
     int sockfd;
-    long long pkt_size;
+    unsigned long long pkt_size;
     struct sockaddr_in *clientaddr;
     socklen_t addrlen;
 } iperf_thead_data;
@@ -125,7 +125,7 @@ void *recv_data(void *arg);
 
 void start_thread(iperf_thead_data *td)
 {
-    td->pkt_size = td->iperf_set.iperf_count * td->iperf_set.iperf_per_size;
+    td->pkt_size = (unsigned long long)td->iperf_set.iperf_count * td->iperf_set.iperf_per_size;
     //printf("type = %d, size = %lld\n", td->iperf_set.iperf_type, td->pkt_size);
     pthread_t tx_thread, rx_thread;
     switch (td->iperf_set.iperf_type)

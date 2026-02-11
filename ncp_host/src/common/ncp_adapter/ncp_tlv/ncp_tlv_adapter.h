@@ -16,13 +16,14 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include "psa/crypto_types.h"
 
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
 
 #ifndef CONFIG_NCP_USE_ENCRYPT
-#define CONFIG_NCP_USE_ENCRYPT              0
+#define CONFIG_NCP_USE_ENCRYPT              1
 #endif
 #ifndef CONFIG_NCP_HOST_AUTO_TRIG_ENCRYPT
 #define CONFIG_NCP_HOST_AUTO_TRIG_ENCRYPT   0
@@ -54,20 +55,19 @@
 
 #define NCP_ENDECRYPT_KEY_LEN               16
 #define NCP_ENDECRYPT_IV_LEN                16
+#define NCP_GCM_TAG_LEN                     16
 
 typedef struct _crypt_param_t {
     uint8_t  flag;
     uint8_t  rsv[3];
-    void    *gcm_ctx_enc;
-    void    *gcm_ctx_dec;
-    uint8_t *dec_buf;
-    uint32_t dec_buf_len;
     uint8_t  key_len;
     uint8_t  iv_len;
     uint8_t  key_enc[NCP_ENDECRYPT_KEY_LEN];
     uint8_t  key_dec[NCP_ENDECRYPT_KEY_LEN];
     uint8_t  iv_enc[NCP_ENDECRYPT_IV_LEN];
     uint8_t  iv_dec[NCP_ENDECRYPT_IV_LEN];
+    mbedtls_svc_key_id_t key_enc_id;
+    mbedtls_svc_key_id_t key_dec_id;
 } crypt_param_t;
 
 void dbg_print_hex(const uint8_t *buf, uint16_t len, const char *title);
@@ -84,7 +84,7 @@ int ncp_tlv_adapter_is_encrypt_mode(void);
 /* NCP Debug options */
 #if CONFIG_NCP_DEBUG
 /* Interface related stats*/
-typedef struct _stats_intf
+typedef struct _stats_interface
 {
     uint32_t tx;
     uint32_t tx0;
@@ -100,13 +100,13 @@ typedef struct _stats_intf
     uint32_t drop;
     uint32_t lenerr;
     uint32_t ringerr;
-} stats_inft_t;
+} stats_interface_t;
 
 /* NCP Interface stats container */
 typedef struct _ncp_stats
 {
-    stats_inft_t tlvq;
-    stats_inft_t intf;
+    stats_interface_t  tlvq;
+    stats_interface_t  intf;
 } ncp_stats_t;
 
 /* Global NCP statistics instance */

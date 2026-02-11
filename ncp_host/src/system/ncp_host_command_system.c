@@ -247,6 +247,21 @@ int ncp_process_wakeup_host_response(uint8_t *res)
     return NCP_SUCCESS;
 }
 
+int ncp_process_host_type_response(uint8_t *res)
+{
+    SYSTEM_NCPCmd_DS_COMMAND *cmd_res = (SYSTEM_NCPCmd_DS_COMMAND *)res;
+
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
+    {
+        (void)printf("Failed to set ncp host type\r\n");
+        return -NCP_FAIL;
+    }
+
+    (void)printf("ncp-host-type succeeded!\r\n");
+
+    return NCP_SUCCESS;
+}
+
 int ncp_get_mcu_sleep_conf_command(int argc, char **argv)
 {
     ncp_pm_cfg_t *power_cfg = ncp_pm_get_config();
@@ -365,6 +380,9 @@ int system_process_response(uint8_t *res)
             ret = ncp_process_encrypt_response(res);
             break;
 #endif
+        case NCP_RSP_SYSTEM_HOST_TYPE:
+            ret = ncp_process_host_type_response(res);
+            break;
         default:
             NCP_LOG_ERR("Invaild response cmd!");
             break;
@@ -469,6 +487,21 @@ int ncp_get_command(int argc, char **argv)
     sys_cfg_command->header.size += sizeof(NCP_CMD_SYSTEM_CFG);
 
     return TRUE;
+}
+
+int ncp_set_host_type(int host_type)
+{
+#ifdef CONFIG_NCP_SPI
+    SYSTEM_NCPCmd_DS_COMMAND *sys_cfg_command = (SYSTEM_NCPCmd_DS_COMMAND *)ncp_host_get_cmd_buffer_sys();
+    NCP_CMD_HOST_TYPE *host_type_para = (NCP_CMD_HOST_TYPE *)&sys_cfg_command->params.host_type;
+    host_type_para->host_type = host_type;
+    sys_cfg_command->header.cmd      = NCP_CMD_SYSTEM_HOST_TYPE;
+    sys_cfg_command->header.size     = NCP_CMD_HEADER_LEN;
+    sys_cfg_command->header.result   = NCP_CMD_RESULT_OK;
+    sys_cfg_command->header.size += sizeof(NCP_CMD_HOST_TYPE);
+    send_tlv_command(NULL);
+#endif
+    return NCP_SUCCESS;
 }
 
 /**

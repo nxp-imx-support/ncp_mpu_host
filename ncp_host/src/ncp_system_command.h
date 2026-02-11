@@ -26,6 +26,8 @@
 #define NCP_RSP_SYSTEM_CONFIG_GET              (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_RESP | 0x00000002) 
 #define NCP_CMD_SYSTEM_CONFIG_ENCRYPT          (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_CMD | 0x00000003) /* ncp_encrypt */
 #define NCP_RSP_SYSTEM_CONFIG_ENCRYPT          (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_RESP | 0x00000003) 
+#define NCP_CMD_SYSTEM_HOST_TYPE               (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_CMD | 0x00000004) /* wlan-device-reset */
+#define NCP_RSP_SYSTEM_HOST_TYPE               (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_CONFIG | NCP_MSG_TYPE_RESP | 0x00000004)
 
 #define NCP_CMD_SYSTEM_POWERMGMT_MCU_SLEEP     (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_POWERMGMT | NCP_MSG_TYPE_CMD | 0x00000002) /* ncp-mcu-sleep */
 #define NCP_RSP_SYSTEM_POWERMGMT_MCU_SLEEP     (NCP_CMD_SYSTEM | NCP_CMD_SYSTEM_POWERMGMT | NCP_MSG_TYPE_RESP | 0x00000002) 
@@ -108,6 +110,12 @@ typedef struct _NCP_CMD_ENCRYPT
     uint32_t arg;
 } NCP_CMD_ENCRYPT;
 
+/** This structure is used for region code configuration. */
+typedef struct _NCP_CMD_HOST_TYPE
+{
+    uint32_t host_type;
+} NCP_CMD_HOST_TYPE;
+
 typedef struct _SYSTEM_NCPCmd_DS_COMMAND
 {
     /** Command Header : Command */
@@ -122,6 +130,7 @@ typedef struct _SYSTEM_NCPCmd_DS_COMMAND
         NCP_CMD_POWERMGMT_WAKEUP_HOST host_wakeup_ctrl;
         /** NCP host and device encrypted communication. */
         NCP_CMD_ENCRYPT encrypt;
+        NCP_CMD_HOST_TYPE host_type;
     } params;
 
 } SYSTEM_NCPCmd_DS_COMMAND;

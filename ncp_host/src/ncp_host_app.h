@@ -137,6 +137,9 @@ uint8_t hexc2bin(char chr);
  * set 'sep' accordingly. */
 int get_mac(const char *arg, char *dest, char sep);
 
+int ncp_set_host_type(int host_type);
+
+
 extern ring_buffer_t *ring_buf;
 extern sem_t cmd_sem;
 

@@ -125,14 +125,14 @@ static int ncp_spi_pm_enter(unsigned char pm_state)
 {
     /* TODO: NCP uart pm */
 	ARG_UNUSED(pm_state);
-    return 0;
+    return NCP_PM_STATUS_SUCCESS;
 }
 
 static int ncp_spi_pm_exit(unsigned char pm_state)
 {
     /* TODO: NCP uart pm */
 	ARG_UNUSED(pm_state);
-    return 0;
+    return NCP_PM_STATUS_SKIP;
 }
 
 static ncp_intf_pm_ops_t ncp_spi_pm_ops =

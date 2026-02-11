@@ -120,9 +120,14 @@ static void display_ping_stats(int status, uint32_t size, const char *ip_str, ui
 #if CONFIG_INET_SOCKET
 static void ping_sock_task(void *arg)
 {
+    struct ip_hdr *iphdr;
     struct icmp_echo_hdr *iecho;
+    struct icmp_echo_hdr *iecho_resp;
+    uint8_t *recv_buf;
     uint64_t ping_time;
     ping_time_t ping_stop, temp_time;
+    int retry;
+
     printf("[%s-%d], %ld\n", __func__, __LINE__, syscall(SYS_gettid));
 
     while (1)
@@ -150,6 +155,15 @@ static void ping_sock_task(void *arg)
             printf("failed to allocate memory for ping packet!\r\n");
             continue;
         }
+
+        recv_buf = (uint8_t *)malloc(ping_size + sizeof(struct ip_hdr));
+        if (!recv_buf)
+        {
+            printf("failed to allocate memory for ping response packet!\r\n");
+            free(iecho);
+            continue;
+        }
+
         struct sockaddr_in server_addr = {0};
         struct in_addr dest_addr;
         inet_pton(AF_INET, ping_msg.ip_addr, &dest_addr);
@@ -159,7 +173,11 @@ static void ping_sock_task(void *arg)
 
         while (i <= ping_msg.count)
         {
+            retry = 10;
             ping_res.echo_resp = FALSE;
+            (void)memset(iecho, 0, ping_size);
+            (void)memset(recv_buf, 0, ping_size + IP_HEADER_LEN);
+
             /* Prepare ping command */
             ping_prepare_echo(iecho, (uint16_t)ping_size, i);
 
@@ -167,25 +185,53 @@ static void ping_sock_task(void *arg)
             ping_time_now(&ping_res.time);
             ping_res.seq_no = i;
             ncp_sendto(sockfd, iecho, ping_size, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
             socklen_t len = sizeof(server_addr);
-            int ret = ncp_recvfrom(sockfd, iecho, ping_size, 0, (struct sockaddr *)&server_addr, &len);
-            if (ret > 0)
+            /* Function raw_input may put multiple pieces of data in conn->recvmbox,
+             * waiting to select the data we want */
+            while (ping_res.echo_resp != TRUE && retry)
             {
-                ping_res.recvd++;
-                ping_res.size = ret;
+                int ret = ncp_recvfrom(sockfd, recv_buf, ping_size + sizeof(struct ip_hdr), 0, (struct sockaddr *)&server_addr, &len);
+                if (ret > (int)(sizeof(struct ip_hdr) + sizeof(struct icmp_echo_hdr)))
+                {
+                    /* Handle the ICMP echo response and extract required parameters */
+                    iphdr = (struct ip_hdr *)recv_buf;
+                    /* Calculate the offset of ICMP header */
+                    iecho_resp = (struct icmp_echo_hdr *)(recv_buf + ((iphdr->_v_hl & 0x0f) * 4));
+                    /* Verify that the echo response is for the echo request
+                    * we sent by checking PING_ID and sequence number */
+                    if ((iecho_resp->id == PING_ID) && (iecho_resp->seqno == htons(ping_res.seq_no)))
+                    {
+                        /* Increment the receive counter */
+                        ping_res.recvd++;
+                        /* Extract TTL and send back so that it can be
+                         * displayed in ping statistics */
+                        ping_res.ttl = iphdr->_ttl;
+                        ping_res.size = ret - sizeof(struct ip_hdr);
+                        ping_res.echo_resp = TRUE;
+                        break;
+                    }
+                    else
+                    {
+                        (void)memset(recv_buf, 0, ping_size + IP_HEADER_LEN);
+                    }
+                }
+                retry--;
             }
-            else
-                ping_res.echo_resp = ret;
+
             ping_time_now(&ping_stop);
             ping_time_diff(&ping_stop, &ping_res.time, &temp_time);
             ping_res.time = temp_time;
             ping_time = ping_time_in_msecs(&ping_res.time);
             inet_ntop(AF_INET, &(server_addr.sin_addr), ping_res.ip_addr, IP_ADDR_LEN);
             display_ping_stats(ping_res.echo_resp, ping_res.size, ping_res.ip_addr, ping_res.seq_no, ping_res.ttl, ping_time);
+
             usleep(1000000);
             i++;
         }
         display_ping_result((int)ping_msg.count, ping_res.recvd);
+        free((void *)iecho);
+        free((void *)recv_buf);
         ncp_close(sockfd);
     }
 
@@ -1121,6 +1167,7 @@ Fail:
 static int wifi_ncp_handle_rx_cmd_event(uint8_t *cmd)
 {
     uint32_t msg_type = 0;
+    int ret;
 
 #ifdef CONFIG_MPU_IO_DUMP
     NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)cmd;
@@ -1134,28 +1181,32 @@ static int wifi_ncp_handle_rx_cmd_event(uint8_t *cmd)
         wlan_process_ncp_event(cmd);
     else
     {
-        wlan_process_response(cmd);
+        ret = wlan_process_response(cmd);
 
-        last_resp_rcvd = ((NCP_COMMAND *)cmd)->cmd;
-        last_seqno_rcvd = ((NCP_COMMAND *)cmd)->seqnum;
-        if (last_resp_rcvd == (last_cmd_sent | NCP_MSG_TYPE_RESP))
+        if(ret != -NCP_STATUS_HANDLE_RSP)
         {
-            sem_post(&cmd_sem);
+            last_resp_rcvd = ((NCP_COMMAND *)cmd)->cmd;
+            last_seqno_rcvd = ((NCP_COMMAND *)cmd)->seqnum;
+            if (last_resp_rcvd == (last_cmd_sent | NCP_MSG_TYPE_RESP))
+            {
+                sem_post(&cmd_sem);
 #ifdef CONFIG_MPU_IO_DUMP
-            printf("put command semaphore\r\n");
+                printf("put command semaphore\r\n");
+#endif
+            }
+            if (last_resp_rcvd == NCP_RSP_INVALID_CMD)
+            {
+                printf("Previous command is invalid\r\n");
+                sem_post(&cmd_sem);
+                last_resp_rcvd = 0;
+                last_seqno_rcvd = 0;
+            }
+#ifdef CONFIG_MPU_IO_DUMP
+            printf("last_resp_rcvd = 0x%08x, last_cmd_sent = 0x%08x, last_seqno_rcvd = 0x%08x, last_seqno_sent = 0x%08x\r\n",
+                last_resp_rcvd, last_cmd_sent, last_seqno_rcvd, last_seqno_sent);
 #endif
         }
-        if (last_resp_rcvd == NCP_RSP_INVALID_CMD)
-        {
-            printf("Previous command is invalid\r\n");
-            sem_post(&cmd_sem);
-            last_resp_rcvd = 0;
-            last_seqno_rcvd = 0;
-        }
-#ifdef CONFIG_MPU_IO_DUMP
-        printf("last_resp_rcvd = 0x%08x, last_cmd_sent = 0x%08x, last_seqno_rcvd = 0x%08x, last_seqno_sent = 0x%08x\r\n",
-            last_resp_rcvd, last_cmd_sent, last_seqno_rcvd, last_seqno_sent);
-#endif
+
     }
     return 0;
 }
