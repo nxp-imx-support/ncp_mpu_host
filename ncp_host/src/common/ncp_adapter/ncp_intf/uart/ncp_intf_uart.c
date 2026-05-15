@@ -12,6 +12,7 @@
 #include "ncp_log.h"
 #include "ncp_pm.h"
 #include "ncp_tlv_adapter.h"
+#include "gpio_ncp_adapter.h"
 
 NCP_LOG_MODULE_DEFINE(ncp_uart, CONFIG_LOG_NCP_INTF_LEVEL);
 NCP_LOG_MODULE_REGISTER(ncp_uart, CONFIG_LOG_NCP_INTF_LEVEL);
@@ -20,8 +21,15 @@ NCP_LOG_MODULE_REGISTER(ncp_uart, CONFIG_LOG_NCP_INTF_LEVEL);
  * Defines
  ******************************************************************************/
 
-#define NCP_UART_BAUDRATE       B115200
-#define NCP_UART_BUFFER_SIZE    256
+#define NCP_UART_DEVICE         "/dev/ttymxc2"
+#define NCP_UART_BAUDRATE       B3000000
+
+#if (NCP_UART_BAUDRATE > B115200)
+#define NCP_UART_IS_HIGH_BAUD   1
+#else
+#define NCP_UART_IS_HIGH_BAUD   0
+#endif
+
 #if CONFIG_NCP_USE_ENCRYPT
 #define NCP_UART_RX_STACK_SIZE  4096
 #else
@@ -48,7 +56,7 @@ static int ncp_uart_recv(uint8_t *tlv_buf, size_t *tlv_sz);
 
 static uart_device_t uart_device;
 
-static uint8_t ncp_uart_tlvbuf[TLV_CMD_BUF_SIZE];
+static uint8_t rx_buffer[TLV_CMD_BUF_SIZE];
 
 OSA_MUTEX_HANDLE_DEFINE(ncp_uart_tx_mutex);
 OSA_TASK_HANDLE_DEFINE(ncp_uart_rx_task_handle);
@@ -67,10 +75,10 @@ static void ncp_uart_rx_task(osa_task_param_t argv)
 
     while (1)
     {
-        ret = ncp_uart_recv(ncp_uart_tlvbuf, &tlv_size);
+        ret = ncp_uart_recv(rx_buffer, &tlv_size);
         if (ret == NCP_SUCCESS)
         {
-            ncp_tlv_dispatch(ncp_uart_tlvbuf, tlv_size);
+            ncp_tlv_dispatch(rx_buffer, tlv_size);
         }
         else
         {
@@ -87,7 +95,7 @@ static int ncp_uart_init(void *argv)
 
     ARG_UNUSED(argv);
 
-    uart_device.instance = (const char *)argv;
+    uart_device.instance = NCP_UART_DEVICE;
     uart_device.rate = NCP_UART_BAUDRATE;
     uart_device.flow_control = 1;
 
@@ -187,6 +195,7 @@ static int ncp_uart_recv(uint8_t *tlv_buf, size_t *tlv_sz)
         }
     }
 
+    NCP_LOG_DBG("Received TLV header");
     cmd_len = (tlv_buf[TLV_CMD_SIZE_HIGH_BYTES] << 8) | 
               tlv_buf[TLV_CMD_SIZE_LOW_BYTES];
 
@@ -239,7 +248,9 @@ static int ncp_uart_recv(uint8_t *tlv_buf, size_t *tlv_sz)
     *tlv_sz = cmd_len;
     NCP_UART_STATS_INC(rx);
 
-    NCP_LOG_DBG("Successfully received TLV command, size: %zu", cmd_len);
+    NCP_LOG_DBG("Received %zu bytes", *tlv_sz);
+    NCP_LOG_HEXDUMP_DBG(tlv_buf, *tlv_sz + NCP_CHKSUM_LEN);
+
     return NCP_SUCCESS;
 }
 
@@ -258,7 +269,9 @@ static int ncp_uart_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t cb
         return -NCP_FAIL;
     }
 
-    NCP_LOG_DBG("Sending data over UART, size: %zu", tlv_sz);
+    NCP_LOG_DBG("Sending: %zu bytes", tlv_sz);
+    NCP_LOG_HEXDUMP_DBG(tlv_buf, tlv_sz);
+
     ret = uart_send(&uart_device, tlv_buf, tlv_sz);
     OSA_MutexUnlock(&ncp_uart_tx_mutex);
     if (ret != 0)
@@ -268,19 +281,21 @@ static int ncp_uart_send(uint8_t *tlv_buf, size_t tlv_sz, tlv_send_callback_t cb
     }
 
     NCP_UART_STATS_INC(tx);
-    NCP_LOG_DBG("Data sent over UART successfully");
+    NCP_LOG_DBG("Total sent: %zu bytes", tlv_sz);
 
     return NCP_SUCCESS;
 }
 
-uint8_t magic_pattern[12] = {0xBA, 0xDC, 0xFE, 0x87, 0x89, 0xEF, 0xCD, 0xAB, 0xB9, 0x3E, 0x7A, 0x67};
 static int ncp_uart_pm_exit(uint8_t pm_state)
 {
     ARG_UNUSED(pm_state);
 
-    ncp_uart_send(magic_pattern, sizeof(magic_pattern), NULL);
-
+#if NCP_UART_IS_HIGH_BAUD
+    ncp_gpio_wakeup_peer(100);
     return NCP_PM_STATUS_SUCCESS;
+#else
+    return NCP_PM_STATUS_SKIP;
+#endif
 }
 
 static ncp_intf_pm_ops_t ncp_uart_pm_ops =

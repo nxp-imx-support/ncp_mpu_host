@@ -51,6 +51,7 @@ int uart_init(uart_device_t *dev)
         return -1;
     }
 
+    cfmakeraw(tty);
     cfsetispeed(tty, dev->rate);
     cfsetospeed(tty, dev->rate);
 
@@ -82,9 +83,6 @@ int uart_init(uart_device_t *dev)
     tty->c_cc[VTIME] = 0;
     tty->c_cc[VMIN]  = 1;
 
-    /* Flush input buffer */
-    tcflush(fd, TCIFLUSH);
-
     /* Apply new settings */
     ret = tcsetattr(fd, TCSANOW, tty);
     if (ret)
@@ -94,6 +92,9 @@ int uart_init(uart_device_t *dev)
         close(fd);
         return -1;
     }
+
+    /* Flush input buffer */
+    tcflush(fd, TCIFLUSH);
 
     dev->fd  = fd;
     dev->tty = tty;

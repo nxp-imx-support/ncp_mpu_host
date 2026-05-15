@@ -16,9 +16,15 @@
  ******************************************************************************/
 
 /* NCP GPIO pins definition */
+#if CONFIG_NCP_UART
+#define NCP_GPIO_CHIP_NUM           2    /* /dev/gpiochip2 */
+#define NCP_GPIO_DEVICE_NOTIFY_PIN  22    /* Input - Device notification */
+#define NCP_GPIO_WAKEUP_DEVICE_PIN  21    /* Output - Wake up device */
+#else
 #define NCP_GPIO_CHIP_NUM           4    /* /dev/gpiochip4 */
 #define NCP_GPIO_DEVICE_NOTIFY_PIN  8    /* Input - Device notification */
 #define NCP_GPIO_WAKEUP_DEVICE_PIN  9    /* Output - Wake up device */
+#endif
 
 /* GPIO signal types for NCP */
 typedef enum {
