@@ -9,7 +9,6 @@
 
 /* WLAN SCAN OPT */
 #define CONFIG_SCAN_WITH_RSSIFILTER
-#define CONFIG_WIFI_CAPA
 #define CONFIG_OWE
 #define CONFIG_11R  1
 

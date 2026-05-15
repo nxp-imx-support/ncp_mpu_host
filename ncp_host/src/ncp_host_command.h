@@ -27,9 +27,16 @@
 #define GET_CMD_SUBCLASS(cmd) (((cmd)&0x0ff00000) >> 20)
 
 #define NCP_CMD_RESULT_OK 0x0000
-
 /*General error*/
 #define NCP_CMD_RESULT_ERROR 0x0001
+/** NCP Command is not valid */
+#define NCP_CMD_RESULT_NOT_SUPPORT 0x0002
+/** NCP Command is pending */
+#define NCP_CMD_RESULT_PENDING 0x0003
+/** System is busy */
+#define NCP_CMD_RESULT_BUSY 0x0004
+/** Data buffer is not big enough */
+#define NCP_CMD_RESULT_PARTIAL_DATA 0x0005
 /*MCU device enter low power mode*/
 #define NCP_CMD_RESULT_ENTER_SLEEP 0x0006
 /*MCU device exit low power mode*/

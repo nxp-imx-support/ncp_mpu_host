@@ -203,7 +203,7 @@ int ncp_system_app_init()
     else
         printf("Success to creat Send Thread!\r\n");
 
-    if (sem_init(&ncp_dev_reset_semaphore, 0, 1) == -1)
+    if (sem_init(&ncp_dev_reset_semaphore, 0, 0) == -1)
     {
         printf("Failed to init dev reset semaphore!\r\n");
         goto err_tlv_thread;

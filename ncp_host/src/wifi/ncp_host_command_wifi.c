@@ -570,10 +570,6 @@ static void dump_wlan_add_usage()
     printf(
         "    [wpa2 <psk> <secret>]/[wpa <secret> wpa2 <psk> <secret>]/[wpa3 sae <secret> [pwe <0/1/2>] [tr <0/1>]]/[wpa2 <secret> wpa3 sae "
         "<secret>]");
-#ifdef CONFIG_WIFI_CAPA
-    printf("\r\n");
-    printf("    [capa <11ax/11ac/11n/legacy>]");
-#endif
     printf("\r\n");
     printf("    [mfpc <0/1>] [mfpr <0/1>]\r\n");
 #ifdef CONFIG_WIFI_DTIM_PERIOD
@@ -710,9 +706,6 @@ int wlan_add_command(int argc, char **argv)
         unsigned dtim : 1;
 #endif
         unsigned acs_band : 1;
-#ifdef CONFIG_WIFI_CAPA
-        unsigned wlan_capa : 1;
-#endif
     } info;
 
     NCPCmd_DS_COMMAND *network_add_command = mpu_host_get_wifi_command_buffer();
@@ -736,7 +729,6 @@ int wlan_add_command(int argc, char **argv)
     BSSRole_ParamSet_t *role_tlv     = NULL;
     DTIM_ParamSet_t *dtim_tlv        = NULL;
     ACSBand_ParamSet_t *acs_band_tlv = NULL;
-    CAPA_ParamSet_t *capa_tlv        = NULL;
     (void)memset(&info, 0, sizeof(info));
 
     if (argc < 4)
@@ -1371,43 +1363,6 @@ int wlan_add_command(int argc, char **argv)
             arg += 2;
             info.acs_band = 1;
         }
-#ifdef CONFIG_WIFI_CAPA
-        else if (!info.wlan_capa && (role_tlv != NULL) && (role_tlv->role == WLAN_BSS_ROLE_UAP)
-                 && string_equal("capa", argv[arg]))
-        {
-            capa_tlv = (CAPA_ParamSet_t *)ptlv_pos;
-            if (arg + 1 >= argc)
-            {
-                printf(
-                    "Error: invalid wireless"
-                    " capability\r\n");
-                return FALSE;
-            }
-
-            if (strcmp(argv[arg + 1], "11ax") == 0)
-                capa_tlv->capa = WIFI_SUPPORT_11AX | WIFI_SUPPORT_11AC | WIFI_SUPPORT_11N | WIFI_SUPPORT_LEGACY;
-            else if (strcmp(argv[arg + 1], "11ac") == 0)
-                capa_tlv->capa = WIFI_SUPPORT_11AC | WIFI_SUPPORT_11N | WIFI_SUPPORT_LEGACY;
-            else if (strcmp(argv[arg + 1], "11n") == 0)
-                capa_tlv->capa = WIFI_SUPPORT_11N | WIFI_SUPPORT_LEGACY;
-            else if (strcmp(argv[arg + 1], "legacy") == 0)
-                capa_tlv->capa = WIFI_SUPPORT_LEGACY;
-            else
-            {
-                printf(
-                    "Error: invalid wireless"
-                    " capability\r\n");
-                return FALSE;
-            }
-
-            capa_tlv->header.type = NCP_CMD_NETWORK_CAPA_TLV;
-            capa_tlv->header.size = sizeof(capa_tlv->capa);
-            ptlv_pos += sizeof(CAPA_ParamSet_t);
-            tlv_buf_len += sizeof(CAPA_ParamSet_t);
-            arg += 2;
-            info.wlan_capa++;
-        }
-#endif
         else
         {
             dump_wlan_add_usage();
@@ -2483,6 +2438,12 @@ int wlan_process_response(uint8_t *res)
         case NCP_RSP_WLAN_NETWORK_REMOVE:
             ret = wlan_process_network_remove_response(res);
             break;
+        case NCP_RSP_SET_BANDCFG:
+            ret = wlan_process_set_bandcfg_response(res);
+            break;
+        case NCP_RSP_GET_BANDCFG:
+            ret = wlan_process_get_bandcfg_response(res);
+            break;
         default:
             break;
     }
@@ -3169,45 +3130,6 @@ static void print_network(NCP_WLAN_NETWORK *network)
         default:
             break;
     }
-#ifdef CONFIG_WIFI_CAPA
-    if (network->role == WLAN_BSS_ROLE_UAP)
-    {
-        if (network->wlan_capa & WIFI_SUPPORT_11AX)
-        {
-            if (!network->enable_11ax)
-            {
-                if (network->enable_11ac)
-                    printf("\twifi capability: 11ac\r\n");
-                else
-                    printf("\twifi capability: 11n\r\n");
-            }
-            else
-                printf("\twifi capability: 11ax\r\n");
-            printf("\tuser configure: 11ax\r\n");
-        }
-        else if (network->wlan_capa & WIFI_SUPPORT_11AC)
-        {
-            if (!network->enable_11ac)
-                printf("\twifi capability: 11n\r\n");
-            else
-                printf("\twifi capability: 11ac\r\n");
-            printf("\tuser configure: 11ac\r\n");
-        }
-        else if (network->wlan_capa & WIFI_SUPPORT_11N)
-        {
-            if (!network->enable_11n)
-                printf("\twifi capability: legacy\r\n");
-            else
-                printf("\twifi capability: 11n\r\n");
-            printf("\tuser configure: 11n\r\n");
-        }
-        else
-        {
-            printf("\twifi capability: legacy\r\n");
-            printf("\tuser configure: legacy\r\n");
-        }
-    }
-#endif
     print_address(network, network->role);
 #ifdef CONFIG_SCAN_WITH_RSSIFILTER
     printf("\r\n\trssi threshold: %d \r\n", network->rssi_threshold);
@@ -8488,6 +8410,89 @@ int wlan_process_network_remove_response(uint8_t *res)
     return WM_SUCCESS;
 }
 
+int wlan_set_bandcfg_command(int argc, char **argv)
+{
+    NCPCmd_DS_COMMAND *bandcfg_command = mpu_host_get_wifi_command_buffer();
+    uint32_t value = 0;
+
+    if (argc != 2)
+    {
+        (void)printf("Usage: %s <bitmap>\r\n", argv[0]);
+        (void)printf("    Bits in Band:\r\n");
+        (void)printf("    bit 0: 11N\r\n");
+        (void)printf("    bit 1: 11AC\r\n");
+        (void)printf("    bit 2: 11AX\r\n");
+        return -WM_FAIL;
+    }
+
+    (void)memset((uint8_t *)bandcfg_command, 0, NCP_COMMAND_LEN);
+    value = a2hex_or_atoi(argv[1]);
+    bandcfg_command->header.cmd      = NCP_CMD_SET_BANDCFG;
+    bandcfg_command->header.size     = NCP_CMD_HEADER_LEN;
+    bandcfg_command->header.result   = NCP_CMD_RESULT_OK;
+
+    NCP_CMD_BANDCFG *bandcfg = (NCP_CMD_BANDCFG *)&bandcfg_command->params.bandcfg;
+    bandcfg->config_bands     = value;
+    bandcfg_command->header.size += sizeof(NCP_CMD_BANDCFG);
+
+    return WM_SUCCESS;
+}
+
+int wlan_process_set_bandcfg_response(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
+
+    if (cmd_res->header.result == NCP_CMD_RESULT_OK)
+        (void)printf("Set bandcfg successfully!\r\n");
+    else if (cmd_res->header.result == NCP_CMD_RESULT_BUSY)
+        (void)printf("Error: set-bandcfg command is not allowed when STA has connection or uAP is started\r\n");
+    else
+        (void)printf("Failed to set bandcfg!\r\n");
+
+    return WM_SUCCESS;
+}
+
+int wlan_get_bandcfg_command(int argc, char **argv)
+{
+    NCPCmd_DS_COMMAND *command = mpu_host_get_wifi_command_buffer();
+
+    if (argc != 1)
+    {
+        (void)printf("Error: invalid number of arguments\r\n");
+        (void)printf("Usage:\r\n");
+        (void)printf("wlan-get-bandcfg\r\n");
+        return -WM_FAIL;
+    }
+
+    (void)memset((uint8_t *)command, 0, NCP_COMMAND_LEN);
+    command->header.cmd      = NCP_CMD_GET_BANDCFG;
+    command->header.size     = NCP_CMD_HEADER_LEN;
+    command->header.result   = NCP_CMD_RESULT_OK;
+
+    return WM_SUCCESS;
+}
+
+int wlan_process_get_bandcfg_response(uint8_t *res)
+{
+    NCPCmd_DS_COMMAND *cmd_res = (NCPCmd_DS_COMMAND *)res;
+
+    if (cmd_res->header.result != NCP_CMD_RESULT_OK)
+    {
+        (void)printf("Failed to get bandcfg!\r\n");
+        return -WM_FAIL;
+    }
+
+    NCP_CMD_BANDCFG *bandcfg = (NCP_CMD_BANDCFG *)&cmd_res->params.bandcfg;
+
+    (void)printf("config band: 0x%x\r\n", bandcfg->config_bands);
+    (void)printf("fw band: 0x%x\r\n", bandcfg->fw_bands);
+    (void)printf("    Bits in Band:\r\n");
+    (void)printf("    bit 0: 11N\r\n");
+    (void)printf("    bit 1: 11AC\r\n");
+    (void)printf("    bit 2: 11AX\r\n");
+
+    return WM_SUCCESS;
+}
 
 /*
  * @brief: ncp inet socket tcp/udp server/client test APIs, only for internal debug using
@@ -9223,6 +9228,8 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
 #ifdef CONFIG_NCP_SUPP
     {"wlan-set-okc", "<okc: 0(default)/1>", wlan_set_okc_command},
 #endif
+    {"wlan-set-bandcfg", "<bitmap>", wlan_set_bandcfg_command},
+    {"wlan-get-bandcfg", NULL, wlan_get_bandcfg_command},
 };
 #endif
 

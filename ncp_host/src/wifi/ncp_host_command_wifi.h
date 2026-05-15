@@ -832,13 +832,6 @@ typedef struct _NCP_CMD_OKC
     uint32_t enable;
 } NCP_CMD_OKC;
 
-#ifdef CONFIG_WIFI_CAPA
-#define WIFI_SUPPORT_11AX   (1 << 3)
-#define WIFI_SUPPORT_11AC   (1 << 2)
-#define WIFI_SUPPORT_11N    (1 << 1)
-#define WIFI_SUPPORT_LEGACY (1 << 0)
-#endif
-
 /** Network wireless BSS Role */
 enum wlan_bss_role
 {
@@ -1133,7 +1126,6 @@ typedef struct _ncp_wlan_network
     uint16_t beacon_period;
     /** DTIM period of associated BSS */
     uint8_t dtim_period;
-    uint8_t wlan_capa;
 } NCP_WLAN_NETWORK;
 
 typedef struct _NCP_CMD_NETWORK_INFO
@@ -1294,15 +1286,6 @@ typedef struct _DTIM_ParamSet_t
 } DTIM_ParamSet_t;
 #endif
 
-#ifdef CONFIG_WIFI_CAPA
-/*NCP CAPA tlv*/
-typedef struct _CAPA_ParamSet_t
-{
-    TypeHeader_t header;
-    uint8_t capa;
-} CAPA_ParamSet_t;
-#endif
-
 typedef struct _NCP_CMD_NETWORK_ADD
 {
     char name[WLAN_NETWORK_NAME_MAX_LENGTH];
@@ -1317,7 +1300,6 @@ typedef struct _NCP_CMD_NETWORK_ADD
      * IP address TLV, IP_ParamSet_t
      * Security TLV, Security_ParamSet_t
      * DTIM period TLV, DTIM_ParamSet_t
-     * CAPA TLV, CAPA_ParamSet_t
      */
     uint8_t tlv_buf[1];
 } NCP_CMD_NETWORK_ADD;
@@ -1837,8 +1819,12 @@ typedef struct _NCP_CMD_RSSI
 #define NCP_RSP_DATE_TIME      (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000008)
 #define NCP_CMD_GET_TEMPERATUE (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x00000009) /* wlan-get-temp */
 #define NCP_RSP_GET_TEMPERATUE (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x00000009)
-#define NCP_CMD_INVALID_CMD    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x0000000a)
-#define NCP_RSP_INVALID_CMD    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x0000000a)
+#define NCP_CMD_SET_BANDCFG    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x0000000a) /* wlan-set-bandcfg */
+#define NCP_RSP_SET_BANDCFG    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x0000000a)
+#define NCP_CMD_GET_BANDCFG    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x0000000b) /* wlan-get-bandcfg */
+#define NCP_RSP_GET_BANDCFG    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x0000000b)
+#define NCP_CMD_INVALID_CMD    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_CMD | 0x0000000c)
+#define NCP_RSP_INVALID_CMD    (NCP_CMD_WLAN | NCP_CMD_WLAN_OTHER | NCP_MSG_TYPE_RESP | 0x0000000c)
 
 
 /*WLAN Regulatory command*/
@@ -2292,6 +2278,17 @@ typedef struct _NCP_CMD_WLAN_CONN
     char ssid[IEEEtypes_SSID_SIZE + 1];
 } NCP_CMD_WLAN_CONN;
 
+typedef struct _NCP_CMD_BANDCFG
+{
+    /** band configuration value, \n
+     *  bit 0: enable 802.11N,\n
+     *  bit 1: enable 802.11AC, \n
+     *  bit 2: enable 802.11AX.
+     */
+    uint32_t config_bands;
+    uint32_t fw_bands;
+} NCP_CMD_BANDCFG;
+
 typedef struct _QUERY_PTR_CFG
 {
     /** Type of service, like '_http' */
@@ -2545,6 +2542,7 @@ typedef struct _NCPCmd_DS_COMMAND
 
         NCP_CMD_DATE_TIME_CFG date_time;
         NCP_CMD_TEMPERATURE temperature;
+        NCP_CMD_BANDCFG bandcfg;
 
         /** wlan connect*/
         NCP_CMD_WLAN_CONN wlan_connect;
@@ -3930,6 +3928,14 @@ int wlan_process_time_response(uint8_t *res);
 int wlan_get_temperature_command(int argc, char **argv);
 
 int wlan_process_get_temperature_response(uint8_t *res);
+
+int wlan_set_bandcfg_command(int argc, char **argv);
+
+int wlan_process_set_bandcfg_response(uint8_t *res);
+
+int wlan_get_bandcfg_command(int argc, char **argv);
+
+int wlan_process_get_bandcfg_response(uint8_t *res);
 
 /**
  * This function returns a list of discovered service on the local network.

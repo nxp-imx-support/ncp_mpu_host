@@ -486,6 +486,8 @@ void *recv_data(void *arg)
 
     total_time_ms = (iperf_timer_end.tv_sec - iperf_timer_start.tv_sec) * 1000 +
                     (iperf_timer_end.tv_usec - iperf_timer_start.tv_usec) / 1000;
+    if (total_time_ms == 0)
+        total_time_ms = 1;
     rate = ((long long)recv_len_sum * 1000) / total_time_ms;
     rate = rate * 8 / 1024;
 
