@@ -104,7 +104,12 @@ static int system_ncp_handle_cmd_input(uint8_t *cmd)
 
 		last_resp_rcvd = ((NCP_COMMAND *)cmd)->cmd;
 		last_seqno_rcvd = ((NCP_COMMAND *)cmd)->seqnum;
+
+#if CONFIG_NCP_SDIO_TEST_LOOPBACK
+		if (last_resp_rcvd == last_cmd_sent)
+#else
 		if (last_resp_rcvd == (last_cmd_sent | NCP_MSG_TYPE_RESP))
+#endif
 		{
 			sem_post(&cmd_sem);
 #ifdef CONFIG_MPU_IO_DUMP

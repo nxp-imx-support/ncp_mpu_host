@@ -47,4 +47,6 @@ typedef enum _ncp_status
     NCP_STATUS_SUCCESS    = 0,
 } ncp_status_t;
 
+void dump_hex(const void *data, unsigned len);
+
 #endif /* _NCP_COMMON_H_ */

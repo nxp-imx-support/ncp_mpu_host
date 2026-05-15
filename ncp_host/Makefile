@@ -25,6 +25,7 @@ interface ?= UART
 DEBUG ?= 1
 NCP_DEBUG ?= 0
 NCP_ENCRYPT ?= 1
+SDIO_TEST_LOOPBACK ?= 0
 
 # ==================== Build Output Control ====================
 # Better output formatting for parallel builds
@@ -82,6 +83,7 @@ CFLAGS += -DCONFIG_NCP_$(func)=1
 CFLAGS += -DCONFIG_NCP_$(interface)
 CFLAGS += -DCONFIG_NCP_DEBUG=$(NCP_DEBUG)
 CFLAGS += -DCONFIG_NCP_USE_ENCRYPT=$(NCP_ENCRYPT)
+CFLAGS += -DCONFIG_NCP_SDIO_TEST_LOOPBACK=$(SDIO_TEST_LOOPBACK)
 
 # Add feature flags
 $(foreach feature,$(FEATURES),$(eval CFLAGS += -DCONFIG_NCP_$(feature)))
@@ -208,6 +210,7 @@ help:
 	@echo "  DEBUG=<0|1>          - Enable debug mode (default: 0)"
 	@echo "  NCP_DEBUG=<0|1>      - Enable NCP debug logs (default: 0)"
 	@echo "  NCP_ENCRYPT=<0|1>    - Enable NCP encryption (default: 1)"
+	@echo "  SDIO_TEST_LOOPBACK=<0|1> - Enable SDIO test loopback mode (default: 0)"
 	@echo ""
 	@echo "BLE Profile Options (when func includes BLE):"
 	@echo "  HTS=y     - Enable HTS profile"

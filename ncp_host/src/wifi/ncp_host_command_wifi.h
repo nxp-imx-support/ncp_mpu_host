@@ -2235,6 +2235,14 @@ typedef struct _NCP_CMD_RF_TX_FRAME
     uint32_t gf_mode;
     uint32_t stbc;
     uint8_t bssid[NCP_WLAN_MAC_ADDR_LENGTH];
+    uint32_t signal_bw;
+    uint32_t NumPkt;
+    uint32_t MaxPE;
+    uint32_t BeamChange;
+    uint32_t Dcm;
+    uint32_t Doppler;
+    uint32_t MidP;
+    uint32_t QNum;
 } NCP_CMD_RF_TX_FRAME;
 
 typedef struct _NCP_CMD_RF_PER
@@ -2285,8 +2293,8 @@ typedef struct _NCP_CMD_BANDCFG
      *  bit 1: enable 802.11AC, \n
      *  bit 2: enable 802.11AX.
      */
-    uint32_t config_bands;
-    uint32_t fw_bands;
+    uint16_t config_bands;
+    uint16_t fw_bands;
 } NCP_CMD_BANDCFG;
 
 typedef struct _QUERY_PTR_CFG

@@ -25,6 +25,7 @@
 #include <sys/ioctl.h>
 #include "ncp_pm.h"
 #include "ncp_log.h"
+#include "ncp_common.h"
 
 NCP_LOG_MODULE_DECLARE(ncp_wifi);
 
@@ -75,30 +76,6 @@ enum wps_session_types
 NCPCmd_DS_COMMAND *mpu_host_get_wifi_command_buffer()
 {
     return (NCPCmd_DS_COMMAND *)(cmd_buf);
-}
-
-/** Dump buffer in hex format on console
- *
- * This function prints the received buffer in HEX format on the console
- *
- * \param[in] data Pointer to the data buffer
- * \param[in] len Length of the data
- */
-#define DUMP_WRAPAROUND 16
-void dump_hex(const void *data, unsigned len)
-{
-    (void)printf("**** Dump @ %p Len: %d ****\n\r", data, len);
-
-    unsigned int i;
-    const char *data8 = (const char *)data;
-    for (i = 0; i < len;)
-    {
-        (void)printf("%02x ", data8[i++]);
-        if (!(i % DUMP_WRAPAROUND))
-            (void)printf("\n\r");
-    }
-
-    (void)printf("\n\r******** End Dump *******\n\r");
 }
 
 /**
@@ -7489,6 +7466,14 @@ int wlan_ncp_set_rf_tx_frame_command(int argc, char **argv)
     uint32_t gf_mode;
     uint32_t stbc;
     uint8_t bssid[NCP_WLAN_MAC_ADDR_LENGTH];
+    uint32_t signal_bw = (uint32_t)-1;
+    uint32_t NumPkt    = (uint32_t)-1;
+    uint32_t MaxPE     = (uint32_t)-1;
+    uint32_t BeamChange= (uint32_t)-1;
+    uint32_t Dcm       = (uint32_t)-1;
+    uint32_t Doppler   = (uint32_t)-1;
+    uint32_t MidP      = (uint32_t)-1;
+    uint32_t QNum      = (uint32_t)-1;
 
     if (!ncp_rf_test_mode)
     {
@@ -7513,7 +7498,7 @@ int wlan_ncp_set_rf_tx_frame_command(int argc, char **argv)
         stbc              = 0;
         (void)memset(bssid, 0, sizeof(bssid));
     }
-    else if (argc != 15)
+    else if (argc != 16 && argc != 23)
     {
         dump_wlan_set_tx_frame_usage();
         return FALSE;
@@ -7539,12 +7524,47 @@ int wlan_ncp_set_rf_tx_frame_command(int argc, char **argv)
             dump_wlan_set_tx_frame_usage();
             return FALSE;
         }
+        signal_bw  = strtol(argv[15], NULL, 10);
+        if (signal_bw != (uint32_t)-1 &&
+            signal_bw != 0U &&
+            signal_bw != 1U &&
+            signal_bw != 4U)
+        {
+            (void)printf("Invalid Signal BW\r\n");
+            dump_wlan_set_tx_frame_usage();
+            return FALSE;
+        }
 
         if (enable > 1 || frame_length < 1 || frame_length > 0x400 || burst_sifs_in_us > 255 || short_preamble > 1 ||
             act_sub_ch == 2 || act_sub_ch > 3 || short_gi > 1 || adv_coding > 1 || tx_bf > 1 || gf_mode > 1 || stbc > 1)
         {
             dump_wlan_set_tx_frame_usage();
             return FALSE;
+        }
+
+        /* Parse 11ax optional parameters if provided */
+        if (argc == 23)
+        {
+            NumPkt     = strtol(argv[16], NULL, 0);
+            MaxPE      = strtol(argv[17], NULL, 10);
+            BeamChange = strtol(argv[18], NULL, 10);
+            Dcm        = strtol(argv[19], NULL, 10);
+            Doppler    = strtol(argv[20], NULL, 10);
+            MidP       = strtol(argv[21], NULL, 10);
+            QNum       = strtol(argv[22], NULL, 10);
+
+            /* 11ax parameter validation */
+            if ((Dcm != (uint32_t)-1 && Dcm != 0U && Dcm != 1U) ||
+                (Doppler != (uint32_t)-1 && Doppler != 0U && Doppler != 1U) ||
+                (MidP != (uint32_t)-1 && MidP != 10U && MidP != 20U) ||
+                (MaxPE != (uint32_t)-1 && MaxPE != 0U && MaxPE != 8U && MaxPE != 16U) ||
+                (BeamChange != (uint32_t)-1 && BeamChange != 0U && BeamChange != 1U) ||
+                (QNum != (uint32_t)-1 && ((QNum > 12U && QNum < 17U) || QNum > 20U)))
+            {
+                (void)printf("Invalid 11ax arguments\r\n");
+                dump_wlan_set_tx_frame_usage();
+                return FALSE;
+            }
         }
     }
 
@@ -7568,6 +7588,15 @@ int wlan_ncp_set_rf_tx_frame_command(int argc, char **argv)
     rf_tx_frame->gf_mode             = gf_mode;
     rf_tx_frame->stbc                = stbc;
     memcpy(rf_tx_frame->bssid, bssid, sizeof(bssid));
+    rf_tx_frame->signal_bw           = signal_bw;
+    /* Set 11ax parameters */
+    rf_tx_frame->NumPkt              = NumPkt;
+    rf_tx_frame->MaxPE               = MaxPE;
+    rf_tx_frame->BeamChange          = BeamChange;
+    rf_tx_frame->Dcm                 = Dcm;
+    rf_tx_frame->Doppler             = Doppler;
+    rf_tx_frame->MidP                = MidP;
+    rf_tx_frame->QNum                = QNum;
     set_rf_tx_frame_command->header.size += sizeof(NCP_CMD_RF_TX_FRAME);
 
     return TRUE;
@@ -8410,23 +8439,44 @@ int wlan_process_network_remove_response(uint8_t *res)
     return WM_SUCCESS;
 }
 
+#define WLAN_NCP_BANDCFG_11N (((uint32_t)1) << 0)
+#define WLAN_NCP_BANDCFG_11AC (((uint32_t)1) << 1)
+#define WLAN_NCP_BANDCFG_11AX (((uint32_t)1) << 2)
+
+static void dump_wlan_set_bandcfg_usage(void)
+{
+    (void)printf(
+        "Usage:\r\n"
+        "    wlan-set-bandcfg <value>\r\n"
+        "        value -- 0x0: legacy\r\n"
+        "                 0x1: 11N\r\n"
+        "                 0x3: 11N + 11AC\r\n"
+        "                 0x5: 11N + 11AX\r\n"
+        "                 0x7: 11N + 11AC + 11AX\r\n"
+    );
+}
+
 int wlan_set_bandcfg_command(int argc, char **argv)
 {
     NCPCmd_DS_COMMAND *bandcfg_command = mpu_host_get_wifi_command_buffer();
-    uint32_t value = 0;
+    uint16_t value = 0;
 
     if (argc != 2)
     {
-        (void)printf("Usage: %s <bitmap>\r\n", argv[0]);
-        (void)printf("    Bits in Band:\r\n");
-        (void)printf("    bit 0: 11N\r\n");
-        (void)printf("    bit 1: 11AC\r\n");
-        (void)printf("    bit 2: 11AX\r\n");
+        (void)printf("Error! Invalid number of arguments.\r\n");
+        dump_wlan_set_bandcfg_usage();
         return -WM_FAIL;
     }
 
     (void)memset((uint8_t *)bandcfg_command, 0, NCP_COMMAND_LEN);
-    value = a2hex_or_atoi(argv[1]);
+    value = (uint16_t)a2hex_or_atoi(argv[1]);
+    if (value != 0 && !(value & WLAN_NCP_BANDCFG_11N))
+    {
+        (void)printf("Error: invalid parameter <value>\r\n");
+        dump_wlan_set_bandcfg_usage();
+        return -WM_FAIL;
+    }
+
     bandcfg_command->header.cmd      = NCP_CMD_SET_BANDCFG;
     bandcfg_command->header.size     = NCP_CMD_HEADER_LEN;
     bandcfg_command->header.result   = NCP_CMD_RESULT_OK;

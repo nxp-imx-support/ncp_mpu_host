@@ -688,6 +688,15 @@ static void iperf_tx_task(void *arg)
                 server_addr.sin_port		= htons(NCP_IPERF_TCP_SERVER_PORT_DEFAULT);
                 server_addr.sin_addr.s_addr = dest_addr.s_addr;
                 client_sockfd = ncp_socket(PF_INET, (SOCK_STREAM | SOCK_CLOEXEC), IPPROTO_TCP);
+                if (client_sockfd < 0)
+                {
+                    NCP_LOG_ERR("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+                    continue;
+                }
+                else
+                {
+                    NCP_LOG_DBG("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
+                }
                 if (ncp_connect(client_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
                 {
                     NCP_LOG_ERR("connect to server failed!");
@@ -860,6 +869,15 @@ static void iperf_rx_task(void *arg)
                 server_addr.sin_port		= htons(NCP_IPERF_TCP_SERVER_PORT_DEFAULT);
                 server_addr.sin_addr.s_addr = dest_addr.s_addr;
                 client_sockfd = ncp_socket(PF_INET, (SOCK_STREAM | SOCK_CLOEXEC), IPPROTO_TCP);
+                if (client_sockfd < 0)
+                {
+                    NCP_LOG_ERR("socket creation failed! -- errno=%d => '%s'", errno, strerror(errno));
+                    continue;
+                }
+                else
+                {
+                    NCP_LOG_DBG("\t[OK] socket Created: client_sockfd=%d", client_sockfd);
+                }
                 if (ncp_connect(client_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
                 {
                     NCP_LOG_ERR("connect to server failed!");

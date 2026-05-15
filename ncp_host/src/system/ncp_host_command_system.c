@@ -17,6 +17,7 @@
 #include "mbedtls_host.h"
 #endif
 #include "ncp_log.h"
+#include "ncp_common.h"
 
 NCP_LOG_MODULE_DECLARE(ncp_system);
 
@@ -84,7 +85,7 @@ int ncp_process_test_loopback_response(uint8_t *res)
     }
 
     (void)printf("Response test-loopback cmd size=0x%x:\r\n", cmd_res->header.size);
-
+    dump_hex(cmd_res, cmd_res->header.size);
     return NCP_SUCCESS;
 }
 
@@ -429,7 +430,7 @@ int system_process_response(uint8_t *res)
         case NCP_RSP_SYSTEM_CONFIG_GET:
             ret = ncp_process_get_cfg_response(res);
             break;
-        case NCP_RSP_SYSTEM_TEST_LOOPBACK:
+        case NCP_CMD_SYSTEM_TEST_LOOPBACK:
             ret = ncp_process_test_loopback_response(res);
             break;
         case NCP_RSP_SYSTEM_POWERMGMT_MCU_SLEEP:
