@@ -2,20 +2,20 @@
   "SPDXID": "SPDXRef-DOCUMENT",
   "spdxVersion": "SPDX-2.3",
   "creationInfo": {
-    "created": "2026-02-10T10:02:13Z",
+    "created": "2025-09-19T02:44:31Z",
     "creators": [
       "Organization: NXP"
     ],
-    "licenseListVersion": "3.26"
+    "licenseListVersion": "3.20"
   },
-  "name": "ncp_mpu_host-v1.r1.p16",
+  "name": "ncp_mpu_host-v1.r1.p11",
   "dataLicense": "CC0-1.0",
-  "documentNamespace": "https://nxp.com/spdx/41d61458-83bb-4616-b4be-670f5ea75242",
+  "documentNamespace": "https://nxp.com/spdx/397c7037-fc40-473a-a1c1-a44b86ed92cf",
   "packages": [
     {
-      "SPDXID": "SPDXRef-package-41d61458-83bb-4616-b4be-670f5ea75242",
+      "SPDXID": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "name": "ncp_mpu_host",
-      "versionInfo": "v1.r1.p16",
+      "versionInfo": "v1.r1.p11",
       "licenseConcluded": "(BSD-3-Clause)",
       "licenseDeclared": "(BSD-3-Clause)",
       "downloadLocation": "NOASSERTION",
@@ -37,7 +37,7 @@
       "externalRefs": [
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:es:iperf3:3.19.1:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:iperf_project:iperf:3.19.1:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
@@ -47,7 +47,7 @@
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:iperf_project:iperf:3.19.1:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:es:iperf3:3.19.1:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -67,11 +67,11 @@
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-fea2dbed-9f9b-4b25-92a4-808a7bec9a49",
+      "SPDXID": "SPDXRef-package-bd6ba105-69f6-4839-b234-61efd820f3e3",
       "name": "mbed TLS",
-      "versionInfo": "v3.6.4",
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
+      "versionInfo": "v2.28.10",
+      "licenseConcluded": "(Apache-2.0 OR GPL-2.0-or-later)",
+      "licenseDeclared": "(Apache-2.0 OR GPL-2.0-or-later)",
       "homepage": "https://www.trustedfirmware.org/",
       "downloadLocation": "NOASSERTION",
       "originator": "Organization: mbed TLS",
@@ -79,17 +79,17 @@
       "externalRefs": [
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:arm:mbed_tls:3.6.4:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:mbed:mbedtls:2.28.10:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:mbed:mbedtls:3.6.4:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:arm:mbed_tls:2.28.10:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:o:arm:mbed_tls:3.6.4:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:o:arm:mbed_tls:2.28.10:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -99,8 +99,8 @@
       "SPDXID": "SPDXRef-package-2f3dbaea-7c5a-4589-b9ed-c7956629f571",
       "name": "openthread",
       "versionInfo": "0.1",
-      "licenseConcluded": "(Apache-2.0 AND BSD-3-Clause)",
-      "licenseDeclared": "(Apache-2.0 AND BSD-3-Clause)",
+      "licenseConcluded": "(BSD-3-Clause AND Apache-2.0)",
+      "licenseDeclared": "(BSD-3-Clause AND Apache-2.0)",
       "homepage": "https://github.com/openthread/openthread",
       "downloadLocation": "NOASSERTION",
       "originator": "Organization: openthread",
@@ -121,7 +121,7 @@
       "externalRefs": [
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:o:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
@@ -131,7 +131,7 @@
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:o:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -142,32 +142,32 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-package-41d61458-83bb-4616-b4be-670f5ea75242"
+      "relatedSpdxElement": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf"
     },
     {
-      "spdxElementId": "SPDXRef-package-41d61458-83bb-4616-b4be-670f5ea75242",
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-2f3dbaea-7c5a-4589-b9ed-c7956629f571"
     },
     {
-      "spdxElementId": "SPDXRef-package-41d61458-83bb-4616-b4be-670f5ea75242",
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-package-bd6ba105-69f6-4839-b234-61efd820f3e3"
+    },
+    {
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-87476701-cd7b-494c-a778-27bd8fecc90f"
     },
     {
-      "spdxElementId": "SPDXRef-package-41d61458-83bb-4616-b4be-670f5ea75242",
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-99490dd7-f4da-4cb8-9c61-7770c570f492"
     },
     {
-      "spdxElementId": "SPDXRef-package-41d61458-83bb-4616-b4be-670f5ea75242",
+      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
       "relationshipType": "CONTAINS",
       "relatedSpdxElement": "SPDXRef-package-cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a"
-    },
-    {
-      "spdxElementId": "SPDXRef-package-41d61458-83bb-4616-b4be-670f5ea75242",
-      "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-fea2dbed-9f9b-4b25-92a4-808a7bec9a49"
     }
   ]
 }

@@ -88,14 +88,17 @@ int ncp_process_test_loopback_response(uint8_t *res)
     return NCP_SUCCESS;
 }
 
-void ncp_dev_reset_block(uint8_t *res)
+int ncp_dev_reset_block(uint8_t *res)
 {
     SYSTEM_NCPCmd_DS_COMMAND *ncp_dev_reset_command = (SYSTEM_NCPCmd_DS_COMMAND *)res;
 
     if (ncp_dev_reset_command->header.cmd == NCP_CMD_SYSTEM_CONFIG_DEVICE_RESET)
     {
         sem_wait(&ncp_dev_reset_semaphore);
+        return NCP_SUCCESS;
     }
+
+    return -NCP_FAIL;
 }
 
 int ncp_dev_reset_command(int argc, char **argv)

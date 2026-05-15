@@ -135,6 +135,9 @@ int ncp_tlv_adapter_encrypt_deinit(void)
         return NCP_STATUS_ERROR;
     }
 
+    psa_destroy_key(adapter->crypt->key_enc_id);
+    psa_destroy_key(adapter->crypt->key_dec_id);
+
     (void) memset(adapter->crypt, 0, sizeof(crypt_param_t));
     (void) free(adapter->crypt);
     adapter->crypt = NULL;
@@ -343,6 +346,23 @@ static void ncp_tlv_free_data_elmt(ncp_tlv_data_qelem_t **qbuf)
     *qbuf = NULL;
 }
 
+static void ncp_tlv_tx_ctrl_queue_flush(void)
+{
+    ncp_tlv_ctrl_qelem_t *msg = NULL;
+
+    while (OSA_MsgQGet(ncp_tlv_ctrl_msgq_handle, &msg, osaWaitNone_c) == KOSA_StatusSuccess)
+    {
+        if (msg)
+        {
+            NCP_LOG_DBG("%s: flush control message: qelem=%p, size=%lu, event=0x%08x, seqnum=%u",
+                        __FUNCTION__, msg, msg->ctrl_sz, msg->event, msg->seqnum);
+            OSA_MemoryFree(msg);
+        }
+    }
+
+    OSA_EventClear((osa_event_handle_t)ncp_tx_event_handle, NCP_TX_EVENT_CTRL_PRE | NCP_TX_EVENT_CTRL_POST);
+}
+
 /**
  * @brief Dequeue and send all TLV data messages
  */
@@ -373,7 +393,15 @@ static void ncp_tlv_tx_data_dequeue(void)
 
         if (ncp_dev_reset_cb)
         {
-            ncp_dev_reset_cb(msg->tlv_buf);
+            if (ncp_dev_reset_cb(msg->tlv_buf) == NCP_STATUS_SUCCESS)
+            {
+                NCP_LOG_DBG("Resetting power state machine");
+                if (ncp_tlv_adapter.pm_ops->reset() == NCP_STATUS_SUCCESS)
+                {
+                    NCP_LOG_DBG("Power state machine reset complete");
+                    ncp_tlv_tx_ctrl_queue_flush();
+                }
+            }
             if (ncp_tlv_adapter_is_encrypt_mode())
             {
                 ncp_tlv_adapter_encrypt_deinit();
