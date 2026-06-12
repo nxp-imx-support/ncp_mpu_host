@@ -105,7 +105,16 @@
 /** Port for registers */
 #define REG_PORT 0
 /** Port for memory */
+#define MAX_MP_REGS 196
 #define MEM_PORT 0x10000
+
+/* SDIO transfer mode definitions */
+#define SDIO_BYTE_MODE          1
+#define SDIO_BLOCK_MODE         0
+
+/* SDIO port parameter masks */
+#define SDIO_IO_PORT_MASK       0xfffff         /* Extract IO port address (bit 0-19) */
+#define SDIO_BYTE_MODE_FLAG     0x80000000      /* Byte mode flag (bit 31) */
 /** Card Control Registers : cmd53 new mode */
 #define CMD53_NEW_MODE (0x1U << 0)
 /** Card Control Registers : cmd53 tx len format 1 (0x10) */

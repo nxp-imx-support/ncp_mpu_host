@@ -29,8 +29,7 @@ NCP_LOG_MODULE_REGISTER(ncp_sdio, CONFIG_LOG_NCP_INTF_LEVEL);
 #define NCP_SDIO_RX_STACK_SIZE    2048
 #define NCP_SDIO_RX_PRIORITY      OSA_PRIORITY_NORMAL
 
-#define NCP_SDIO_GPIO_CHIP_NUM           4    /* /dev/gpiochip4 */
-#define NCP_SDIO_GPIO_DEVICE_NOTIFY_PIN  8    /* Input - Device notification */
+#define NCP_SDIO_GPIO_DEVICE_NOTIFY_PIN  23    /* Input - Device notification */
 
 #if CONFIG_NCP_DEBUG
 #define NCP_SDIO_STATS_INC(x) NCP_STATS_INC(sdio.x)
@@ -61,7 +60,7 @@ OSA_TASK_DEFINE(ncp_sdio_rx_task, NCP_SDIO_RX_PRIORITY, 1, NCP_SDIO_RX_STACK_SIZ
 gpio_handle_t sdio_gpio_handle;
 int sdio_gpio_event_id = -1;
 static const ncp_gpio_config_t sdio_gpio_cfg = {
-    .chip_num = NCP_SDIO_GPIO_CHIP_NUM,
+    .chip_num = NCP_GPIO_CHIP_NUM,
     .pin_num = NCP_SDIO_GPIO_DEVICE_NOTIFY_PIN,
     .direction = GPIO_DIR_INPUT,
     .pull = GPIO_PULL_UP,

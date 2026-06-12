@@ -583,31 +583,67 @@ exit:
 }
 
 /**
- *  @brief This function reads multiple bytes from card memory
+ *  @brief This function reads multiple bytes from card memory or register space
  *
- *  @param card     A Pointer to the mcu_sdio_mmc_card structure
- *  @param buf      Pointer to buffer structure
- *  @param len      Received data length
- *  @param port     Port
+ *  This function handles both block mode and byte mode transfers:
+ *  - Block mode: For reading data packets (CMD/EVENT/DATA), uses block-aligned transfers
+ *  - Byte mode: For reading register space, uses exact byte count transfers
  *
- *  @return         0 on success
+ *  Transfer mode detection:
+ *  - If port parameter has SDIO_BYTE_MODE_FLAG (0x80000000) set -> Byte mode
+ *  - Otherwise -> Block mode
+ *
+ *  Block mode operation:
+ *  - Block size (blksz) = func->cur_blksize
+ *  - Block count (blkcnt) = ALIGN(len, blksz) / blksz (rounds up to block boundary)
+ *  - Transfer size = blkcnt * blksz
+ *
+ *  Byte mode operation:
+ *  - Block size (blksz) = 1
+ *  - Block count (blkcnt) = len (exact byte count)
+ *  - Transfer size = len (no alignment needed)
+ *
+ *  Error handling:
+ *  - Retries up to MAX_WRITE_IOMEM_RETRY times on CMD53 failure
+ *  - Issues SDIO abort command (CMD52) through F0 on error
+ *  - Terminates CMD53 transaction via HOST_TERM_CMD53
+ *
+ *  @param card     Pointer to the mcu_sdio_mmc_card structure
+ *  @param buf      Pointer to buffer for storing read data
+ *  @param len      Requested data length in bytes
+ *  @param port     Port address with optional SDIO_BYTE_MODE_FLAG (bit 31)
+ *
+ *  @return         0 on success, negative error code on failure
  */
 static int mcu_sdio_read_data_sync(struct mcu_sdio_mmc_card *card,
 					u8 *buf, u32 len, u32 port)
 {
 	struct sdio_func *func = card->func;
-	u32 aligned_size = ALIGN(len, func->cur_blksize);
+	/* Determine transfer mode from port parameter */
+	u8 blkmode = (port & SDIO_BYTE_MODE_FLAG) ? SDIO_BYTE_MODE : SDIO_BLOCK_MODE;
+	u32 blksz = (blkmode == SDIO_BLOCK_MODE) ? func->cur_blksize : 1;
+	/* In block mode, use ALIGN to round up to block size boundary */
+	u32 blkcnt = (blkmode == SDIO_BLOCK_MODE) ?
+		     (ALIGN(len, func->cur_blksize) / func->cur_blksize) :
+		     len;
+	u32 ioport = (port & SDIO_IO_PORT_MASK);
+	u32 transfer_size = blkcnt * blksz;
 	u32 retry = 0;
 	int ret;
 
-	if (len)
+	PRINTM_DEBUG("%s: port=0x%x len=%u mode=%s blksz=%u blkcnt=%u xfer_size=%u\n",
+		__FUNCTION__, port, len,
+		blkmode == SDIO_BYTE_MODE ? "BYTE" : "BLOCK",
+		blksz, blkcnt, transfer_size);
+
+	if (len && transfer_size)
 	{
 		do
 		{
 			sdio_claim_host(func);
 
-			PRINTM_DEBUG("%s: port=0x%x buf=%p len=%u cur_blksize=%u aligned_size=%u\n", __FUNCTION__, port, buf, len, func->cur_blksize, aligned_size);
-			ret = sdio_readsb(func, buf, port, aligned_size);
+			PRINTM_DEBUG("%s: Reading from ioport=0x%x size=%u\n", __FUNCTION__, ioport, transfer_size);
+			ret = sdio_readsb(func, buf, ioport, transfer_size);
 			if (ret) {
 				retry++;
 				PRINT_ERR("cmd53 read error=%d retry interate=%d \n", ret, retry);
@@ -620,6 +656,7 @@ static int mcu_sdio_read_data_sync(struct mcu_sdio_mmc_card *card,
 					sdio_release_host(func);
 					goto exit;
 				}
+
 			}
 
 			sdio_release_host(func);
@@ -633,6 +670,7 @@ static int mcu_sdio_read_data_sync(struct mcu_sdio_mmc_card *card,
 exit:
 	return ret;
 }
+
 
 /**
  *  @brief This function disables the host interrupts.
@@ -777,12 +815,8 @@ static void mcu_sdio_rx_function(struct work_struct *work)
 
 		PRINTM_DEBUG("%s: UPLD_CMD---\n", __FUNCTION__);
 
-		ret = mcu_sdio_read_reg(card, card->regs->cmd_rd_len_0, &reg[0]);
-		ret |= mcu_sdio_read_reg(card, card->regs->cmd_rd_len_1, &reg[1]);
-		if (ret) {
-			PRINT_ERR("%s: UPLD_CMD: mcu_sdio_read_reg ret=0x%x\n", __FUNCTION__, ret);
-			goto done_UPLD_CMD;
-		}
+		reg[0] = card->mp_regs[card->regs->cmd_rd_len_0];
+		reg[1] = card->mp_regs[card->regs->cmd_rd_len_1];
 
 		rx_len = ((u32)reg[0]);
 		rx_len |= ((u32)reg[1]) << 8;
@@ -835,14 +869,10 @@ done_UPLD_CMD:
 
 	if (ireg & DN_LD_HOST_INT_STATUS) {
 		PRINTM_DEBUG("%s: DNLD_DATA DONE---\n", __FUNCTION__);
-		ret = mcu_sdio_read_reg(card, card->regs->wr_bitmap_l, &reg[0]);
-		ret |= mcu_sdio_read_reg(card, card->regs->wr_bitmap_u, &reg[1]);
-		ret |= mcu_sdio_read_reg(card, card->regs->wr_bitmap_1l, &reg[2]);
-		ret |= mcu_sdio_read_reg(card, card->regs->wr_bitmap_1u, &reg[3]);
-		if (ret) {
-			PRINT_ERR("%s: DNLD_DATA DONE: mcu_sdio_read_reg ret=0x%x\n", __FUNCTION__, ret);
-			goto done;
-		}
+		reg[0] = card->mp_regs[card->regs->wr_bitmap_l];
+		reg[1] = card->mp_regs[card->regs->wr_bitmap_u];
+		reg[2] = card->mp_regs[card->regs->wr_bitmap_1l];
+		reg[3] = card->mp_regs[card->regs->wr_bitmap_1u];
 
 		card->mp_wr_bitmap = reg[0];
 		card->mp_wr_bitmap |= (reg[1] << 8);
@@ -875,16 +905,11 @@ done_UPLD_CMD:
 		}
 
 start_UPLD_DATA:
-		//PRINTM_DEBUG("%s: UPLD_DATA --- %u\n", __FUNCTION__, rx_data_poll_cnt);
 		PRINTM_DEBUG("*\n");
-		ret = mcu_sdio_read_reg(card, card->regs->rd_bitmap_l, &reg[0]);
-		ret |= mcu_sdio_read_reg(card, card->regs->rd_bitmap_u, &reg[1]);
-		ret |= mcu_sdio_read_reg(card, card->regs->rd_bitmap_1l, &reg[2]);
-		ret |= mcu_sdio_read_reg(card, card->regs->rd_bitmap_1u, &reg[3]);
-		if (ret) {
-			PRINT_ERR("%s: UPLD_DATA: mcu_sdio_read_reg rd_bitmap ret=0x%x\n", __FUNCTION__, ret);
-			goto done_UPLD_DATA2;
-		}
+		reg[0] = card->mp_regs[card->regs->rd_bitmap_l];
+		reg[1] = card->mp_regs[card->regs->rd_bitmap_u];
+		reg[2] = card->mp_regs[card->regs->rd_bitmap_1l];
+		reg[3] = card->mp_regs[card->regs->rd_bitmap_1u];
 
 		card->mp_rd_bitmap = reg[0];
 		card->mp_rd_bitmap |= (reg[1] << 8);
@@ -908,12 +933,8 @@ start_UPLD_DATA:
 
 			len_reg_l = rd_len_p0_l + (port << 1);
 			len_reg_u = rd_len_p0_u + (port << 1);
-			ret = mcu_sdio_read_reg(card, len_reg_l, &reg[0]);
-			ret |= mcu_sdio_read_reg(card, len_reg_u, &reg[1]);
-			if (ret) {
-				PRINT_ERR("%s: UPLD_DATA: mcu_sdio_read_reg en_reg ret=0x%x\n", __FUNCTION__, ret);
-				goto done_UPLD_DATA;
-			}
+			reg[0] = card->mp_regs[len_reg_l];
+			reg[1] = card->mp_regs[len_reg_u];
 
 			rx_len = (((u32) reg[1]) << 8);
 			rx_len |= (u32) reg[0];
@@ -966,7 +987,7 @@ done_UPLD_DATA:
 				}
 			}
 		}
-done_UPLD_DATA2:
+
 		if (rxdatapoll) {
 			PRINTM_DEBUG("%s: sdio_claim_irq\n", __FUNCTION__);
 			sdio_claim_host(func);
@@ -1000,12 +1021,31 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 		return;
 	}
 
-	ret = mcu_sdio_read_reg(card, card->regs->host_int_status_reg, &ireg);
+	/* Read register space using byte mode */
+	ret = mcu_sdio_read_data_sync(card, card->mp_regs, MAX_MP_REGS,
+				      REG_PORT | SDIO_BYTE_MODE_FLAG);
 	if (ret) {
-		PRINT_ERR("%s: ret=%d\n", __FUNCTION__, ret);
-		return;
-	}
+        PRINT_ERR("%s: CMD53 read failed: %d, cannot process interrupt (mp_regs invalid)\\n",
+                  __FUNCTION__, ret);
 
+        return;
+    } else {
+        /*
+         * Extract interrupt status register from buffer
+         * Register layout after CMD53 read from address 0:
+         *   mp_regs[0x00] = Register at address 0x00
+         *   mp_regs[0x01] = Register at address 0x01
+         *   ...
+         *   mp_regs[0x0C] = Register at address 0x0C (HOST_INT_STATUS_REG)
+         *   ...
+         *   mp_regs[0xC3] = Register at address 0xC3 (last register)
+         */
+        ireg = card->mp_regs[card->regs->host_int_status_reg];
+
+        PRINTM_DEBUG("%s: CMD53 read success, ireg=0x%x (from mp_regs[0x%02x]) "
+                    "(AUTO_RESET triggered)\\n",
+                    __FUNCTION__, ireg, card->regs->host_int_status_reg);
+    }
 	PRINTM_DEBUG("%s: read ireg=0x%x\n", __FUNCTION__, ireg);
 	if (!ireg) {
 		PRINTM_DEBUG("%s: ireg 0 return\n", __FUNCTION__);
@@ -1015,6 +1055,7 @@ static void mcu_sdio_interrupt(struct sdio_func *func)
 	spin_lock_irqsave(&card->int_lock, flags);
 	ireg_old = card->ireg;
 	card->ireg |= ireg;
+
 	PRINTM_DEBUG("%s: local ireg = 0x%x -> 0x%x\n", __FUNCTION__, ireg_old, card->ireg);
 	spin_unlock_irqrestore(&card->int_lock, flags);
 	if (card->misc_priv) {
@@ -1321,6 +1362,14 @@ int mcu_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 		return -ENOMEM;
 	}
 
+	/* Allocate mp_regs buffer for storing all registers (0x00-0xC3) */
+	card->mp_regs = kzalloc(MAX_MP_REGS, GFP_KERNEL);
+	if (!card->mp_regs) {
+		PRINT_ERR("Failed to allocate mp_regs buffer!\\n");
+		kfree(card);
+		return -ENOMEM;
+	}
+
 	card->tx_cmd_ring.qhead = 0;
 	card->tx_cmd_ring.qtail = 0;
 	spin_lock_init(&card->tx_cmd_ring.lock);
@@ -1455,6 +1504,12 @@ void mcu_sdio_remove(struct sdio_func *func)
 			sdio_disable_func(card->func);
 			sdio_release_host(card->func);
 			sdio_set_drvdata(card->func, NULL);
+			/* Free mp_regs buffer */
+			if (card->mp_regs) {
+				kfree(card->mp_regs);
+				card->mp_regs = NULL;
+			}
+
 			kfree(card);
 		}
 	}

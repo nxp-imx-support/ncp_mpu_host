@@ -12,7 +12,7 @@
 #define __NCP_INTF_SPI_MASTER_H__
 
 #define SPI_DEV_PATH           "/dev/spidev1.0"
-#define GPIO_DEV_PATH          "/dev/gpiochip4"
+#define GPIO_DEV_PATH          "/dev/gpiochip2"
 
 #define MAX_TRANSFER_COUNT     1024
 #define NCP_SPI_MASTER_CLOCK   25000000U

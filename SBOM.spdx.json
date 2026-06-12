@@ -2,20 +2,20 @@
   "SPDXID": "SPDXRef-DOCUMENT",
   "spdxVersion": "SPDX-2.3",
   "creationInfo": {
-    "created": "2025-09-19T02:44:31Z",
+    "created": "2026-06-12T02:28:12Z",
     "creators": [
       "Organization: NXP"
     ],
-    "licenseListVersion": "3.20"
+    "licenseListVersion": "3.28"
   },
-  "name": "ncp_mpu_host-v1.r1.p11",
+  "name": "ncp_mpu_host-v1.r1.p20",
   "dataLicense": "CC0-1.0",
-  "documentNamespace": "https://nxp.com/spdx/397c7037-fc40-473a-a1c1-a44b86ed92cf",
+  "documentNamespace": "https://nxp.com/spdx/ee93d585-c897-4022-be59-7e0081500cf9",
   "packages": [
     {
-      "SPDXID": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
       "name": "ncp_mpu_host",
-      "versionInfo": "v1.r1.p11",
+      "versionInfo": "v1.r1.p20",
       "licenseConcluded": "(BSD-3-Clause)",
       "licenseDeclared": "(BSD-3-Clause)",
       "downloadLocation": "NOASSERTION",
@@ -25,7 +25,7 @@
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-99490dd7-f4da-4cb8-9c61-7770c570f492",
+      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---99490dd7-f4da-4cb8-9c61-7770c570f492",
       "name": "iPerf3",
       "versionInfo": "3.19.1",
       "licenseConcluded": "BSD-3-Clause",
@@ -37,7 +37,7 @@
       "externalRefs": [
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:iperf_project:iperf:3.19.1:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:es:iperf3:3.19.1:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
@@ -47,14 +47,14 @@
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:es:iperf3:3.19.1:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:iperf_project:iperf:3.19.1:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-87476701-cd7b-494c-a778-27bd8fecc90f",
+      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---87476701-cd7b-494c-a778-27bd8fecc90f",
       "name": "lwIP",
       "versionInfo": "2.2.1",
       "licenseConcluded": "BSD-3-Clause",
@@ -67,9 +67,9 @@
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-bd6ba105-69f6-4839-b234-61efd820f3e3",
+      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---9fc3169d-de17-4fa5-a11e-6dbd7c9cc87c",
       "name": "mbed TLS",
-      "versionInfo": "v2.28.10",
+      "versionInfo": "3.6.6",
       "licenseConcluded": "(Apache-2.0 OR GPL-2.0-or-later)",
       "licenseDeclared": "(Apache-2.0 OR GPL-2.0-or-later)",
       "homepage": "https://www.trustedfirmware.org/",
@@ -79,28 +79,28 @@
       "externalRefs": [
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:mbed:mbedtls:2.28.10:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:arm:mbed_tls:3.6.6:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:arm:mbed_tls:2.28.10:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:mbed:mbedtls:3.6.6:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:o:arm:mbed_tls:2.28.10:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:o:arm:mbed_tls:3.6.6:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-2f3dbaea-7c5a-4589-b9ed-c7956629f571",
+      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---2f3dbaea-7c5a-4589-b9ed-c7956629f571",
       "name": "openthread",
       "versionInfo": "0.1",
-      "licenseConcluded": "(BSD-3-Clause AND Apache-2.0)",
-      "licenseDeclared": "(BSD-3-Clause AND Apache-2.0)",
+      "licenseConcluded": "(Apache-2.0 AND BSD-3-Clause)",
+      "licenseDeclared": "(Apache-2.0 AND BSD-3-Clause)",
       "homepage": "https://github.com/openthread/openthread",
       "downloadLocation": "NOASSERTION",
       "originator": "Organization: openthread",
@@ -109,7 +109,7 @@
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a",
+      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a",
       "name": "zephyr",
       "versionInfo": "v4.1.0",
       "licenseConcluded": "Apache-2.0",
@@ -121,7 +121,7 @@
       "externalRefs": [
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:o:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
@@ -131,7 +131,7 @@
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:o:zephyrproject:zephyr:4.1.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -142,32 +142,32 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf"
+      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9"
     },
     {
-      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-2f3dbaea-7c5a-4589-b9ed-c7956629f571"
+      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---2f3dbaea-7c5a-4589-b9ed-c7956629f571"
     },
     {
-      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-bd6ba105-69f6-4839-b234-61efd820f3e3"
+      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---87476701-cd7b-494c-a778-27bd8fecc90f"
     },
     {
-      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-87476701-cd7b-494c-a778-27bd8fecc90f"
+      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---99490dd7-f4da-4cb8-9c61-7770c570f492"
     },
     {
-      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-99490dd7-f4da-4cb8-9c61-7770c570f492"
+      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---9fc3169d-de17-4fa5-a11e-6dbd7c9cc87c"
     },
     {
-      "spdxElementId": "SPDXRef-package-397c7037-fc40-473a-a1c1-a44b86ed92cf",
+      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a"
+      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a"
     }
   ]
 }
