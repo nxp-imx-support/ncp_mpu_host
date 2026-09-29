@@ -2,20 +2,20 @@
   "SPDXID": "SPDXRef-DOCUMENT",
   "spdxVersion": "SPDX-2.3",
   "creationInfo": {
-    "created": "2026-06-12T02:28:12Z",
+    "created": "2026-09-22T07:33:48Z",
     "creators": [
       "Organization: NXP"
     ],
     "licenseListVersion": "3.28"
   },
-  "name": "ncp_mpu_host-v1.r1.p20",
+  "name": "ncp_mpu_host-v1.r1.p21",
   "dataLicense": "CC0-1.0",
-  "documentNamespace": "https://nxp.com/spdx/ee93d585-c897-4022-be59-7e0081500cf9",
+  "documentNamespace": "https://nxp.com/spdx/f56d6fd3-817b-4bf6-870b-d72e8d7297da",
   "packages": [
     {
-      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
+      "SPDXID": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da",
       "name": "ncp_mpu_host",
-      "versionInfo": "v1.r1.p20",
+      "versionInfo": "v1.r1.p21",
       "licenseConcluded": "(BSD-3-Clause)",
       "licenseDeclared": "(BSD-3-Clause)",
       "downloadLocation": "NOASSERTION",
@@ -25,7 +25,7 @@
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---99490dd7-f4da-4cb8-9c61-7770c570f492",
+      "SPDXID": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---99490dd7-f4da-4cb8-9c61-7770c570f492",
       "name": "iPerf3",
       "versionInfo": "3.19.1",
       "licenseConcluded": "BSD-3-Clause",
@@ -54,7 +54,7 @@
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---87476701-cd7b-494c-a778-27bd8fecc90f",
+      "SPDXID": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---87476701-cd7b-494c-a778-27bd8fecc90f",
       "name": "lwIP",
       "versionInfo": "2.2.1",
       "licenseConcluded": "BSD-3-Clause",
@@ -63,13 +63,24 @@
       "downloadLocation": "NOASSERTION",
       "originator": "Organization: lwIP",
       "supplier": "NOASSERTION",
-      "externalRefs": [],
+      "externalRefs": [
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:iwip_project:iwip:2.2.1:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:lwip_project:lwip:2.2.1:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---9fc3169d-de17-4fa5-a11e-6dbd7c9cc87c",
+      "SPDXID": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---f53ac695-5a1e-4ce4-a68b-a6b386ec0074",
       "name": "mbed TLS",
-      "versionInfo": "3.6.6",
+      "versionInfo": "v3.6.7",
       "licenseConcluded": "(Apache-2.0 OR GPL-2.0-or-later)",
       "licenseDeclared": "(Apache-2.0 OR GPL-2.0-or-later)",
       "homepage": "https://www.trustedfirmware.org/",
@@ -79,24 +90,24 @@
       "externalRefs": [
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:arm:mbed_tls:3.6.6:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:arm:mbed_tls:3.6.7:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:mbed:mbedtls:3.6.6:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:mbed:mbedtls:3.6.7:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:o:arm:mbed_tls:3.6.6:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:o:arm:mbed_tls:3.6.7:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---2f3dbaea-7c5a-4589-b9ed-c7956629f571",
+      "SPDXID": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---2f3dbaea-7c5a-4589-b9ed-c7956629f571",
       "name": "openthread",
       "versionInfo": "0.1",
       "licenseConcluded": "(Apache-2.0 AND BSD-3-Clause)",
@@ -109,14 +120,14 @@
       "filesAnalyzed": false
     },
     {
-      "SPDXID": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a",
-      "name": "zephyr",
+      "SPDXID": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a",
+      "name": "zephyrproject-rtos/zephyr",
       "versionInfo": "v4.1.0",
       "licenseConcluded": "Apache-2.0",
       "licenseDeclared": "Apache-2.0",
-      "homepage": "https://zephyrproject.org/doc",
+      "homepage": "https://github.com/zephyrproject-rtos",
       "downloadLocation": "NOASSERTION",
-      "originator": "Organization: zephyr",
+      "originator": "Organization: zephyrproject-rtos/zephyr",
       "supplier": "NOASSERTION",
       "externalRefs": [
         {
@@ -142,32 +153,32 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9"
+      "relatedSpdxElement": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da"
     },
     {
-      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
+      "spdxElementId": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---2f3dbaea-7c5a-4589-b9ed-c7956629f571"
+      "relatedSpdxElement": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---2f3dbaea-7c5a-4589-b9ed-c7956629f571"
     },
     {
-      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
+      "spdxElementId": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---87476701-cd7b-494c-a778-27bd8fecc90f"
+      "relatedSpdxElement": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---87476701-cd7b-494c-a778-27bd8fecc90f"
     },
     {
-      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
+      "spdxElementId": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---99490dd7-f4da-4cb8-9c61-7770c570f492"
+      "relatedSpdxElement": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---99490dd7-f4da-4cb8-9c61-7770c570f492"
     },
     {
-      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
+      "spdxElementId": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---9fc3169d-de17-4fa5-a11e-6dbd7c9cc87c"
+      "relatedSpdxElement": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a"
     },
     {
-      "spdxElementId": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9",
+      "spdxElementId": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da",
       "relationshipType": "CONTAINS",
-      "relatedSpdxElement": "SPDXRef-package-ee93d585-c897-4022-be59-7e0081500cf9---cc3ba0bf-7127-493b-8b1d-aa7e3685ae3a"
+      "relatedSpdxElement": "SPDXRef-package-f56d6fd3-817b-4bf6-870b-d72e8d7297da---f53ac695-5a1e-4ce4-a68b-a6b386ec0074"
     }
   ]
 }

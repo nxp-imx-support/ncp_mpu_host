@@ -32,8 +32,10 @@ NCP_LOG_MODULE_DECLARE(ncp_wifi);
 static uint8_t broadcast_mac[NCP_WLAN_MAC_ADDR_LENGTH] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 static int mdns_result_num;
 
+#if 0
 static bool socket_receive_res  = false;
 static bool socket_recvfrom_res = false;
+#endif
 
 int cli_optind   = 0;
 char *cli_optarg = NULL;
@@ -2209,6 +2211,7 @@ int wlan_process_response(uint8_t *res)
         case NCP_RSP_WLAN_WEBSOCKET_RECV:
             ret = wlan_process_wlan_websocket_recv_response(res);
             break;
+#if 0
         case NCP_RSP_WLAN_SOCKET_OPEN:
             ret = wlan_process_wlan_socket_open_response(res);
             break;
@@ -2243,6 +2246,7 @@ int wlan_process_response(uint8_t *res)
             ret                 = wlan_process_wlan_socket_recvfrom_response(res);
             iperf_msg.status[1] = ret;
             break;
+#endif
         case NCP_RSP_WLAN_NETWORK_MONITOR:
             ret = wlan_process_monitor_response(res);
             break;
@@ -3748,6 +3752,7 @@ int wlan_websocket_recv_command(int argc, char **argv)
     return TRUE;
 }
 
+#if 0
 /**
  * @brief      This function processes wlan socket open response from ncp device
  *
@@ -4509,6 +4514,7 @@ int wlan_socket_recvfrom_command(int argc, char **argv)
 
     return TRUE;
 }
+#endif
 
 /**
  * @brief      This function processes wlan add network response from ncp device
@@ -9173,6 +9179,7 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
     {"wlan-reset", NULL, wlan_reset_command},
     {"wlan-info", NULL, wlan_info_command},
     {"wlan-address", NULL, wlan_address_command},
+#if 0
     {"wlan-socket-open", NULL, wlan_socket_open_command},
     {"wlan-socket-connect", NULL, wlan_socket_con_command},
     {"wlan-socket-bind", NULL, wlan_socket_bind_command},
@@ -9183,6 +9190,7 @@ static struct mpu_host_cli_command mpu_host_app_cli_commands[] = {
     {"wlan-socket-sendto", NULL, wlan_socket_sendto_command},
     {"wlan-socket-receive", NULL, wlan_socket_receive_command},
     {"wlan-socket-recvfrom", NULL, wlan_socket_recvfrom_command},
+#endif
     {"wlan-ncp-inet-test", NULL, ncp_inet_test_command},
     {"wlan-http-connect", NULL, wlan_http_connect_command},
     {"wlan-http-disconnect", NULL, wlan_http_disconnect_command},

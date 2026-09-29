@@ -649,7 +649,7 @@ static int mcu_sdio_read_data_sync(struct mcu_sdio_mmc_card *card,
 				PRINT_ERR("cmd53 read error=%d retry interate=%d \n", ret, retry);
 				/* issue abort cmd52 command through F0*/
 				sdio_f0_writeb(func, 0x01, SDIO_CCCR_ABORT, NULL);
-				sdio_writeb(func, HOST_TO_CARD_EVENT_REG, HOST_TERM_CMD53, NULL);
+				sdio_writeb(func, HOST_TERM_CMD53, HOST_TO_CARD_EVENT_REG, NULL);
 
 				if (retry > MAX_WRITE_IOMEM_RETRY)
 				{
